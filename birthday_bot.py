@@ -1,9 +1,12 @@
 import datetime
+import os
 from telegram import Bot
+from dotenv import load_dotenv
 
-# Пропиши свой токен и ID чата прямо здесь:
-BOT_TOKEN = '7772125141:AAHqFYGm3I6MW516aCq3K0FFjK2EGKk0wtw'
-CHAT_ID = '-15573582' # Например, для группового чата — обязательно со знаком «-»
+# Загружаем переменные окружения
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 bot = Bot(token=BOT_TOKEN)
 

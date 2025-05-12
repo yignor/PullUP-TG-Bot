@@ -44,6 +44,8 @@ players = [
     {"name": "Шахманов Максим",  "birthday": "2006-08-17"},
     {"name": "Ясинко Денис",  "birthday": "1987-01-18"},
     {"name": "Хан Александр",  "birthday": "1994-08-24"},
+    {"name": "Проверка 1",  "birthday": "1991-05-13"},
+    {"name": "Проверка 2",  "birthday": "1994-05-14"},
 ]
 
 def get_years_word(age: int) -> str:

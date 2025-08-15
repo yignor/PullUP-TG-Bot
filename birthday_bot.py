@@ -222,80 +222,126 @@ async def parse_game_info(game_url):
         print(f"❌ Ошибка при парсинге информации о игре: {e}")
         return None
 
-async def parse_game_result(game_url):
-    """Парсит результат игры и факт завершения по странице статистики"""
+async def parse_game_info_simple(game_url):
+    """Простой парсинг информации об игре без использования браузера"""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(game_url) as response:
                 if response.status == 200:
                     html_content = await response.text()
-
-                    # Признак завершения игры по наличию блока с периодами
-                    is_finished = 'ng-if="protocol.periods.length > 0"' in html_content
-
                     soup = BeautifulSoup(html_content, 'html.parser')
-
-                    def get_div_text(class_name):
-                        elem = soup.find('div', class_=class_name)
-                        return elem.get_text(strip=True) if elem else None
-
-                    left_team = get_div_text('left')
-                    score_center = get_div_text('center')
-                    right_team = get_div_text('right')
-
+                    
+                    # Ищем время игры
+                    time_element = soup.find('div', class_='game-time') or soup.find('span', class_='time')
+                    game_time = time_element.get_text().strip() if time_element else None
+                    
+                    # Ищем команды
+                    team1_element = soup.find('div', class_='team1') or soup.find('div', class_='left')
+                    team2_element = soup.find('div', class_='team2') or soup.find('div', class_='right')
+                    
+                    team1 = team1_element.get_text().strip() if team1_element else "Команда 1"
+                    team2 = team2_element.get_text().strip() if team2_element else "Команда 2"
+                    
+                    # Ищем счет
+                    score_element = soup.find('div', class_='score') or soup.find('div', class_='center')
+                    score = score_element.get_text().strip() if score_element else None
+                    
                     return {
-                        'finished': is_finished,
-                        'left': left_team,
-                        'center': score_center,
-                        'right': right_team,
+                        'time': game_time,
+                        'team1': team1,
+                        'team2': team2,
+                        'score': score
                     }
-                else:
-                    print(f"⚠️ Ошибка при загрузке страницы статистики: {response.status}")
-                    return None
     except Exception as e:
-        print(f"❌ Ошибка при парсинге результата игры: {e}")
+        print(f"⚠️ Ошибка при простом парсинге игры: {e}")
         return None
 
 async def check_game_end(game_url):
     """Проверяет, нужно ли отправить уведомление о конце игры"""
     try:
-        result = await parse_game_result(game_url)
+        # Сначала пробуем простой парсинг без браузера
+        result = await parse_game_info_simple(game_url)
         if not result:
-            return
+            # Если простой парсинг не сработал, пробуем браузер
+            result = await render_game_result_with_browser(game_url)
+            if not result:
+                return
 
-        # Если статический парсинг не показал завершение, пробуем рендером браузера (динамический контент)
-        if not result.get('finished') or not (result.get('left') and result.get('center') and result.get('right')):
-            browser_result = await render_game_result_with_browser(game_url)
-            if browser_result:
-                result = browser_result
+        # Проверяем, есть ли счет в формате "NN:NN"
+        score = result.get('score') or result.get('center')
+        if score:
+            import re
+            if re.search(r"\d+\s*[:\-–]\s*\d+", score):
+                end_notification_id = f"game_end_{game_url}"
+                if end_notification_id not in sent_notifications:
+                    team1 = result.get('team1') or result.get('left') or 'Команда 1'
+                    team2 = result.get('team2') or result.get('right') or 'Команда 2'
 
-        if result.get('finished'):
-            end_notification_id = f"game_end_{game_url}"
-            if end_notification_id not in sent_notifications:
-                left = result.get('left') or 'Команда 1'
-                center = result.get('center') or '—'
-                right = result.get('right') or 'Команда 2'
-
-                message = (
-                    f"🏁 Игра закончилась. Финальный счет: {left} {center} {right}\n\n"
-                    f"Ссылка на статистику: {game_url}"
-                )
-                await bot.send_message(chat_id=CHAT_ID, text=message)
-                sent_notifications.add(end_notification_id)
-                print(f"✅ Отправлено уведомление о конце игры: {left} {center} {right}")
+                    message = (
+                        f"🏁 Игра закончилась!\n\n"
+                        f"🏀 {team1} vs {team2}\n"
+                        f"📊 Счет: {score}\n\n"
+                        f"Ссылка на статистику: {game_url}"
+                    )
+                    await bot.send_message(chat_id=CHAT_ID, text=message)
+                    sent_notifications.add(end_notification_id)
+                    print(f"✅ Отправлено уведомление о конце игры: {score}")
     except Exception as e:
         print(f"❌ Ошибка при проверке конца игры: {e}")
+
+async def check_game_end_simple(game_url):
+    """Проверяет конец игры без использования браузера"""
+    try:
+        game_info = await parse_game_info_simple(game_url)
+        if game_info and game_info.get('score'):
+            score = game_info['score']
+            # Проверяем, есть ли счет в формате "NN:NN"
+            import re
+            if re.search(r"\d+\s*[:\-–]\s*\d+", score):
+                # Создаем уникальный идентификатор для уведомления о конце
+                end_notification_id = f"end_{game_url}"
+                
+                if end_notification_id not in sent_notifications:
+                    message = (
+                        f"🏁 Игра закончилась!\n\n"
+                        f"🏀 {game_info.get('team1', 'Команда 1')} vs {game_info.get('team2', 'Команда 2')}\n"
+                        f"📊 Счет: {score}\n\n"
+                        f"Ссылка на статистику: {game_url}"
+                    )
+                    await bot.send_message(chat_id=CHAT_ID, text=message)
+                    sent_notifications.add(end_notification_id)
+                    print(f"✅ Отправлено уведомление о конце игры: {score}")
+    except Exception as e:
+        print(f"❌ Ошибка при проверке конца игры (простой метод): {e}")
 
 async def render_game_result_with_browser(game_url):
     """Рендерит страницу в безголовом браузере и вытаскивает итоговый счет и команды.
     Требует pyppeteer. Импортируем внутри функции, чтобы не тянуть зависимость всегда.
     """
+    browser = None
     try:
         import importlib
         pyppeteer = importlib.import_module('pyppeteer')
         launch = getattr(pyppeteer, 'launch')
-        browser = await launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"]) 
+        
+        # Настройки для работы в контейнере Railway
+        browser = await launch(
+            headless=True, 
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-zygote",
+                "--single-process",
+                "--disable-extensions"
+            ]
+        )
+        
         page = await browser.newPage()
+        
+        # Устанавливаем таймаут и ждем загрузки
         await page.goto(game_url, {"waitUntil": "networkidle2", "timeout": 30000})
 
         # Ждем появления основных блоков, но не падаем, если чего-то нет
@@ -318,8 +364,6 @@ async def render_game_result_with_browser(game_url):
             if _re.search(r"\d+\s*[:\-–]\s*\d+", center):
                 is_finished = True
 
-        await browser.close()
-
         return {
             'finished': is_finished,
             'left': left,
@@ -329,6 +373,13 @@ async def render_game_result_with_browser(game_url):
     except Exception as e:
         print(f"⚠️ Ошибка в рендере страницы браузером: {e}")
         return None
+    finally:
+        # Правильно закрываем браузер
+        if browser:
+            try:
+                await browser.close()
+            except Exception as e:
+                print(f"⚠️ Ошибка при закрытии браузера: {e}")
 
 def should_send_game_notification(game_time_str):
     """Проверяет, нужно ли отправить уведомление о игре в текущий запуск"""
@@ -541,7 +592,16 @@ async def main():
         test_stats_url = (
             "http://letobasket.ru/game.html?gameId=920445&apiUrl=https://reg.infobasket.su&lang=ru#preview"
         )
-        await check_game_end(test_stats_url)
+        
+        # Сначала пробуем простой метод, затем браузер как fallback
+        try:
+            await check_game_end_simple(test_stats_url)
+        except Exception as e:
+            print(f"⚠️ Простой метод не сработал, пробуем браузер: {e}")
+            try:
+                await check_game_end(test_stats_url)
+            except Exception as browser_error:
+                print(f"⚠️ Браузер тоже не сработал: {browser_error}")
         
         print("✅ Все проверки завершены")
     except Exception as e:

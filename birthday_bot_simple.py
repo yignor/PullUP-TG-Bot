@@ -282,22 +282,27 @@ async def check_letobasket_site():
                                 matched_games.append((url, info))
                         
                         if matched_games:
-                            lines = ["🏀 Найдены игры PullUP:"]
-                            for url, info in matched_games:
-                                n1 = info.get('team1') or 'Команда 1'
-                                n2 = info.get('team2') or 'Команда 2'
-                                tm = info.get('time') or 'Время не указано'
-                                lines.append(f"- {n1} vs {n2} — {tm}\n  📋 {url}")
-                            message = "\n".join(lines)
-                            id_base = "|".join([u for (u, _) in matched_games])
-                            notification_id = f"pullup_list_{hash(id_base)}"
+                            # Берем первую подходящую игру и формируем персонализированное сообщение
+                            url, info = matched_games[0]
+                            team1 = info.get('team1') or 'Команда 1'
+                            team2 = info.get('team2') or 'Команда 2'
+                            # Определяем соперника (вторая команда относительно PullUP)
+                            def is_pullup_variant(name: str) -> bool:
+                                return bool(re.search(r"pull\s*[-\s]*up", name, re.IGNORECASE))
+                            if is_pullup_variant(team1) and not is_pullup_variant(team2):
+                                opponent = team2
+                            elif is_pullup_variant(team2) and not is_pullup_variant(team1):
+                                opponent = team1
+                            else:
+                                opponent = team2  # по умолчанию вторая
+                            message = f"Сегодня игра против {opponent}\n\nНилу ссылку на игру: {url}"
+                            notification_id = f"game_vs_once_{hash(url)}"
                             if notification_id not in sent_notifications:
                                 await bot.send_message(chat_id=CHAT_ID, text=message)
                                 sent_notifications.add(notification_id)
-                                print("✅ Отправлено агрегированное уведомление о играх PullUP")
-                            # Для каждой игры проверяем окончание
-                            for url, _ in matched_games:
-                                await check_game_end_simple(url)
+                                print(f"✅ Отправлено сообщение: Сегодня игра против {opponent}")
+                            # Опционально проверим окончание игры
+                            await check_game_end_simple(url)
                         else:
                             message = f"🏀 Найдена команда {pullup_team}, но релевантные ссылки не прошли валидацию"
                             await bot.send_message(chat_id=CHAT_ID, text=message)

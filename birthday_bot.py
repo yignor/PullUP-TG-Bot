@@ -96,9 +96,11 @@ def get_years_word(age: int) -> str:
         return "лет"
 
 def should_check_birthdays():
-    """Проверяет, нужно ли проверять дни рождения (только в 09:00)"""
-    now = datetime.datetime.now()
-    return now.hour == 9 and now.minute < 30  # Проверяем только в 09:00-09:29
+    """Проверяет, нужно ли проверять дни рождения (только в 09:00 по Москве)"""
+    # Получаем московское время
+    moscow_tz = datetime.timezone(datetime.timedelta(hours=3))  # UTC+3 для Москвы
+    now = datetime.datetime.now(moscow_tz)
+    return now.hour == 9 and now.minute < 30  # Проверяем только в 09:00-09:29 по Москве
 
 def find_pullup_team(text_block):
     """Ищет команду PullUP в тексте с поддержкой различных вариаций"""

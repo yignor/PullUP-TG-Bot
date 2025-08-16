@@ -2,7 +2,7 @@ import asyncio
 import aiohttp
 import re
 import os
-from datetime import datetime, time
+from datetime import datetime, time, timezone, timedelta
 from bs4 import BeautifulSoup
 from telegram import Bot
 import logging
@@ -19,6 +19,16 @@ LETOBASKET_URL = "http://letobasket.ru/"
 # Множество для отслеживания отправленных уведомлений
 sent_morning_notifications = set()
 sent_finish_notifications = set()
+
+def get_moscow_time():
+    """Возвращает текущее время в часовом поясе Москвы"""
+    moscow_tz = timezone(timedelta(hours=3))  # UTC+3 для Москвы
+    return datetime.now(moscow_tz)
+
+def should_send_morning_notification():
+    """Проверяет, нужно ли отправить утреннее уведомление (только утром 9:00-10:00)"""
+    moscow_time = get_moscow_time()
+    return moscow_time.hour == 9  # Только в 9 утра по Москве
 
 class PullUPNotificationManager:
     def __init__(self):
@@ -101,8 +111,14 @@ class PullUPNotificationManager:
         if not games:
             return
         
+        # Проверяем, нужно ли отправлять утреннее уведомление
+        if not should_send_morning_notification():
+            logger.info("Не время для утреннего уведомления (только 9:00-10:00 по Москве)")
+            return
+        
         # Создаем уникальный ID для уведомления
-        notification_id = f"morning_{datetime.now().strftime('%Y-%m-%d')}"
+        moscow_time = get_moscow_time()
+        notification_id = f"morning_{moscow_time.strftime('%Y-%m-%d')}"
         
         if notification_id in sent_morning_notifications:
             logger.info("Утреннее уведомление уже отправлено сегодня")

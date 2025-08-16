@@ -33,6 +33,27 @@ bot: Optional[Bot] = None
 if BOT_TOKEN:
     bot = Bot(token=BOT_TOKEN)
 
+class BotWrapper:
+    """Обертка для бота для решения проблем с типизацией"""
+    
+    def __init__(self, bot_instance: Bot):
+        self._bot = bot_instance
+    
+    async def send_poll(self, **kwargs):
+        return await self._bot.send_poll(**kwargs)
+    
+    async def stop_poll(self, **kwargs):
+        return await self._bot.stop_poll(**kwargs)
+    
+    async def send_message(self, **kwargs):
+        return await self._bot.send_message(**kwargs)
+
+def get_bot_wrapper() -> BotWrapper:
+    """Возвращает обертку для бота или вызывает исключение"""
+    if bot is None:
+        raise RuntimeError("Бот не инициализирован")
+    return BotWrapper(bot)
+
 # Настройки Google Sheets
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -90,7 +111,8 @@ class TrainingPollsManager:
             question = "🏀 Тренировки на неделе СШОР ВО"
             
             # Создаем опрос с множественным выбором
-            poll = await bot.send_poll(
+            bot_wrapper = get_bot_wrapper()
+            poll = await bot_wrapper.send_poll(
                 chat_id=CHAT_ID,
                 question=question,
                 options=TRAINING_OPTIONS,
@@ -119,7 +141,8 @@ class TrainingPollsManager:
             
             # Используем stop_poll для получения финальных результатов опроса
             try:
-                stopped_poll = await bot.stop_poll(chat_id=CHAT_ID, message_id=poll_id)
+                bot_wrapper = get_bot_wrapper()
+                stopped_poll = await bot_wrapper.stop_poll(chat_id=CHAT_ID, message_id=poll_id)
                 
                 # Обрабатываем результаты остановленного опроса
                 poll_results = {}
@@ -281,7 +304,8 @@ class TrainingPollsManager:
                     for person, count in stats['least_active']:
                         message += f"  {person}: {count} тренировок\n"
             
-            await bot.send_message(
+            bot_wrapper = get_bot_wrapper()
+            await bot_wrapper.send_message(
                 chat_id=CHAT_ID,
                 text=message,
                 message_thread_id=ANNOUNCEMENTS_TOPIC_ID

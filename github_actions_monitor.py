@@ -114,6 +114,16 @@ async def main():
         print("\n3. Проверка завершенных игр...")
         finished_games = manager.check_finished_games(html_content, current_date)
         
+        # Проверяем опросы тренировок
+        print("\n4. Проверка опросов тренировок...")
+        try:
+            from training_polls import main_training_polls
+            await main_training_polls()
+            print("✅ Проверка опросов тренировок завершена")
+        except Exception as e:
+            error_msg = f"Ошибка проверки опросов тренировок: {str(e)}"
+            await send_github_error_notification(error_msg, bot)
+        
         if finished_games:
             print(f"✅ Найдено {len(finished_games)} завершенных игр")
             for game in finished_games:

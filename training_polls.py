@@ -13,6 +13,11 @@ from telegram import Bot, Poll
 import gspread
 from google.oauth2.service_account import Credentials
 
+def get_moscow_time():
+    """Возвращает текущее время в часовом поясе Москвы"""
+    moscow_tz = datetime.timezone(datetime.timedelta(hours=3))  # UTC+3 для Москвы
+    return datetime.datetime.now(moscow_tz)
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -74,7 +79,7 @@ class TrainingPollsManager:
             print(f"❌ Ошибка инициализации Google Sheets: {e}")
     
     async def create_weekly_training_poll(self):
-        """Создает опрос тренировок на неделю (каждое воскресенье в 9:00)"""
+        """Создает опрос тренировок на неделю (каждое воскресенье в 10:00 по Москве в топик АНОНСЫ ТРЕНИРОВОК)"""
         try:
             if not bot:
                 print("❌ Бот не инициализирован")
@@ -263,18 +268,18 @@ class TrainingPollsManager:
 training_manager = TrainingPollsManager()
 
 async def should_create_weekly_poll() -> bool:
-    """Проверяет, нужно ли создать опрос на неделю (воскресенье 9:00)"""
-    now = datetime.datetime.now()
-    return now.weekday() == 6 and now.hour == 9 and now.minute < 30  # Воскресенье 9:00
+    """Проверяет, нужно ли создать опрос на неделю (воскресенье 10:00 по Москве)"""
+    now = get_moscow_time()
+    return now.weekday() == 6 and now.hour == 10 and now.minute < 30  # Воскресенье 10:00 по Москве
 
 async def should_collect_attendance() -> bool:
-    """Проверяет, нужно ли собрать данные о посещаемости (среда/суббота 9:00)"""
-    now = datetime.datetime.now()
-    return (now.weekday() in [2, 5]) and now.hour == 9 and now.minute < 30  # Среда/суббота 9:00
+    """Проверяет, нужно ли собрать данные о посещаемости (среда/суббота 9:00 по Москве)"""
+    now = get_moscow_time()
+    return (now.weekday() in [2, 5]) and now.hour == 9 and now.minute < 30  # Среда/суббота 9:00 по Москве
 
 def get_target_training_day() -> str:
     """Определяет, какую тренировку нужно проверить в зависимости от дня недели"""
-    now = datetime.datetime.now()
+    now = get_moscow_time()
     weekday = now.weekday()
     
     if weekday == 2:  # Среда
@@ -345,23 +350,23 @@ async def collect_attendance_data():
         return None
 
 async def should_generate_monthly_report() -> bool:
-    """Проверяет, нужно ли сгенерировать месячный отчет (последний день месяца 9:00)"""
-    now = datetime.datetime.now()
+    """Проверяет, нужно ли сгенерировать месячный отчет (последний день месяца 9:00 по Москве)"""
+    now = get_moscow_time()
     last_day = (now.replace(day=1) + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
     return now.day == last_day.day and now.hour == 9 and now.minute < 30
 
 async def main_training_polls():
     """Основная функция для управления опросами тренировок"""
     try:
-        now = datetime.datetime.now()
-        print(f"🏀 Проверка опросов тренировок в {now.strftime('%Y-%m-%d %H:%M')}...")
+        now = get_moscow_time()
+        print(f"🏀 Проверка опросов тренировок в {now.strftime('%Y-%m-%d %H:%M')} (Москва)...")
         
-        # Создание опроса на неделю (воскресенье 9:00)
+        # Создание опроса на неделю (воскресенье 10:00 по Москве)
         if await should_create_weekly_poll():
             print("📊 Создаю опрос тренировок на неделю...")
             await training_manager.create_weekly_training_poll()
         
-        # Сбор данных о посещаемости (среда/суббота 9:00)
+        # Сбор данных о посещаемости (среда/суббота 9:00 по Москве)
         if await should_collect_attendance():
             print("📋 Собираю данные о посещаемости...")
             attendance_data = await collect_attendance_data()

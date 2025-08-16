@@ -1,0 +1,55 @@
+name: PullUP Games Monitor
+
+on:
+  schedule:
+    # Запуск каждые 30 минут
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-github.txt
+        
+    - name: Run PullUP monitor
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
+      run: |
+        # Загружаем переменные из .env если секреты не установлены
+        if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+          echo "Загружаем переменные из .env файла..."
+          export $(cat .env | xargs)
+        fi
+        
+        # Проверяем наличие TEST_CHAT_ID
+        if [ -z "$TEST_CHAT_ID" ]; then
+          echo "TEST_CHAT_ID не установлен, используем значение по умолчанию"
+          export TEST_CHAT_ID="-15573582"
+        fi
+        
+        echo "Запуск монитора PullUP игр..."
+        python github_actions_monitor.py
+        
+    - name: Handle errors
+      if: failure()
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
+      run: |
+        echo "❌ GitHub Actions завершился с ошибкой"
+        echo "Ошибки будут отправлены в тестовый чат через скрипт"

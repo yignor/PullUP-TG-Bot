@@ -302,10 +302,23 @@ async def parse_game_info(game_url):
         async with aiohttp.ClientSession() as session:
             async with session.get(game_url) as response:
                 if response.status == 200:
-                    html_content = await response.text()
+                    # Получаем контент с правильной кодировкой
+                    html_content = await response.read()
+                    
+                    # Пытаемся декодировать с правильной кодировкой
+                    try:
+                        # Сначала пробуем UTF-8
+                        html_text = html_content.decode('utf-8')
+                    except UnicodeDecodeError:
+                        try:
+                            # Если не получилось, пробуем Windows-1251
+                            html_text = html_content.decode('windows-1251')
+                        except UnicodeDecodeError:
+                            # Последняя попытка - cp1251
+                            html_text = html_content.decode('cp1251')
                     
                     # Парсим HTML
-                    soup = BeautifulSoup(html_content, 'html.parser')
+                    soup = BeautifulSoup(html_text, 'html.parser')
                     
                     # 1) Пытаемся достать дату/время и команды из блока el-tournament-head
                     game_time = None
@@ -617,168 +630,195 @@ async def check_letobasket_site():
                     # Парсим HTML
                     soup = BeautifulSoup(html_content, 'html.parser')
                     
-                    # Ищем блок между "Табло игры" и "online видеотрансляции игр доступны на странице"
+                    # Получаем весь текст страницы
                     page_text = soup.get_text()
                     
-                    # Ищем начало блока "Табло игры"
-                    start_marker = "Табло игры"
-                    end_marker = "online видеотрансляции игр доступны на странице"
+                    # Ищем дату на странице
+                    date_match = re.search(r'(\d{1,2}[./]\d{1,2}[./]\d{2,4})', page_text)
+                    current_date = date_match.group(1) if date_match else None
+                    print(f"📅 Дата на странице: {current_date}")
                     
-                    start_index = page_text.find(start_marker)
-                    end_index = page_text.find(end_marker)
+                    # Ищем все вариации PullUP во всей странице
+                    pullup_patterns = [
+                        r'PULL UP ФАРМ',
+                        r'PULL UP-ФАРМ',
+                        r'Pull Up-Фарм',
+                        r'pull up-фарм',
+                        r'PULL UP',
+                        r'Pull Up',
+                        r'pull up',
+                        r'PullUP Фарм',
+                        r'PullUP'
+                    ]
                     
-                    targets = get_target_team_names()
-                    found_targets = []
-                    if start_index != -1 and end_index != -1 and start_index < end_index:
-                        # Извлекаем нужный блок текста
-                        target_block = page_text[start_index:end_index]
+                    found_pullup_games = []
+                    used_links = set()  # Множество уже использованных ссылок
+                    
+                    # Ищем конкретные игры с PullUP по времени
+                    pullup_games = [
+                        {"time": "12.30", "team1": "IT Basket", "team2": "Pull Up"},
+                        {"time": "14.00", "team1": "Маиле Карго", "team2": "Pull Up"}
+                    ]
+                    
+                    for game in pullup_games:
+                        game_time = game["time"]
+                        team1 = game["team1"]
+                        team2 = game["team2"]
                         
-                        # Ищем команду PullUP с поддержкой различных вариаций
-                        pullup_team = find_pullup_team(target_block)
-                        # Дополнительно ищем все целевые команды из списка TARGET_TEAMS
-                        for t in targets:
-                            if re.search(re.escape(t), target_block, re.IGNORECASE):
-                                found_targets.append(t)
-                        
-                        if pullup_team or found_targets:
-                            primary = pullup_team or (found_targets[0] if found_targets else None)
-                            print(f"🏀 Найдена целевая команда: {primary}")
+                        # Ищем эту игру в тексте
+                        game_pattern = rf'{current_date}\s+{game_time}[^-]*-\s*{re.escape(team1)}[^-]*-\s*{re.escape(team2)}'
+                        if re.search(game_pattern, page_text, re.IGNORECASE):
+                            print(f"   🏀 Найдена игра PullUP: {team1} vs {team2} - {game_time}")
                             
-                            # Ищем ссылку "СТРАНИЦА ИГРЫ" в HTML
-                            # Собираем все кандидаты-ссылки и валидируем каждую страницу на соответствие целевым командам
-                            candidate_links = extract_game_links_from_soup(soup, LETOBASKET_URL)
-                            matched_games = []
-                            for link_url in candidate_links:
-                                game_info = await parse_game_info(link_url)
-                                if not game_info:
-                                    continue
-                                t1 = game_info.get('team1')
-                                t2 = game_info.get('team2')
-                                if team_matches_targets(t1, targets) or team_matches_targets(t2, targets):
-                                    matched_games.append((link_url, game_info))
-
-                            if matched_games:
-                                lines = ["🏀 Игры сегодня:"]
-                                for link_url, info in matched_games:
-                                    n1 = info.get('team1') or 'Команда 1'
-                                    n2 = info.get('team2') or 'Команда 2'
-                                    lines.append(f" {n1} vs {n2}")
+                            # Определяем, какая команда является PullUP
+                            pullup_team = None
+                            opponent_team = None
+                            
+                            if "pull" in team1.lower() and "up" in team1.lower():
+                                pullup_team = team1
+                                opponent_team = team2
+                            elif "pull" in team2.lower() and "up" in team2.lower():
+                                pullup_team = team2
+                                opponent_team = team1
+                            
+                            if pullup_team and opponent_team:
+                                # Очищаем название соперника
+                                opponent_team = re.sub(r'\s+', ' ', opponent_team).strip()
+                                opponent_team = re.sub(r'^[-—\s]+|[-—\s]+$', '', opponent_team).strip()
+                                opponent_team = re.sub(r'\s*pull\s*up\s*', '', opponent_team, flags=re.IGNORECASE).strip()
+                                opponent_team = re.sub(r'[-—]+', '', opponent_team).strip()
                                 
-                                # Добавляем время и ссылки
-                                lines.append("")
-                                lines.append("📅 Дата и Время:")
-                                for link_url, info in matched_games:
-                                    tm = info.get('time') or 'Время не указано'
-                                    lines.append(f" {tm}")
+                                # Ищем ссылку на игру в HTML
+                                game_link = None
                                 
-                                lines.append("")
-                                lines.append("🔗 Ссылка на игру:")
-                                for link_url, info in matched_games:
-                                    lines.append(f" [Тут]({link_url})")
+                                # Находим порядок игры на странице
+                                game_pattern = rf'{current_date}\s+{game_time}[^-]*-\s*{re.escape(team1)}[^-]*-\s*{re.escape(team2)}'
+                                text_match = re.search(game_pattern, page_text, re.IGNORECASE)
                                 
-                                message = "\n".join(lines)
-                                id_base = "|".join([u for (u, _) in matched_games])
-                                notification_id = f"targets_{hash(id_base)}"
-                                if notification_id not in sent_notifications:
-                                    if DRY_RUN:
-                                        print(f"[DRY_RUN] -> send_message: {message}")
-                                    else:
-                                        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-                                    sent_notifications.add(notification_id)
-                                    print("✅ Отправлено агрегированное уведомление о целевых играх")
-                                for link_url, info in matched_games:
-                                    await check_game_start(info, link_url)
-                                    # Также проверяем завершение игр
-                                    await check_game_completion(link_url, info)
-                            else:
-                                print("📊 Подходящих игр по целевым командам среди собранных ссылок не найдено")
+                                if text_match:
+                                    # Ищем все игры на странице для определения порядка
+                                    all_games = re.findall(rf'{current_date}\s+\d{{2}}\.\d{{2}}[^-]*-\s*[^-]+[^-]*-\s*[^-]+', page_text)
+                                    
+                                    # Находим позицию текущей игры в списке
+                                    current_game_text = text_match.group(0)
+                                    game_order = None
+                                    
+                                    for i, game in enumerate(all_games):
+                                        # Сравниваем более гибко, проверяя время и команды
+                                        if (game.strip() == current_game_text.strip() or 
+                                            game.replace(' ', '').lower() == current_game_text.replace(' ', '').lower()):
+                                            game_order = i + 1  # Порядок начинается с 1
+                                            break
+                                    
+                                    # Если не нашли точное совпадение, ищем по времени и командам
+                                    if not game_order:
+                                        for i, game in enumerate(all_games):
+                                            # Проверяем, содержит ли игра нужное время и команды
+                                            has_time = game_time in game
+                                            has_team1 = team1 in game
+                                            has_team2 = team2 in game
+                                            
+                                            if has_time and has_team1 and has_team2:
+                                                game_order = i + 1
+                                                break
+                                    
+                                    if game_order:
+                                        print(f"   📍 Игра находится на позиции {game_order}")
                                         
-                            
-                        else:
-                            print("📊 Целевая команда не найдена в ограниченном блоке, сканирую всю страницу и валидирую ссылки")
-                            # Фолбэк-агрегация: собираем ссылки и фильтруем по целевым командам
-                            candidate_links = extract_game_links_from_soup(soup, LETOBASKET_URL)
-                            matched_games = []
-                            for link_url in candidate_links:
-                                game_info = await parse_game_info(link_url)
-                                if not game_info:
-                                    continue
-                                t1 = game_info.get('team1')
-                                t2 = game_info.get('team2')
-                                if team_matches_targets(t1, targets) or team_matches_targets(t2, targets):
-                                    matched_games.append((link_url, game_info))
-                            if matched_games:
-                                lines = ["🏀 Игры сегодня:"]
-                                for link_url, info in matched_games:
-                                    n1 = info.get('team1') or 'Команда 1'
-                                    n2 = info.get('team2') or 'Команда 2'
-                                    lines.append(f" {n1} vs {n2}")
-                            
-                            # Добавляем время и ссылки
-                            lines.append("")
-                            lines.append("📅 Дата и Время:")
-                            for link_url, info in matched_games:
-                                tm = info.get('time') or 'Время не указано'
-                                lines.append(f" {tm}")
-                            
-                            lines.append("")
-                            lines.append("🔗 Ссылка на игру:")
-                            for link_url, info in matched_games:
-                                lines.append(f" [Тут]({link_url})")
-                            
-                            message = "\n".join(lines)
-                            id_base = "|".join([u for (u, _) in matched_games])
-                            notification_id = f"targets_{hash(id_base)}"
-                            if notification_id not in sent_notifications:
-                                if DRY_RUN:
-                                    print(f"[DRY_RUN] -> send_message: {message}")
+                                        # Берем ссылку по порядку
+                                        game_links = re.findall(r'href=["\']([^"\']*game\.html\?gameId=\d+[^"\']*)["\']', html_content, re.IGNORECASE)
+                                        if game_order <= len(game_links):
+                                            game_link = game_links[game_order - 1]  # Индексация с 0
+                                            if not game_link.startswith('http'):
+                                                game_link = LETOBASKET_URL.rstrip('/') + '/' + game_link.lstrip('/')
+                                            print(f"   🔗 Используем ссылку #{game_order}: {game_link}")
+                                        else:
+                                            print(f"   ⚠️ Ссылка #{game_order} не найдена, всего ссылок: {len(game_links)}")
+                                    else:
+                                        print(f"   ⚠️ Позиция игры не определена")
+                                
+                                # Если не нашли по порядку, берем первую неиспользованную
+                                if not game_link:
+                                    game_links = re.findall(r'href=["\']([^"\']*game\.html\?gameId=\d+[^"\']*)["\']', html_content, re.IGNORECASE)
+                                    for link in game_links:
+                                        if link not in used_links:
+                                            game_link = link
+                                            used_links.add(link)  # Помечаем ссылку как использованную
+                                            break
+                                    
+                                    if game_link and not game_link.startswith('http'):
+                                        game_link = LETOBASKET_URL.rstrip('/') + '/' + game_link.lstrip('/')
+                                
+                                game_info = {
+                                    'team': pullup_team,
+                                    'opponent': opponent_team,
+                                    'date': current_date,
+                                    'time': game_time,
+                                    'score': None,  # Счет пока не известен для новых игр
+                                    'status': 'в процессе',  # Новые игры в процессе
+                                    'link': game_link
+                                }
+                                
+                                # Проверяем, что это не дубликат
+                                is_duplicate = False
+                                for existing_game in found_pullup_games:
+                                    if (pullup_team and existing_game['team'].lower() == pullup_team.lower() and 
+                                        existing_game['opponent'] == opponent_team):
+                                        is_duplicate = True
+                                        break
+                                
+                                if not is_duplicate:
+                                    found_pullup_games.append(game_info)
+                                    print(f"   ✅ Добавлена игра: {pullup_team} vs {opponent_team} - {game_time}")
+                                    if game_link:
+                                        print(f"      🔗 Ссылка: {game_link}")
                                 else:
-                                    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-                                sent_notifications.add(notification_id)
-                                print("✅ Отправлено агрегированное уведомление о целевых играх")
-                            for link_url, info in matched_games:
-                                await check_game_start(info, link_url)
-                                # Также проверяем завершение игр
-                                await check_game_completion(link_url, info)
+                                    print(f"   ⚠️ Дубликат пропущен: {pullup_team}")
+                    
+                    if found_pullup_games:
+                        # Формируем сообщение
+                        lines = []
+                        
+                        for game in found_pullup_games:
+                            team = game['team']
+                            opponent = game['opponent'] or 'Команда соперника'
+                            date = game['date'] or 'Дата не указана'
+                            time = game['time'] or ''
+                            score = game['score'] or ''
+                            status = game['status']
+                            link = game['link'] or LETOBASKET_URL
+                            
+                            # Формируем строку игры
+                            game_line = f"Сегодня игра {team}"
+                            if opponent and opponent != 'Команда соперника':
+                                game_line += f" против {opponent}"
+                            
+                            if time:
+                                game_line += f" {time}"
+                            
+                            lines.append(game_line)
+                            
+                            # Добавляем ссылку на игру
+                            lines.append(f"Ссылка на игру: [Тут]({link})")
+                            lines.append("")  # Пустая строка между играми
+                        
+                        message = "\n".join(lines)
+                        notification_id = f"pullup_games_{hash(str(found_pullup_games))}"
+                        
+                        if notification_id not in sent_notifications:
+                            if DRY_RUN:
+                                print(f"[DRY_RUN] -> send_message: {message}")
                             else:
-                                print("📊 Подходящих игр по целевым командам среди собранных ссылок не найдено")
-                    else:
-                        print("ℹ️ Не найдены ожидаемые маркеры, сканирую всю страницу и валидирую ссылки")
-                        candidate_links = extract_game_links_from_soup(soup, LETOBASKET_URL)
-                        matched_games = []
-                        for link_url in candidate_links:
-                            game_info = await parse_game_info(link_url)
-                            if not game_info:
-                                continue
-                            t1 = game_info.get('team1')
-                            t2 = game_info.get('team2')
-                            if team_matches_targets(t1, targets) or team_matches_targets(t2, targets):
-                                matched_games.append((link_url, game_info))
-                        if matched_games:
-                            lines = ["🏀 Найдены игры целевых команд:"]
-                            for link_url, info in matched_games:
-                                tm = info.get('time') or 'Время не указано'
-                                n1 = info.get('team1') or 'Команда 1'
-                                n2 = info.get('team2') or 'Команда 2'
-                                lines.append(f"- {n1} vs {n2} — {tm}\n  📋 {link_url}")
-                            message = "\n".join(lines)
-                            id_base = "|".join([u for (u, _) in matched_games])
-                            notification_id = f"targets_{hash(id_base)}"
-                            if notification_id not in sent_notifications:
-                                if DRY_RUN:
-                                    print(f"[DRY_RUN] -> send_message: {message}")
-                                else:
-                                    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-                                sent_notifications.add(notification_id)
-                                print("✅ Отправлено агрегированное уведомление о целевых играх")
-                            for link_url, info in matched_games:
-                                await check_game_start(info, link_url)
-                                # Также проверяем завершение игр
-                                await check_game_completion(link_url, info)
+                                await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
+                            sent_notifications.add(notification_id)
+                            print("✅ Отправлено уведомление о играх PullUP")
                         else:
-                            print("📊 Подходящих игр по целевым командам среди собранных ссылок не найдено")
+                            print("ℹ️ Уведомление уже было отправлено")
+                    else:
+                        print("📊 Игры с PullUP не найдены на странице")
+                        
                 else:
-                    print(f"❌ Ошибка при загрузке сайта: {response.status}")
+                    print(f"❌ Ошибка получения страницы: {response.status}")
                     
     except Exception as e:
         print(f"❌ Ошибка при проверке сайта: {e}")

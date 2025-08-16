@@ -12,6 +12,15 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения
 load_dotenv()
 
+class BotWrapper:
+    """Обертка для бота для решения проблем с типизацией"""
+    
+    def __init__(self, bot_instance):
+        self._bot = bot_instance
+    
+    async def send_message(self, **kwargs):
+        return await self._bot.send_message(**kwargs)
+
 async def check_updates():
     """Проверяет обновления бота"""
     
@@ -88,13 +97,16 @@ async def send_and_check():
         return
     
     from telegram import Bot
-    bot = Bot(token=bot_token)
+    
+    # Создаем экземпляр бота и обертку
+    bot_instance = Bot(token=bot_token)
+    bot_wrapper = BotWrapper(bot_instance)
     
     print("📤 Отправляю тестовое сообщение...")
     
     try:
         # Отправляем сообщение в общий чат
-        message = await bot.send_message(
+        message = await bot_wrapper.send_message(
             chat_id=chat_id,
             text="🔍 Тестовое сообщение для поиска ID топика"
         )

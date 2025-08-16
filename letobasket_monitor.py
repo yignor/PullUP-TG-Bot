@@ -90,33 +90,10 @@ async def check_game_completion(game_url, game_info):
         if not game_info:
             return
         
-        teams_str = f"{game_info.get('team1', 'Команда 1')} vs {game_info.get('team2', 'Команда 2')}"
-        game_id = f"game_completion_{game_url}"
-        
-        # Проверяем, не отправляли ли мы уже статистику по этой игре
-        if game_id in sent_notifications:
-            return
-        
         # Проверяем, завершилась ли игра
         if is_game_finished(game_info):
-            # Формируем сообщение со статистикой
-            lines = ["📊 Статистика по игре:"]
-            lines.append(f"{teams_str}")
-            lines.append("")
-            lines.append("🏀 Счет:")
-            lines.append(" (будет добавлено позже)")
-            lines.append("")
-            lines.append(f"📈 Статистика: [Тут]({game_url})")
-            
-            message = "\n".join(lines)
-            
-            if DRY_RUN:
-                print(f"[DRY_RUN] -> send_message (completion): {message}")
-            else:
-                await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-            
-            sent_notifications.add(game_id)
-            print(f"✅ Отправлена статистика по завершенной игре: {teams_str}")
+            # Используем общий менеджер уведомлений
+            await notification_manager.send_game_end_notification(game_info, game_url)
             
     except Exception as e:
         print(f"❌ Ошибка при проверке завершения игры: {e}")

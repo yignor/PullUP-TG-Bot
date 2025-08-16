@@ -1,5 +1,7 @@
 import asyncio
 import os
+import sys
+sys.path.append('..')
 from pullup_notifications import PullUPNotificationManager
 
 async def final_test():

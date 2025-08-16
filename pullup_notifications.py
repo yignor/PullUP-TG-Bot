@@ -137,15 +137,15 @@ class PullUPNotificationManager:
             if game_order and game_order <= len(game_links):
                 game_link = game_links[game_order - 1]
                 if not game_link.startswith('http'):
-                    game_link = LETOBASKET_URL.rstrip('/') + '/' + game_link.lstrip('/')
+                    game_link = "http://letobasket.ru/".rstrip('/') + '/' + game_link.lstrip('/')
                 return game_link
             
             # Если не удалось найти по порядку, возвращаем главную страницу
-            return LETOBASKET_URL
+            return "http://letobasket.ru/"
             
         except Exception as e:
             logger.error(f"Ошибка поиска ссылки на игру: {e}")
-            return LETOBASKET_URL
+            return "http://letobasket.ru/"
     
     def extract_finished_game_from_text(self, game_text, current_date, html_content):
         """Извлекает информацию о завершенной игре из текста"""
@@ -230,15 +230,15 @@ class PullUPNotificationManager:
             if game_order and game_order <= len(game_links):
                 game_link = game_links[game_order - 1]
                 if not game_link.startswith('http'):
-                    game_link = LETOBASKET_URL.rstrip('/') + '/' + game_link.lstrip('/')
+                    game_link = "http://letobasket.ru/".rstrip('/') + '/' + game_link.lstrip('/')
                 return game_link
             
             # Если не удалось найти по порядку, возвращаем главную страницу
-            return LETOBASKET_URL
+            return "http://letobasket.ru/"
             
         except Exception as e:
             logger.error(f"Ошибка поиска ссылки на игру по времени: {e}")
-            return LETOBASKET_URL
+            return "http://letobasket.ru/"
     
     def extract_finished_game_info(self, row, current_date, html_content):
         """Извлекает информацию о завершенной игре"""

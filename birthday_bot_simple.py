@@ -219,78 +219,89 @@ async def check_letobasket_site():
                     soup = BeautifulSoup(html_content, 'html.parser')
                     
                     # Ищем блок между "Табло игры" и "online видеотрансляции игр доступны на странице"
-                    page_text = soup.get_text()
+                    page_text = soup.get_text(separator=' ', strip=True)
+                    page_text_lower = page_text.lower()
                     
-                    # Ищем начало блока "Табло игры"
-                    start_marker = "Табло игры"
-                    end_marker = "online видеотрансляции игр доступны на странице"
+                    # Ищем начало/конец блока по нескольким вариантам, без учета регистра
+                    start_variants = ["табло игры", "табло игр"]
+                    end_variants = [
+                        "online видеотрансляции игр доступны на странице",
+                        "онлайн видеотрансляции игр доступны на странице",
+                        "онлайн видеотрансляции",
+                        "online видеотрансляции",
+                    ]
+                    start_index = -1
+                    for sv in start_variants:
+                        idx = page_text_lower.find(sv)
+                        if idx != -1 and (start_index == -1 or idx < start_index):
+                            start_index = idx
+                    end_index = -1
+                    for ev in end_variants:
+                        idx = page_text_lower.find(ev)
+                        if idx != -1 and idx > start_index:
+                            if end_index == -1 or idx < end_index:
+                                end_index = idx
                     
-                    start_index = page_text.find(start_marker)
-                    end_index = page_text.find(end_marker)
+                    block_found = start_index != -1 and end_index != -1 and start_index < end_index
+                    target_block = page_text[start_index:end_index] if block_found else page_text
+                    if not block_found:
+                        print("ℹ️ Ожидаемые маркеры не найдены, использую фолбэк: анализ всей страницы")
                     
-                    if start_index != -1 and end_index != -1 and start_index < end_index:
-                        # Извлекаем нужный блок текста
-                        target_block = page_text[start_index:end_index]
+                    # Ищем команду PullUP в найденном блоке; если не нашли, проверяем весь текст
+                    pullup_team = find_pullup_team(target_block) or find_pullup_team(page_text)
+                    
+                    if pullup_team:
+                        print(f"🏀 Найдена команда PullUP: {pullup_team}")
                         
-                        # Ищем команду PullUP с поддержкой различных вариаций
-                        pullup_team = find_pullup_team(target_block)
+                        # Ищем ссылку "СТРАНИЦА ИГРЫ" в HTML
+                        game_links = soup.find_all('a', href=True)
+                        game_page_link = None
                         
-                        if pullup_team:
-                            print(f"🏀 Найдена команда PullUP: {pullup_team}")
-                            
-                            # Ищем ссылку "СТРАНИЦА ИГРЫ" в HTML
-                            game_links = soup.find_all('a', href=True)
-                            game_page_link = None
-                            
+                        for link in game_links:
+                            link_text = link.get_text().strip()
+                            if "СТРАНИЦА ИГРЫ" in link_text or "страница игры" in link_text.lower():
+                                game_page_link = link['href']
+                                break
+                        
+                        # Если не нашли "СТРАНИЦА ИГРЫ", ищем любые похожие на страницу игры ссылки
+                        if not game_page_link:
                             for link in game_links:
-                                link_text = link.get_text().strip()
-                                if "СТРАНИЦА ИГРЫ" in link_text or "страница игры" in link_text.lower():
-                                    game_page_link = link['href']
+                                href = link['href']
+                                if any(keyword in href.lower() for keyword in ['game', 'match', 'podrobno', 'id']):
+                                    game_page_link = href
                                     break
-                            
-                            # Если не нашли "СТРАНИЦА ИГРЫ", ищем любые ссылки рядом с PullUP
-                            if not game_page_link:
-                                # Ищем все ссылки, которые могут быть связаны с играми
-                                for link in game_links:
-                                    href = link['href']
-                                    # Проверяем, содержит ли ссылка что-то связанное с играми
-                                    if any(keyword in href.lower() for keyword in ['game', 'match', 'podrobno', 'id']):
-                                        game_page_link = href
-                                        break
-                            
-                            if game_page_link:
-                                # Формируем полный URL
-                                if game_page_link.startswith('http'):
-                                    full_url = game_page_link
-                                else:
-                                    full_url = LETOBASKET_URL.rstrip('/') + '/' + game_page_link.lstrip('/')
-                                
-                                # Создаем уникальный идентификатор для уведомления
-                                notification_id = f"pullup_{full_url}"
-                                
-                                # Проверяем, не отправляли ли мы уже это уведомление
-                                if notification_id not in sent_notifications:
-                                    message = f"🏀 Найдена команда {pullup_team}!\n\n📋 СТРАНИЦА ИГРЫ: {full_url}"
-                                    await bot.send_message(chat_id=CHAT_ID, text=message)
-                                    sent_notifications.add(notification_id)
-                                    print(f"✅ Отправлено уведомление о команде {pullup_team}")
-                                    
-                                    # Проверяем конец игры простым методом
-                                    await check_game_end_simple(full_url)
-                                    
-                                else:
-                                    print(f"ℹ️ Уведомление о команде {pullup_team} уже было отправлено")
-                                    # Проверяем конец игры
-                                    await check_game_end_simple(full_url)
-                                        
+                        
+                        if game_page_link:
+                            # Формируем полный URL
+                            if game_page_link.startswith('http'):
+                                full_url = game_page_link
                             else:
-                                message = f"🏀 Найдена команда {pullup_team}, но ссылка на страницу игры не найдена"
+                                full_url = LETOBASKET_URL.rstrip('/') + '/' + game_page_link.lstrip('/')
+                            
+                            # Создаем уникальный идентификатор для уведомления
+                            notification_id = f"pullup_{full_url}"
+                            
+                            # Проверяем, не отправляли ли мы уже это уведомление
+                            if notification_id not in sent_notifications:
+                                message = f"🏀 Найдена команда {pullup_team}!\n\n📋 СТРАНИЦА ИГРЫ: {full_url}"
                                 await bot.send_message(chat_id=CHAT_ID, text=message)
-                                print("⚠️ Ссылка на страницу игры не найдена")
+                                sent_notifications.add(notification_id)
+                                print(f"✅ Отправлено уведомление о команде {pullup_team}")
+                                
+                                # Проверяем конец игры простым методом
+                                await check_game_end_simple(full_url)
+                                
+                            else:
+                                print(f"ℹ️ Уведомление о команде {pullup_team} уже было отправлено")
+                                # Проверяем конец игры
+                                await check_game_end_simple(full_url)
+                                    
                         else:
-                            print("📊 Команды PullUP не найдены в текущем блоке игр")
+                            message = f"🏀 Найдена команда {pullup_team}, но ссылка на страницу игры не найдена"
+                            await bot.send_message(chat_id=CHAT_ID, text=message)
+                            print("⚠️ Ссылка на страницу игры не найдена")
                     else:
-                        print("❌ Не удалось найти нужные маркеры на странице")
+                        print("📊 Команды PullUP не найдены на странице")
                         
                 else:
                     print(f"❌ Ошибка при загрузке сайта: {response.status}")

@@ -29,7 +29,9 @@ GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # JSON crede
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # ID Google таблицы
 
 # Инициализация бота
-bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
+bot: Optional[Bot] = None
+if BOT_TOKEN:
+    bot = Bot(token=BOT_TOKEN)
 
 # Настройки Google Sheets
 SCOPES = [
@@ -108,12 +110,33 @@ class TrainingPollsManager:
     async def get_poll_results(self, poll_id: str) -> Dict[str, List[str]]:
         """Получает результаты опроса по ID"""
         try:
-            # Получаем информацию об опросе
-            poll_info = await bot.get_chat(chat_id=CHAT_ID)
+            if not bot:
+                print("❌ Бот не инициализирован")
+                return {}
+            # Telegram Bot API не предоставляет прямой доступ к результатам опросов
+            # Для получения результатов опросов необходимо:
+            # 1. Использовать Telegram Client API (pyrogram/telethon)
             
-            # Здесь нужно будет реализовать получение результатов опросов
-            # К сожалению, Telegram Bot API не предоставляет прямой доступ к результатам опросов
-            # Нужно будет использовать Telegram Client API или сохранять результаты вручную
+            # Используем stop_poll для получения финальных результатов опроса
+            try:
+                stopped_poll = await bot.stop_poll(chat_id=CHAT_ID, message_id=poll_id)
+                
+                # Обрабатываем результаты остановленного опроса
+                poll_results = {}
+                for i, option in enumerate(stopped_poll.poll.options):
+                    if option.voter_count > 0:
+                        # Получаем название тренировки из опций
+                        training_name = option.text
+                        # Пока не можем получить конкретных пользователей через Bot API
+                        # Это требует использования Client API или сохранения через handlers
+                        poll_results[training_name] = [f"user_{j}" for j in range(option.voter_count)]
+                
+                return poll_results
+                
+            except Exception as poll_error:
+                print(f"❌ Ошибка получения результатов через stop_poll: {poll_error}")
+                # Fallback - возвращаем пустой результат
+                return {}
             
             print(f"⚠️ Получение результатов опроса {poll_id} требует дополнительной реализации")
             return {}
@@ -233,6 +256,10 @@ class TrainingPollsManager:
     async def send_monthly_report(self, stats: Dict[str, Any]):
         """Отправляет месячный отчет в чат"""
         try:
+            if not bot:
+                print("❌ Бот не инициализирован")
+                return
+            
             if not stats or "message" in stats:
                 message = "📊 Месячный отчет по тренировкам\n\n❌ Данные за месяц отсутствуют"
             else:
@@ -277,7 +304,7 @@ async def should_collect_attendance() -> bool:
     now = get_moscow_time()
     return (now.weekday() in [2, 5]) and now.hour == 9 and now.minute < 30  # Среда/суббота 9:00 по Москве
 
-def get_target_training_day() -> str:
+def get_target_training_day() -> Optional[str]:
     """Определяет, какую тренировку нужно проверить в зависимости от дня недели"""
     now = get_moscow_time()
     weekday = now.weekday()

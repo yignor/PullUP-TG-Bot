@@ -9,6 +9,10 @@ from telegram import Bot
 from dotenv import load_dotenv
 from typing import Any, cast
 
+# Импортируем общие модули
+from game_parser import game_parser
+from notification_manager import notification_manager
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -27,12 +31,6 @@ try:
 except Exception as e:
     print(f"❌ ОШИБКА при инициализации бота: {e}")
     sys.exit(1)
-
-# URL для мониторинга
-LETOBASKET_URL = "http://letobasket.ru/"
-
-# Переменная для отслеживания уже отправленных уведомлений
-sent_notifications = set()
 
 # Паттерны для поиска команд PullUP
 PULLUP_PATTERNS = [
@@ -143,86 +141,7 @@ async def check_birthdays():
 
 async def parse_game_info(game_url):
     """Парсит информацию о игре с страницы игры"""
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(game_url) as response:
-                if response.status == 200:
-                    html_content = await response.text()
-                    
-                    # Парсим HTML
-                    soup = BeautifulSoup(html_content, 'html.parser')
-                    
-                    # Ищем время игры в элементе с классом fa-calendar
-                    time_element = soup.find('i', class_='fa fa-calendar')
-                    game_time = None
-                    
-                    if time_element:
-                        # Получаем текст после иконки календаря
-                        time_text = time_element.get_text().strip()
-                        if time_text:
-                            game_time = time_text
-                        else:
-                            # Ищем время в родительском элементе
-                            parent = time_element.parent
-                            if parent:
-                                time_text = parent.get_text().strip()
-                                game_time = time_text
-                    
-                    # Ищем названия команд
-                    team1_name = None
-                    team2_name = None
-                    
-                    # Ищем элементы с protocol.team1.TeamRegionName и protocol.team2.TeamRegionName
-                    page_text = soup.get_text()
-                    
-                    # Ищем команды в тексте страницы
-                    team_patterns = [
-                        r'protocol\.team1\.TeamRegionName[:\s]*([^\n\r]+)',
-                        r'protocol\.team2\.TeamRegionName[:\s]*([^\n\r]+)',
-                        r'Команда 1[:\s]*([^\n\r]+)',
-                        r'Команда 2[:\s]*([^\n\r]+)',
-                        r'Team 1[:\s]*([^\n\r]+)',
-                        r'Team 2[:\s]*([^\n\r]+)'
-                    ]
-                    
-                    for pattern in team_patterns:
-                        matches = re.findall(pattern, page_text, re.IGNORECASE)
-                        if matches:
-                            if 'team1' in pattern or 'Команда 1' in pattern or 'Team 1' in pattern:
-                                team1_name = matches[0].strip()
-                            elif 'team2' in pattern or 'Команда 2' in pattern or 'Team 2' in pattern:
-                                team2_name = matches[0].strip()
-                    
-                    # Если не нашли через протокол, ищем в заголовках или других элементах
-                    if not team1_name or not team2_name:
-                        # Ищем в заголовках h1, h2, h3
-                        headers = soup.find_all(['h1', 'h2', 'h3'])
-                        for header in headers:
-                            header_text = header.get_text().strip()
-                            if 'против' in header_text.lower() or 'vs' in header_text.lower():
-                                # Разделяем по "против" или "vs"
-                                if 'против' in header_text.lower():
-                                    teams = header_text.split('против')
-                                else:
-                                    teams = header_text.split('vs')
-                                
-                                if len(teams) >= 2:
-                                    team1_name = teams[0].strip()
-                                    team2_name = teams[1].strip()
-                                    break
-                    
-                    return {
-                        'time': game_time,
-                        'team1': team1_name,
-                        'team2': team2_name
-                    }
-                else:
-                    print(f"⚠️ Ошибка при загрузке страницы игры: {response.status}")
-                    return None
-                    
-    except Exception as e:
-        print(f"❌ Ошибка при парсинге информации о игре: {e}")
-        return None
+    return await game_parser.parse_game_info(game_url)
 
 async def parse_game_info_simple(game_url):
     """Простой парсинг информации об игре без использования браузера"""
@@ -261,58 +180,20 @@ async def parse_game_info_simple(game_url):
 async def check_game_end(game_url):
     """Проверяет, нужно ли отправить уведомление о конце игры"""
     try:
-        # Сначала пробуем простой парсинг без браузера
-        result = await parse_game_info_simple(game_url)
-        if not result:
-            # Если простой парсинг не сработал, пробуем браузер
-            result = await render_game_result_with_browser(game_url)
-            if not result:
-                return
-
-        # Проверяем, есть ли счет в формате "NN:NN"
-        score = result.get('score') or result.get('center')
-        if score:
-            import re
-            if re.search(r"\d+\s*[:\-–]\s*\d+", score):
-                end_notification_id = f"game_end_{game_url}"
-                if end_notification_id not in sent_notifications:
-                    team1 = result.get('team1') or result.get('left') or 'Команда 1'
-                    team2 = result.get('team2') or result.get('right') or 'Команда 2'
-
-                    message = (
-                        f"🏁 Игра закончилась!\n\n"
-                        f"🏀 {team1} vs {team2}\n"
-                        f"📊 Счет: {score}\n\n"
-                        f"Ссылка на статистику: {game_url}"
-                    )
-                    await bot.send_message(chat_id=CHAT_ID, text=message)
-                    sent_notifications.add(end_notification_id)
-                    print(f"✅ Отправлено уведомление о конце игры: {score}")
+        game_info = await game_parser.parse_game_info(game_url)
+        if game_info:
+            # Создаем уведомление о завершении игры
+            await notification_manager.send_game_end_notification(game_info, game_url)
     except Exception as e:
         print(f"❌ Ошибка при проверке конца игры: {e}")
 
 async def check_game_end_simple(game_url):
     """Проверяет конец игры без использования браузера"""
     try:
-        game_info = await parse_game_info_simple(game_url)
-        if game_info and game_info.get('score'):
-            score = game_info['score']
-            # Проверяем, есть ли счет в формате "NN:NN"
-            import re
-            if re.search(r"\d+\s*[:\-–]\s*\d+", score):
-                # Создаем уникальный идентификатор для уведомления о конце
-                end_notification_id = f"end_{game_url}"
-                
-                if end_notification_id not in sent_notifications:
-                    message = (
-                        f"🏁 Игра закончилась!\n\n"
-                        f"🏀 {game_info.get('team1', 'Команда 1')} vs {game_info.get('team2', 'Команда 2')}\n"
-                        f"📊 Счет: {score}\n\n"
-                        f"Ссылка на статистику: {game_url}"
-                    )
-                    await bot.send_message(chat_id=CHAT_ID, text=message)
-                    sent_notifications.add(end_notification_id)
-                    print(f"✅ Отправлено уведомление о конце игры: {score}")
+        game_info = await game_parser.parse_game_info(game_url)
+        if game_info:
+            # Создаем уведомление о завершении игры
+            await notification_manager.send_game_end_notification(game_info, game_url)
     except Exception as e:
         print(f"❌ Ошибка при проверке конца игры (простой метод): {e}")
 
@@ -456,135 +337,97 @@ async def check_game_start(game_info, game_url):
             return
         
         if should_send_game_notification(game_info['time']):
-            # Создаем уникальный идентификатор для уведомления о начале игры
-            start_notification_id = f"game_start_{game_url}"
-            
-            if start_notification_id not in sent_notifications:
-                # Формируем сообщение
-                team1 = game_info['team1'] or "Команда 1"
-                team2 = game_info['team2'] or "Команда 2"
-                
-                message = f"🏀 Игра {team1} против {team2} начинается в {game_info['time']}!\n\nСсылка на игру: {game_url}"
-                
-                await bot.send_message(chat_id=CHAT_ID, text=message)
-                sent_notifications.add(start_notification_id)
-                print(f"✅ Отправлено уведомление о начале игры: {team1} vs {team2} в {game_info['time']}")
+            # Используем общий менеджер уведомлений
+            await notification_manager.send_game_start_notification(game_info, game_url)
     except Exception as e:
         print(f"❌ Ошибка при проверке начала игры: {e}")
 
 async def check_letobasket_site():
     """Проверяет сайт letobasket.ru на наличие игр PullUP"""
     try:
-        print(f"🔍 Проверяю сайт {LETOBASKET_URL}...")
+        print(f"🔍 Проверяю сайт letobasket.ru...")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(LETOBASKET_URL) as response:
-                if response.status == 200:
-                    html_content = await response.text()
-                    
-                    # Парсим HTML
-                    soup = BeautifulSoup(html_content, 'html.parser')
-                    
-                    # Ищем блок между "Табло игры" и "online видеотрансляции игр доступны на странице"
-                    page_text = soup.get_text(separator=' ', strip=True)
-                    page_text_lower = page_text.lower()
-                    
-                    # Ищем начало/конец блока по нескольким вариантам, без учета регистра
-                    start_variants = ["табло игры", "табло игр"]
-                    end_variants = [
-                        "online видеотрансляции игр доступны на странице",
-                        "онлайн видеотрансляции игр доступны на странице",
-                        "онлайн видеотрансляции",
-                        "online видеотрансляции",
-                    ]
-                    start_index = -1
-                    for sv in start_variants:
-                        idx = page_text_lower.find(sv)
-                        if idx != -1 and (start_index == -1 or idx < start_index):
-                            start_index = idx
-                    end_index = -1
-                    for ev in end_variants:
-                        idx = page_text_lower.find(ev)
-                        if idx != -1 and idx > start_index:
-                            if end_index == -1 or idx < end_index:
-                                end_index = idx
-                    
-                    block_found = start_index != -1 and end_index != -1 and start_index < end_index
-                    target_block = page_text[start_index:end_index] if block_found else page_text
-                    if not block_found:
-                        print("ℹ️ Ожидаемые маркеры не найдены, использую фолбэк: анализ всей страницы")
-                    
-                    # Ищем команду PullUP с поддержкой различных вариаций (с фолбэком на весь текст)
-                    pullup_team = find_pullup_team(target_block) or find_pullup_team(page_text)
-                    
-                    if pullup_team:
-                        print(f"🏀 Найдена команда PullUP: {pullup_team}")
-                        
-                        # Ищем ссылку "СТРАНИЦА ИГРЫ" в HTML
-                        game_links = soup.find_all('a', href=True)
-                        game_page_link = None
-                        
-                        for link in game_links:
-                            link_text = link.get_text().strip()
-                            if "СТРАНИЦА ИГРЫ" in link_text or "страница игры" in link_text.lower():
-                                game_page_link = link['href']
-                                break
-                        
-                        # Если не нашли "СТРАНИЦА ИГРЫ", ищем любые ссылки, похожие на страницы игр
-                        if not game_page_link:
-                            for link in game_links:
-                                href = link['href']
-                                if any(keyword in href.lower() for keyword in ['game', 'match', 'podrobno', 'id']):
-                                    game_page_link = href
-                                    break
-                        
-                        if game_page_link:
-                            # Формируем полный URL
-                            if game_page_link.startswith('http'):
-                                full_url = game_page_link
-                            else:
-                                full_url = LETOBASKET_URL.rstrip('/') + '/' + game_page_link.lstrip('/')
-                            
-                            # Создаем уникальный идентификатор для уведомления
-                            notification_id = f"pullup_{full_url}"
-                            
-                            # Проверяем, не отправляли ли мы уже это уведомление
-                            if notification_id not in sent_notifications:
-                                message = f"🏀 Найдена команда {pullup_team}!\n\n📋 СТРАНИЦА ИГРЫ: {full_url}"
-                                await bot.send_message(chat_id=CHAT_ID, text=message)
-                                sent_notifications.add(notification_id)
-                                print(f"✅ Отправлено уведомление о команде {pullup_team}")
-                                
-                                # Парсим информацию о игре и проверяем время начала
-                                game_info = await parse_game_info(full_url)
-                                if game_info:
-                                    print(f"📅 Время игры: {game_info['time']}")
-                                    print(f"🏀 Команды: {game_info['team1']} vs {game_info['team2']}")
-                                    
-                                    # Проверяем, нужно ли отправить уведомление о начале
-                                    await check_game_start(game_info, full_url)
-                                    
-                                    # Проверяем конец игры
-                                    await check_game_end(full_url)
-                                
-                            else:
-                                print(f"ℹ️ Уведомление о команде {pullup_team} уже было отправлено")
-                                
-                                # Даже если уведомление уже отправлено, проверяем время начала
-                                game_info = await parse_game_info(full_url)
-                                if game_info:
-                                    await check_game_start(game_info, full_url)
-                                    await check_game_end(full_url)
-                                        
-                        else:
-                            message = f"🏀 Найдена команда {pullup_team}, но ссылка на страницу игры не найдена"
-                            await bot.send_message(chat_id=CHAT_ID, text=message)
-                            print("⚠️ Ссылка на страницу игры не найдена")
-                    else:
-                        print("📊 Команды PullUP не найдены на странице")
-                        
+        # Получаем свежий контент страницы
+        html_content = await game_parser.get_fresh_page_content()
+        
+        # Парсим HTML
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Ищем блок между "Табло игры" и "online видеотрансляции игр доступны на странице"
+        page_text = soup.get_text(separator=' ', strip=True)
+        page_text_lower = page_text.lower()
+        
+        # Ищем начало/конец блока по нескольким вариантам, без учета регистра
+        start_variants = ["табло игры", "табло игр"]
+        end_variants = [
+            "online видеотрансляции игр доступны на странице",
+            "онлайн видеотрансляции игр доступны на странице",
+            "онлайн видеотрансляции",
+            "online видеотрансляции",
+        ]
+        start_index = -1
+        for sv in start_variants:
+            idx = page_text_lower.find(sv)
+            if idx != -1 and (start_index == -1 or idx < start_index):
+                start_index = idx
+        end_index = -1
+        for ev in end_variants:
+            idx = page_text_lower.find(ev)
+            if idx != -1 and idx > start_index:
+                if end_index == -1 or idx < end_index:
+                    end_index = idx
+        
+        block_found = start_index != -1 and end_index != -1 and start_index < end_index
+        target_block = page_text[start_index:end_index] if block_found else page_text
+        if not block_found:
+            print("ℹ️ Ожидаемые маркеры не найдены, использую фолбэк: анализ всей страницы")
+        
+        # Ищем команду PullUP с поддержкой различных вариаций (с фолбэком на весь текст)
+        pullup_team = find_pullup_team(target_block) or find_pullup_team(page_text)
+        
+        if pullup_team:
+            print(f"🏀 Найдена команда PullUP: {pullup_team}")
+            
+            # Ищем ссылку "СТРАНИЦА ИГРЫ" в HTML
+            game_links = soup.find_all('a', href=True)
+            game_page_link = None
+            
+            for link in game_links:
+                link_text = link.get_text().strip()
+                if "СТРАНИЦА ИГРЫ" in link_text or "страница игры" in link_text.lower():
+                    game_page_link = link['href']
+                    break
+            
+            # Если не нашли "СТРАНИЦА ИГРЫ", ищем любые ссылки, похожие на страницы игр
+            if not game_page_link:
+                for link in game_links:
+                    href = link['href']
+                    if any(keyword in href.lower() for keyword in ['game', 'match', 'podrobno', 'id']):
+                        game_page_link = href
+                        break
+            
+            if game_page_link:
+                # Формируем полный URL
+                if game_page_link.startswith('http'):
+                    full_url = game_page_link
                 else:
-                    print(f"❌ Ошибка при загрузке сайта: {response.status}")
+                    full_url = "http://letobasket.ru/".rstrip('/') + '/' + game_page_link.lstrip('/')
+                
+                # Парсим информацию о игре и проверяем время начала
+                game_info = await parse_game_info(full_url)
+                if game_info:
+                    print(f"📅 Время игры: {game_info['time']}")
+                    print(f"🏀 Команды: {game_info['team1']} vs {game_info['team2']}")
+                    
+                    # Проверяем, нужно ли отправить уведомление о начале
+                    await check_game_start(game_info, full_url)
+                    
+                    # Проверяем конец игры
+                    await check_game_end(full_url)
+                else:
+                    print("⚠️ Ссылка на страницу игры не найдена")
+            else:
+                print("📊 Команды PullUP не найдены на странице")
                     
     except Exception as e:
         print(f"❌ Ошибка при проверке сайта: {e}")

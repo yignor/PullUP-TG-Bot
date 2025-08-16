@@ -9,6 +9,10 @@ from typing import Any, Optional
 from telegram import Bot
 from dotenv import load_dotenv
 
+# Импортируем общие модули
+from game_parser import game_parser
+from notification_manager import notification_manager
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -36,12 +40,6 @@ if not DRY_RUN:
     except Exception as e:
         print(f"❌ ОШИБКА при инициализации бота: {e}")
         sys.exit(1)
-
-# URL для мониторинга
-LETOBASKET_URL = "http://letobasket.ru/"
-
-# Переменная для отслеживания уже отправленных уведомлений
-sent_notifications = set()
 
 # Переменная для отслеживания статуса игр (активные/завершенные)
 game_status = {}  # {game_url: {'status': 'active'|'finished', 'last_check': datetime, 'teams': str}}
@@ -298,98 +296,7 @@ def should_send_game_notification(game_time_str):
 
 async def parse_game_info(game_url):
     """Парсит информацию о игре с страницы игры"""
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(game_url) as response:
-                if response.status == 200:
-                    # Получаем контент с правильной кодировкой
-                    html_content = await response.read()
-                    
-                    # Пытаемся декодировать с правильной кодировкой
-                    try:
-                        # Сначала пробуем UTF-8
-                        html_text = html_content.decode('utf-8')
-                    except UnicodeDecodeError:
-                        try:
-                            # Если не получилось, пробуем Windows-1251
-                            html_text = html_content.decode('windows-1251')
-                        except UnicodeDecodeError:
-                            # Последняя попытка - cp1251
-                            html_text = html_content.decode('cp1251')
-                    
-                    # Парсим HTML
-                    soup = BeautifulSoup(html_text, 'html.parser')
-                    
-                    # 1) Пытаемся достать дату/время и команды из блока el-tournament-head
-                    game_time = None
-                    team1_name = None
-                    team2_name = None
-
-                    head_block = soup.find('div', class_='el-tournament-head')
-                    if head_block:
-                        head_text = head_block.get_text(separator=' ', strip=True)
-                        if DRY_RUN:
-                            print(f"[DRY_RUN] el-tournament-head: {head_text}")
-
-                        # Поддержка русских месяцев
-                        month_map = {
-                            'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04', 'мая': '05',
-                            'июня': '06', 'июля': '07', 'августа': '08', 'сентября': '09', 'октября': '10',
-                            'ноября': '11', 'декабря': '12'
-                        }
-
-                        def extract_datetime_from_text(text: str) -> Optional[str]:
-                            # Комбинированные шаблоны (дата+время)
-                            patterns_combo = [
-                                r"(\d{1,2}[./]\d{1,2}[./]\d{2,4})\s+(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)",
-                                r"(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s*(\d{4})?\s*(?:в\s+)?(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)",
-                                r"(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)\s+(\d{1,2}[./]\d{1,2}[./]\d{2,4})",
-                            ]
-                            for pat in patterns_combo:
-                                m = re.search(pat, text, re.IGNORECASE)
-                                if m:
-                                    if len(m.groups()) == 2:
-                                        # dd.mm.yyyy HH:MM[:SS]  или  HH:MM[:SS] dd.mm.yyyy (поддержка : и .)
-                                        if re.match(r"\d{1,2}[./]", m.group(1)):
-                                            return f"{m.group(1)} {m.group(2)}".strip().rstrip(',')
-                                        return f"{m.group(2)} {m.group(1)}".strip().rstrip(',')
-                                    else:
-                                        # dd <month> [yyyy] [в ] HH:MM[:SS]
-                                        day = int(m.group(1))
-                                        month_name = m.group(2).lower()
-                                        year = m.group(3) or str(datetime.datetime.now().year)
-                                        time_part = m.group(4)
-                                        month_num = month_map.get(month_name)
-                                        if month_num:
-                                            return f"{day:02d}.{month_num}.{year} {time_part}".strip().rstrip(',')
-                            # Отдельно дата и отдельно время
-                            date_numeric = re.search(r"(\d{1,2}[./]\d{1,2}[./]\d{2,4})", text)
-                            date_russian = re.search(r"(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s*(\d{4})?", text, re.IGNORECASE)
-                            time_match = re.search(r"\b(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)\b", text)
-                            if time_match:
-                                if date_numeric:
-                                    return f"{date_numeric.group(1)} {time_match.group(1)}".strip().rstrip(',')
-                                if date_russian:
-                                    day = int(date_russian.group(1))
-                                    month_name = date_russian.group(2).lower()
-                                    year = date_russian.group(3) or str(datetime.datetime.now().year)
-                                    month_num = month_map.get(month_name)
-                                    if month_num:
-                                        return f"{day:02d}.{month_num}.{year} {time_match.group(1)}".strip().rstrip(',')
-                                # Если нашли только время — вернем время
-                                return time_match.group(1).strip().rstrip(',')
-                            return None
-
-                        extracted_dt = extract_datetime_from_text(head_text)
-                        if extracted_dt:
-                            game_time = extracted_dt
-
-                        # Пытаемся извлечь наименования команд из заголовка
-                        # Популярные разделители: " - ", "—", "против", "vs"
-                        splits = re.split(r"\s+-\s+|\s+—\s+|против|vs|VS|Vs", head_text, maxsplit=1)
-                        if len(splits) == 2:
-                            team1_name = splits[0].strip()
-                            team2_name = splits[1].strip()
+    return await game_parser.parse_game_info(game_url)
 
                     # 2) Пытаемся извлечь команды из DOM: left/right -> comman/name
                     if not team1_name or not team2_name:
@@ -599,31 +506,18 @@ async def check_game_start(game_info, game_url):
             return
         
         if should_send_game_notification(game_info['time']):
-            # Создаем уникальный идентификатор для уведомления о начале игры
-            start_notification_id = f"game_start_{game_url}"
-            
-            if start_notification_id not in sent_notifications:
-                # Формируем сообщение
-                team1 = game_info['team1'] or "Команда 1"
-                team2 = game_info['team2'] or "Команда 2"
-                
-                message = f"🏀 Игра {team1} против {team2} начинается в {game_info['time']}!\n\nСсылка на игру: {game_url}"
-                if DRY_RUN:
-                    print(f"[DRY_RUN] -> send_message: {message}")
-                else:
-                    await bot.send_message(chat_id=CHAT_ID, text=message)
-                sent_notifications.add(start_notification_id)
-                print(f"✅ Отправлено уведомление о начале игры: {team1} vs {team2} в {game_info['time']}")
+            # Используем общий менеджер уведомлений
+            await notification_manager.send_game_start_notification(game_info, game_url)
     except Exception as e:
         print(f"❌ Ошибка при проверке начала игры: {e}")
 
 async def check_letobasket_site():
     """Проверяет сайт letobasket.ru на наличие игр PullUP"""
     try:
-        print(f"🔍 Проверяю сайт {LETOBASKET_URL}...")
+        print(f"🔍 Проверяю сайт letobasket.ru...")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(LETOBASKET_URL) as response:
+        # Получаем свежий контент страницы
+        html_content = await game_parser.get_fresh_page_content()
                 if response.status == 200:
                     html_content = await response.text()
                     

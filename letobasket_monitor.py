@@ -721,19 +721,19 @@ async def check_letobasket_site():
                                 lines.append(f" [Тут]({link_url})")
                             
                             message = "\n".join(lines)
-                                id_base = "|".join([u for (u, _) in matched_games])
-                                notification_id = f"targets_{hash(id_base)}"
-                                if notification_id not in sent_notifications:
-                                    if DRY_RUN:
-                                        print(f"[DRY_RUN] -> send_message: {message}")
-                                    else:
-                                        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-                                    sent_notifications.add(notification_id)
-                                    print("✅ Отправлено агрегированное уведомление о целевых играх")
-                                for link_url, info in matched_games:
-                                    await check_game_start(info, link_url)
-                                    # Также проверяем завершение игр
-                                    await check_game_completion(link_url, info)
+                            id_base = "|".join([u for (u, _) in matched_games])
+                            notification_id = f"targets_{hash(id_base)}"
+                            if notification_id not in sent_notifications:
+                                if DRY_RUN:
+                                    print(f"[DRY_RUN] -> send_message: {message}")
+                                else:
+                                    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
+                                sent_notifications.add(notification_id)
+                                print("✅ Отправлено агрегированное уведомление о целевых играх")
+                            for link_url, info in matched_games:
+                                await check_game_start(info, link_url)
+                                # Также проверяем завершение игр
+                                await check_game_completion(link_url, info)
                             else:
                                 print("📊 Подходящих игр по целевым командам среди собранных ссылок не найдено")
                     else:

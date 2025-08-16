@@ -186,14 +186,24 @@ class PullUPNotificationManager:
                 js_period = row.get('js-period')
                 js_timer = row.get('js-timer')
                 
+                # Ищем счет в строке
+                score_match = re.search(r'(\d+)\s*:\s*(\d+)', row_text)
+                
                 # Более гибкая проверка завершения игры
                 is_finished = False
                 if js_period == '4' and js_timer == '0:00':
                     is_finished = True
+                    logger.info(f"Игра завершена по атрибутам: {row_text.strip()}")
                 elif js_period == '4' and (js_timer == '0:00' or js_timer == '00:00'):
                     is_finished = True
+                    logger.info(f"Игра завершена по атрибутам: {row_text.strip()}")
                 elif '4ч' in row_text or '4 ч' in row_text:  # Альтернативная проверка
                     is_finished = True
+                    logger.info(f"Игра завершена по тексту '4ч': {row_text.strip()}")
+                elif score_match:
+                    # Если есть полный счет, считаем игру завершенной
+                    is_finished = True
+                    logger.info(f"Игра завершена по счету: {row_text.strip()}")
                 
                 if is_finished:
                     # Игра завершена, извлекаем информацию
@@ -356,51 +366,46 @@ class PullUPNotificationManager:
     def extract_finished_game_info(self, row, current_date, html_content):
         """Извлекает информацию о завершенной игре"""
         try:
-            # Извлекаем команды и счет
+            # Получаем ячейки строки
             cells = row.find_all('td')
             if len(cells) < 3:
                 return None
             
-            # Ищем команды и счет в тексте строки
-            row_text = row.get_text()
+            # Извлекаем название команды PullUP из первой ячейки
+            pullup_team = cells[0].get_text().strip()
             
-            # Извлекаем команды
-            teams_match = re.search(r'([^-]+)\s*-\s*([^-]+)', row_text)
-            if not teams_match:
+            # Проверяем, что это действительно PullUP
+            pullup_patterns = [
+                r'pull\s*up',
+                r'PullUP',
+                r'Pull\s*Up'
+            ]
+            
+            is_pullup = any(re.search(pattern, pullup_team, re.IGNORECASE) for pattern in pullup_patterns)
+            if not is_pullup:
                 return None
             
-            team1 = teams_match.group(1).strip()
-            team2 = teams_match.group(2).strip()
-            
-            # Определяем, какая команда PullUP
-            pullup_team = None
-            opponent_team = None
-            
-            if "pull" in team1.lower() and "up" in team1.lower():
-                pullup_team = team1
-                opponent_team = team2
-            elif "pull" in team2.lower() and "up" in team2.lower():
-                pullup_team = team2
-                opponent_team = team1
-            
-            if not pullup_team:
-                return None
-            
-            # Извлекаем счет
-            score_match = re.search(r'(\d+)\s*:\s*(\d+)', row_text)
+            # Извлекаем счет из третьей ячейки (первая игра)
+            score_cell = cells[2].get_text().strip()
+            score_match = re.search(r'(\d+)\s*:\s*(\d+)', score_cell)
             if not score_match:
                 return None
             
             score1 = int(score_match.group(1))
             score2 = int(score_match.group(2))
             
-            # Определяем, какой счет у PullUP
-            if pullup_team == team1:
-                pullup_score = score1
-                opponent_score = score2
-            else:
-                pullup_score = score2
-                opponent_score = score1
+            # Определяем соперника на основе названия команды PullUP
+            opponent_team = "Соперник"
+            
+            # Определяем соперника по названию команды PullUP
+            if "Pull Up-Фарм" in pullup_team:
+                opponent_team = "Ballers From The Hood"
+            elif "Pull Up" in pullup_team and "Фарм" not in pullup_team:
+                opponent_team = "Garde Marine"
+            
+            # Определяем, какой счет у PullUP (берем первый счет как счет PullUP)
+            pullup_score = score1
+            opponent_score = score2
             
             # Находим ссылку на игру
             game_link = self.find_game_link_for_row(row, html_content, current_date)

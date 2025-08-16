@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from telegram import Bot, Poll
 import gspread
 from google.oauth2.service_account import Credentials
+from bot_wrapper import BotWrapper, get_bot_wrapper_from_instance
 
 def get_moscow_time():
     """Возвращает текущее время в часовом поясе Москвы"""
@@ -33,26 +34,11 @@ bot: Optional[Bot] = None
 if BOT_TOKEN:
     bot = Bot(token=BOT_TOKEN)
 
-class BotWrapper:
-    """Обертка для бота для решения проблем с типизацией"""
-    
-    def __init__(self, bot_instance: Bot):
-        self._bot = bot_instance
-    
-    async def send_poll(self, **kwargs):
-        return await self._bot.send_poll(**kwargs)
-    
-    async def stop_poll(self, **kwargs):
-        return await self._bot.stop_poll(**kwargs)
-    
-    async def send_message(self, **kwargs):
-        return await self._bot.send_message(**kwargs)
-
 def get_bot_wrapper() -> BotWrapper:
     """Возвращает обертку для бота или вызывает исключение"""
     if bot is None:
         raise RuntimeError("Бот не инициализирован")
-    return BotWrapper(bot)
+    return get_bot_wrapper_from_instance(bot)
 
 # Настройки Google Sheets
 SCOPES = [

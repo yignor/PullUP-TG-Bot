@@ -8,18 +8,10 @@ import asyncio
 import aiohttp
 import json
 from dotenv import load_dotenv
+from bot_wrapper import BotWrapper, get_bot_wrapper_from_instance
 
 # Загружаем переменные окружения
 load_dotenv()
-
-class BotWrapper:
-    """Обертка для бота для решения проблем с типизацией"""
-    
-    def __init__(self, bot_instance):
-        self._bot = bot_instance
-    
-    async def send_message(self, **kwargs):
-        return await self._bot.send_message(**kwargs)
 
 async def check_updates():
     """Проверяет обновления бота"""
@@ -100,7 +92,7 @@ async def send_and_check():
     
     # Создаем экземпляр бота и обертку
     bot_instance = Bot(token=bot_token)
-    bot_wrapper = BotWrapper(bot_instance)
+    bot_wrapper = get_bot_wrapper_from_instance(bot_instance)
     
     print("📤 Отправляю тестовое сообщение...")
     

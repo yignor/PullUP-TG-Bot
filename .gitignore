@@ -1,0 +1,5 @@
+.env
+.gitignore
+google_credentials.json
+*.session
+*.session-journal

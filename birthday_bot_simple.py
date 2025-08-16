@@ -316,6 +316,91 @@ async def check_letobasket_site():
     except Exception as e:
         print(f"❌ Ошибка при проверке сайта: {e}")
 
+async def create_poll(question, options, is_anonymous=True, allows_multiple_answers=False, explanation=None):
+    """Создает опрос в Telegram чате
+    
+    Args:
+        question (str): Вопрос опроса
+        options (list): Список вариантов ответов (2-10 вариантов)
+        is_anonymous (bool): Анонимный ли опрос (по умолчанию True)
+        allows_multiple_answers (bool): Можно ли выбрать несколько ответов (по умолчанию False)
+        explanation (str): Объяснение к опросу (опционально)
+    """
+    try:
+        # Проверяем количество вариантов (Telegram требует 2-10)
+        if len(options) < 2:
+            print("❌ Ошибка: нужно минимум 2 варианта ответа")
+            return None
+        if len(options) > 10:
+            print("❌ Ошибка: максимум 10 вариантов ответа")
+            return None
+        
+        # Создаем опрос
+        poll = await bot.send_poll(
+            chat_id=CHAT_ID,
+            question=question,
+            options=options,
+            is_anonymous=is_anonymous,
+            allows_multiple_answers=allows_multiple_answers,
+            explanation=explanation
+        )
+        
+        print(f"✅ Опрос создан успешно: {question}")
+        return poll
+        
+    except Exception as e:
+        print(f"❌ Ошибка при создании опроса: {e}")
+        return None
+
+async def create_game_prediction_poll(team1, team2, game_time=None):
+    """Создает опрос для предсказания результата игры"""
+    question = f"🏀 Кто победит в игре {team1} vs {team2}?"
+    
+    if game_time:
+        question += f"\n⏰ Время: {game_time}"
+    
+    options = [
+        f"🏆 {team1}",
+        f"🏆 {team2}",
+        "🤝 Ничья"
+    ]
+    
+    explanation = "Проголосуйте за победителя игры! 🏀"
+    
+    return await create_poll(question, options, explanation=explanation)
+
+async def create_birthday_poll(birthday_person):
+    """Создает опрос для поздравления с днем рождения"""
+    question = f"🎉 Как поздравить {birthday_person} с днем рождения?"
+    
+    options = [
+        "🎂 Торт и свечи",
+        "🏀 Баскетбольный матч",
+        "🎁 Подарок",
+        "🍕 Пицца",
+        "🎵 Музыка"
+    ]
+    
+    explanation = "Выберите способ поздравления! 🎉"
+    
+    return await create_poll(question, options, explanation=explanation)
+
+async def create_team_motivation_poll():
+    """Создает опрос для мотивации команды"""
+    question = "💪 Что больше всего мотивирует команду PullUP?"
+    
+    options = [
+        "🏆 Победы и трофеи",
+        "👥 Командный дух",
+        "🏀 Любовь к баскетболу",
+        "💪 Физическая подготовка",
+        "🎯 Цели и амбиции"
+    ]
+    
+    explanation = "Помогите понять, что движет командой! 💪"
+    
+    return await create_poll(question, options, explanation=explanation)
+
 async def main():
     """Основная функция, выполняющая все проверки"""
     try:
@@ -336,9 +421,59 @@ async def main():
         # Используем только простой метод без браузера
         await check_game_end_simple(test_stats_url)
         
+        # Создаем опросы при определенных условиях
+        await create_scheduled_polls(now)
+        
+        # Управление опросами тренировок
+        await manage_training_polls(now)
+        
         print("✅ Все проверки завершены")
     except Exception as e:
         print(f"❌ Критическая ошибка в main(): {e}")
+
+async def manage_training_polls(now):
+    """Управляет опросами тренировок"""
+    try:
+        # Импортируем модуль тренировок
+        from training_polls import main_training_polls
+        await main_training_polls()
+    except ImportError:
+        print("⚠️ Модуль training_polls не найден")
+    except Exception as e:
+        print(f"❌ Ошибка в управлении опросами тренировок: {e}")
+
+async def create_scheduled_polls(now):
+    """Создает опросы по расписанию"""
+    try:
+        # Опрос мотивации команды каждый понедельник в 10:00
+        if now.weekday() == 0 and now.hour == 10 and now.minute < 30:
+            print("📊 Создаю опрос мотивации команды...")
+            await create_team_motivation_poll()
+        
+        # Опрос в день рождения (если есть именинники)
+        if should_check_birthdays():
+            today = datetime.datetime.now().date()
+            birthday_people = []
+            
+            for player in players:
+                try:
+                    birthday = datetime.datetime.strptime(player["birthday"], "%Y-%m-%d").date()
+                    birthday_this_year = birthday.replace(year=today.year)
+                    
+                    if birthday_this_year < today:
+                        birthday_this_year = birthday.replace(year=today.year + 1)
+                    
+                    if birthday_this_year == today:
+                        birthday_people.append(player['name'])
+                except Exception:
+                    continue
+            
+            if birthday_people:
+                print(f"🎂 Создаю опрос для поздравления {birthday_people[0]}...")
+                await create_birthday_poll(birthday_people[0])
+                
+    except Exception as e:
+        print(f"❌ Ошибка при создании запланированных опросов: {e}")
 
 if __name__ == "__main__":
     try:

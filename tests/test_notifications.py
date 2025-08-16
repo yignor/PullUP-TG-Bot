@@ -1,6 +1,8 @@
 import asyncio
 import os
 from datetime import datetime
+import sys
+sys.path.append('..')
 from pullup_notifications import PullUPNotificationManager
 from bs4 import BeautifulSoup
 

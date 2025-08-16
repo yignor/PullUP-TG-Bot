@@ -21,6 +21,8 @@ async def test_game_results_monitor():
     
     try:
         # Импортируем монитор результатов
+        import sys
+        sys.path.append('..')
         from game_results_monitor import GameResultsMonitor
         
         print("✅ Модуль game_results_monitor импортирован")

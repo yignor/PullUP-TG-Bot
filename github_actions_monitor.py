@@ -51,7 +51,7 @@ async def send_github_error_notification(error_message: str, bot: Bot) -> None:
     except Exception as e:
         print(f"❌ Не удалось отправить уведомление об ошибке: {e}")
 
-async def send_start_notification(bot: 'Bot') -> None:
+async def send_start_notification(bot: Bot) -> None:
     """Отправляет уведомление о начале работы в тестовый чат"""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

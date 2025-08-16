@@ -10,10 +10,6 @@ import traceback
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Bot
-from typing import TYPE_CHECKING, Union
-
-if TYPE_CHECKING:
-    from telegram import Bot as BotType
 from bs4 import BeautifulSoup
 from pullup_notifications import PullUPNotificationManager
 
@@ -40,7 +36,7 @@ if not PROD_CHAT_ID:
 assert BOT_TOKEN is not None, "BOT_TOKEN should not be None after validation"
 BOT_TOKEN_STR: str = BOT_TOKEN
 
-async def send_github_error_notification(error_message: str, bot: Bot) -> None:
+async def send_github_error_notification(error_message: str, bot) -> None:
     """Отправляет уведомление об ошибке в тестовый чат"""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -51,7 +47,7 @@ async def send_github_error_notification(error_message: str, bot: Bot) -> None:
     except Exception as e:
         print(f"❌ Не удалось отправить уведомление об ошибке: {e}")
 
-async def send_start_notification(bot: Bot) -> None:
+async def send_start_notification(bot) -> None:
     """Отправляет уведомление о начале работы в тестовый чат"""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -67,7 +63,7 @@ async def main():
     print("🚀 Запуск GitHub Actions монитора...")
     
     # Инициализируем бота
-    bot: Bot = Bot(token=BOT_TOKEN_STR)
+    bot = Bot(token=BOT_TOKEN_STR)
     
     try:
         print(f"✅ Бот инициализирован")

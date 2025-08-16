@@ -331,3 +331,4 @@ python test_bot.py
 
 Проект распространяется под лицензией MIT.
 # Test commit for GitHub Actions
+# Security: Removed .env.backup and .env.new from Git history

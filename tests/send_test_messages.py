@@ -1,29 +1,29 @@
 import asyncio
 import os
-from pullup_notifications import PullUPNotificationManager
+from test_pullup_notifications import TestPullUPNotificationManager
 
 async def send_test_messages():
     """Отправляет тестовые сообщения"""
-    print("=== ОТПРАВКА ТЕСТОВЫХ СООБЩЕНИЙ ===\n")
+    print("=== ОТПРАВКА ТЕСТОВЫХ СООБЩЕНИЙ В ТЕСТОВЫЙ КАНАЛ ===\n")
     
     # Проверяем переменные окружения
     bot_token = os.getenv('BOT_TOKEN')
-    chat_id = os.getenv('CHAT_ID')
+    test_chat_id = os.getenv('TEST_CHAT_ID')
     
     if not bot_token or bot_token == "ваш_токен_бота":
         print("❌ BOT_TOKEN не установлен или установлен неправильно")
         print("Установите правильный токен: export BOT_TOKEN='ваш_реальный_токен'")
         return
     
-    if not chat_id or chat_id == "ваш_chat_id":
-        print("❌ CHAT_ID не установлен или установлен неправильно")
-        print("Установите правильный chat_id: export CHAT_ID='ваш_реальный_chat_id'")
+    if not test_chat_id:
+        print("❌ TEST_CHAT_ID не установлен")
+        print("Добавьте TEST_CHAT_ID в .env для тестирования")
         return
     
     print("✅ Переменные окружения установлены")
     print()
     
-    manager = PullUPNotificationManager()
+    manager = TestPullUPNotificationManager()
     
     # Тест 1: Утреннее уведомление о предстоящих играх
     print("1. Отправка утреннего уведомления о предстоящих играх:")
@@ -59,10 +59,10 @@ async def send_test_messages():
     """
     
     try:
-        await manager.send_morning_notification(test_games, test_html)
-        print("✅ Утреннее уведомление отправлено")
+        await manager.send_test_morning_notification(test_games, test_html)
+        print("✅ Тестовое утреннее уведомление отправлено в тестовый канал")
     except Exception as e:
-        print(f"❌ Ошибка отправки утреннего уведомления: {e}")
+        print(f"❌ Ошибка отправки тестового утреннего уведомления: {e}")
     
     print()
     
@@ -78,13 +78,13 @@ async def send_test_messages():
     }
     
     try:
-        await manager.send_finish_notification(test_finished_game)
-        print("✅ Уведомление о завершении игры отправлено")
+        await manager.send_test_finish_notification(test_finished_game)
+        print("✅ Тестовое уведомление о завершении игры отправлено в тестовый канал")
     except Exception as e:
-        print(f"❌ Ошибка отправки уведомления о завершении: {e}")
+        print(f"❌ Ошибка отправки тестового уведомления о завершении: {e}")
     
     print()
-    print("=== ТЕСТОВЫЕ СООБЩЕНИЯ ОТПРАВЛЕНЫ ===")
+    print("=== ТЕСТОВЫЕ СООБЩЕНИЯ ОТПРАВЛЕНЫ В ТЕСТОВЫЙ КАНАЛ ===")
 
 if __name__ == "__main__":
     asyncio.run(send_test_messages())

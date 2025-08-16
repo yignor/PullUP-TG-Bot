@@ -16,40 +16,34 @@ async def test_topic_send():
     
     # Получаем настройки
     bot_token = os.getenv('BOT_TOKEN')
-    chat_id = os.getenv('CHAT_ID')
-    topic_id = os.getenv('ANNOUNCEMENTS_TOPIC_ID')
+    test_chat_id = os.getenv('TEST_CHAT_ID')
     
-    print("🧪 ТЕСТ ОТПРАВКИ В ТОПИК")
-    print("=" * 30)
+    print("🧪 ТЕСТ ОТПРАВКИ В ТЕСТОВЫЙ КАНАЛ")
+    print("=" * 40)
     
     # Проверяем настройки
     if not bot_token:
         print("❌ BOT_TOKEN не настроен")
         return
     
-    if not chat_id:
-        print("❌ CHAT_ID не настроен")
-        return
-    
-    if not topic_id:
-        print("❌ ANNOUNCEMENTS_TOPIC_ID не настроен")
-        print("📝 Сначала настройте ID топика: python manual_topic_id.py")
+    if not test_chat_id:
+        print("❌ TEST_CHAT_ID не настроен")
+        print("📝 Добавьте TEST_CHAT_ID в .env для тестирования")
         return
     
     print(f"✅ BOT_TOKEN: {'*' * 10}{bot_token[-4:]}")
-    print(f"✅ CHAT_ID: {chat_id}")
-    print(f"✅ ANNOUNCEMENTS_TOPIC_ID: {topic_id}")
+    print(f"✅ TEST_CHAT_ID: {test_chat_id}")
+    print("🧪 Отправка в ТЕСТОВЫЙ канал")
     
     bot = Bot(token=bot_token)
     
     try:
         print("\n📤 Отправляю тестовое сообщение в топик...")
         
-        # Отправляем тестовое сообщение
+        # Отправляем тестовое сообщение в ТЕСТОВЫЙ канал
         message = await bot.send_message(
-            chat_id=chat_id,
-            text="🧪 Тестовое сообщение в топик 'АНОНСЫ ТРЕНИРОВОК'",
-            message_thread_id=int(topic_id)
+            chat_id=test_chat_id,
+            text="🧪 ТЕСТОВОЕ СООБЩЕНИЕ - Проверка отправки в тестовый канал"
         )
         
         print(f"✅ Сообщение успешно отправлено!")

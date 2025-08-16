@@ -16,8 +16,7 @@ async def test_training_poll():
     
     # Получаем настройки
     bot_token = os.getenv('BOT_TOKEN')
-    chat_id = os.getenv('CHAT_ID')
-    topic_id = os.getenv('ANNOUNCEMENTS_TOPIC_ID')
+    test_chat_id = os.getenv('TEST_CHAT_ID')
     
     print("🧪 ТЕСТ СОЗДАНИЯ ОПРОСА ТРЕНИРОВОК")
     print("=" * 40)
@@ -27,17 +26,14 @@ async def test_training_poll():
         print("❌ BOT_TOKEN не настроен")
         return
     
-    if not chat_id:
-        print("❌ CHAT_ID не настроен")
-        return
-    
-    if not topic_id:
-        print("❌ ANNOUNCEMENTS_TOPIC_ID не настроен")
+    if not test_chat_id:
+        print("❌ TEST_CHAT_ID не настроен")
+        print("📝 Добавьте TEST_CHAT_ID в .env для тестирования")
         return
     
     print(f"✅ BOT_TOKEN: {'*' * 10}{bot_token[-4:]}")
-    print(f"✅ CHAT_ID: {chat_id}")
-    print(f"✅ ANNOUNCEMENTS_TOPIC_ID: {topic_id}")
+    print(f"✅ TEST_CHAT_ID: {test_chat_id}")
+    print("🧪 Отправка в ТЕСТОВЫЙ канал")
     
     bot = Bot(token=bot_token)
     
@@ -52,15 +48,14 @@ async def test_training_poll():
     try:
         print("\n📤 Создаю опрос тренировок...")
         
-        # Создаем опрос с множественным выбором
+        # Создаем опрос с множественным выбором в ТЕСТОВЫЙ канал
         poll = await bot.send_poll(
-            chat_id=chat_id,
-            question="🏀 Тренировки на неделе СШОР ВО",
+            chat_id=test_chat_id,
+            question="🧪 ТЕСТ: Тренировки на неделе СШОР ВО",
             options=training_options,
             allows_multiple_answers=True,
             is_anonymous=False,  # Открытый опрос
-            explanation="Выберите тренировки, на которые планируете прийти на этой неделе",
-            message_thread_id=int(topic_id)  # Отправляем в топик "АНОНСЫ ТРЕНИРОВОК"
+            explanation="🧪 ТЕСТОВЫЙ ОПРОС - Выберите тренировки, на которые планируете прийти на этой неделе"
         )
         
         print(f"✅ Опрос тренировок создан!")

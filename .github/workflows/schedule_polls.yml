@@ -1,0 +1,92 @@
+name: Schedule Polls Creator
+
+on:
+  schedule:
+    # Запуск каждый день в 10:00 UTC (13:00 по Москве)
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  create_polls:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-github.txt
+        
+    - name: Check secrets availability
+      run: |
+        echo "Checking secrets availability..."
+        if [ -n "${{ secrets.BOT_TOKEN }}" ]; then
+          echo "✅ BOT_TOKEN is available"
+        else
+          echo "❌ BOT_TOKEN is not available - workflow will fail"
+        fi
+        
+        if [ -n "${{ secrets.CHAT_ID }}" ]; then
+          echo "✅ CHAT_ID is available"
+        else
+          echo "❌ CHAT_ID is not available - workflow will fail"
+        fi
+        
+    - name: Run Schedule Polls Creator
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        # Проверяем наличие обязательных переменных
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "❌ ОШИБКА: BOT_TOKEN не установлен в GitHub Secrets"
+          echo "Добавьте BOT_TOKEN в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -z "$CHAT_ID" ]; then
+          echo "❌ ОШИБКА: CHAT_ID не установлен в GitHub Secrets"
+          echo "Добавьте CHAT_ID в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        # Проверяем финальные значения (скрываем токен)
+        echo "BOT_TOKEN: ${BOT_TOKEN:0:10}..."
+        echo "CHAT_ID: $CHAT_ID"
+        
+        # Проверяем наличие Python скрипта
+        if [ ! -f "run_schedule_polls.py" ]; then
+          echo "❌ Файл run_schedule_polls.py не найден"
+          exit 1
+        fi
+        
+        echo "Запуск системы создания голосований по расписанию..."
+        python run_schedule_polls.py
+        
+    - name: Handle errors
+      if: failure()
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        echo "❌ GitHub Actions завершился с ошибкой"
+        echo "Проверка доступности переменных для отправки уведомления об ошибке..."
+        
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "⚠️ BOT_TOKEN недоступен для отправки уведомления об ошибке"
+          echo "Добавьте BOT_TOKEN в GitHub Secrets для получения уведомлений об ошибках"
+        fi
+        
+        if [ -z "$CHAT_ID" ]; then
+          echo "⚠️ CHAT_ID недоступен для отправки уведомления об ошибке"
+          echo "Добавьте CHAT_ID в GitHub Secrets для получения уведомлений об ошибках"
+        fi
+        
+        echo "Ошибки будут отправлены в основной чат через скрипт"

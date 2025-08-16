@@ -10,6 +10,10 @@ import traceback
 from datetime import datetime
 from dotenv import load_dotenv
 from telegram import Bot
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from telegram import Bot as BotType
 from bs4 import BeautifulSoup
 from pullup_notifications import PullUPNotificationManager
 
@@ -17,11 +21,26 @@ from pullup_notifications import PullUPNotificationManager
 load_dotenv()
 
 # Настройки для продакшн и тестового чатов
-BOT_TOKEN = os.getenv('BOT_TOKEN', '7772125141:AAHqFYGm3I6MW516aCq3K0FFjK2EGKk0wtw')
-PROD_CHAT_ID = os.getenv('CHAT_ID', '-1001535261616')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+PROD_CHAT_ID = os.getenv('CHAT_ID')
 TEST_CHAT_ID = os.getenv('TEST_CHAT_ID', '-15573582')
 
-async def send_error_notification(error_message, bot):
+# Проверяем наличие обязательных переменных
+if not BOT_TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не установлен")
+    print("Установите переменную окружения BOT_TOKEN или добавьте её в .env файл")
+    sys.exit(1)
+
+if not PROD_CHAT_ID:
+    print("❌ ОШИБКА: CHAT_ID не установлен")
+    print("Установите переменную окружения CHAT_ID или добавьте её в .env файл")
+    sys.exit(1)
+
+# Type assertion to ensure BOT_TOKEN is a string
+assert BOT_TOKEN is not None, "BOT_TOKEN should not be None after validation"
+BOT_TOKEN_STR: str = BOT_TOKEN
+
+async def send_github_error_notification(error_message: str, bot: Bot) -> None:
     """Отправляет уведомление об ошибке в тестовый чат"""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -32,7 +51,7 @@ async def send_error_notification(error_message, bot):
     except Exception as e:
         print(f"❌ Не удалось отправить уведомление об ошибке: {e}")
 
-async def send_start_notification(bot):
+async def send_start_notification(bot: 'Bot') -> None:
     """Отправляет уведомление о начале работы в тестовый чат"""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -47,9 +66,10 @@ async def main():
     """Основная функция для GitHub Actions"""
     print("🚀 Запуск GitHub Actions монитора...")
     
+    # Инициализируем бота
+    bot: Bot = Bot(token=BOT_TOKEN_STR)
+    
     try:
-        # Инициализируем бота
-        bot = Bot(token=BOT_TOKEN)
         print(f"✅ Бот инициализирован")
         print(f"🏭 Продакшн чат: {PROD_CHAT_ID}")
         print(f"🧪 Тестовый чат: {TEST_CHAT_ID}")
@@ -71,7 +91,7 @@ async def main():
         current_date = manager.extract_current_date(page_text)
         if not current_date:
             error_msg = "Не удалось извлечь текущую дату"
-            await send_error_notification(error_msg, bot)
+            await send_github_error_notification(error_msg, bot)
             return
         
         print(f"✅ Текущая дата: {current_date}")
@@ -87,7 +107,7 @@ async def main():
                 print(f"✅ Уведомление о предстоящих играх отправлено")
             except Exception as e:
                 error_msg = f"Ошибка отправки уведомления о предстоящих играх: {str(e)}\nИгры: {pullup_games}"
-                await send_error_notification(error_msg, bot)
+                await send_github_error_notification(error_msg, bot)
         else:
             print("ℹ️ Предстоящих игр не найдено")
         
@@ -103,7 +123,7 @@ async def main():
                     print(f"✅ Уведомление о завершенной игре отправлено")
                 except Exception as e:
                     error_msg = f"Ошибка отправки уведомления о завершенной игре: {str(e)}\nИгра: {game}"
-                    await send_error_notification(error_msg, bot)
+                    await send_github_error_notification(error_msg, bot)
         else:
             print("ℹ️ Завершенных игр не найдено")
         
@@ -119,7 +139,8 @@ async def main():
         print(f"❌ Критическая ошибка: {e}")
         
         try:
-            await send_error_notification(error_message, bot)
+            # Use the global function explicitly
+            await send_github_error_notification(error_message, bot)
         except Exception as send_error:
             print(f"❌ Не удалось отправить уведомление об ошибке: {send_error}")
         

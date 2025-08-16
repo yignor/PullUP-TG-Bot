@@ -330,3 +330,4 @@ python test_bot.py
 ## Лицензия
 
 Проект распространяется под лицензией MIT.
+# Test commit for GitHub Actions

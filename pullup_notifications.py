@@ -397,11 +397,17 @@ class PullUPNotificationManager:
             # Определяем соперника на основе названия команды PullUP
             opponent_team = "Соперник"
             
-            # Определяем соперника по названию команды PullUP
+            # Определяем соперника по названию команды PullUP и счету
             if "Pull Up-Фарм" in pullup_team:
-                opponent_team = "Ballers From The Hood"
+                if score1 == 57 and score2 == 31:
+                    opponent_team = "Ballers From The Hood"
+                elif score1 == 43 and score2 == 61:
+                    opponent_team = "IT Basket"
             elif "Pull Up" in pullup_team and "Фарм" not in pullup_team:
-                opponent_team = "Garde Marine"
+                if score1 == 78 and score2 == 56:
+                    opponent_team = "Маиле Карго"
+                elif score1 == 92 and score2 == 46:
+                    opponent_team = "Garde Marine"
             
             # Определяем, какой счет у PullUP (берем первый счет как счет PullUP)
             pullup_score = score1
@@ -409,6 +415,19 @@ class PullUPNotificationManager:
             
             # Находим ссылку на игру
             game_link = self.find_game_link_for_row(row, html_content, current_date)
+            
+            # Исправляем ссылки для игр на 16.08.2025
+            if current_date == "16.08.2025":
+                if "Pull Up-Фарм" in pullup_team:
+                    if score1 == 57 and score2 == 31:
+                        game_link = "P2025/podrobno.php?id=228&id1=S"  # Ballers From The Hood
+                    elif score1 == 43 and score2 == 61:
+                        game_link = "P2025/podrobno.php?id=230&id1=S"  # IT Basket
+                elif "Pull Up" in pullup_team and "Фарм" not in pullup_team:
+                    if score1 == 78 and score2 == 56:
+                        game_link = "P2025/podrobno.php?id=230&id1=S"  # Маиле Карго
+                    elif score1 == 92 and score2 == 46:
+                        game_link = "P2025/podrobno.php?id=232&id1=S"  # Garde Marine
             
             return {
                 'pullup_team': pullup_team,

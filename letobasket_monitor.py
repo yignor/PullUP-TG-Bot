@@ -218,10 +218,16 @@ def extract_game_links_from_soup(soup: BeautifulSoup, base_url: str, max_links: 
 def team_matches_targets(team_name: Optional[str], targets: list) -> bool:
     if not team_name:
         return False
-    lower = team_name.lower()
+    lower_name = team_name.lower()
     for t in targets:
-        if t.lower() in lower:
-            return True
+        tl = t.lower()
+        # Специальная обработка PullUP-подобных команд: допускаем пробелы/дефисы между pull и up
+        if re.match(r"^pull", tl, re.IGNORECASE) and "up" in tl:
+            if re.search(r"pull\s*[-\s]*up", lower_name, re.IGNORECASE):
+                return True
+        else:
+            if tl in lower_name:
+                return True
     return False
 
 def should_send_game_notification(game_time_str):

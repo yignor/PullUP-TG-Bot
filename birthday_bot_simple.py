@@ -255,51 +255,53 @@ async def check_letobasket_site():
                         
                         # Ищем ссылку "СТРАНИЦА ИГРЫ" в HTML
                         game_links = soup.find_all('a', href=True)
-                        game_page_link = None
-                        
+                        candidate_hrefs = []
                         for link in game_links:
-                            link_text = link.get_text().strip()
-                            if "СТРАНИЦА ИГРЫ" in link_text or "страница игры" in link_text.lower():
-                                game_page_link = link['href']
-                                break
+                            href = link['href']
+                            text = (link.get_text() or '').strip()
+                            if ("СТРАНИЦА ИГРЫ" in text) or ("страница игры" in text.lower()) or any(
+                                k in href.lower() for k in ['game.html', 'gameid=', 'match', 'podrobno', 'protocol', 'game']
+                            ):
+                                # Строим полный URL
+                                full_url = href if href.startswith('http') else (LETOBASKET_URL.rstrip('/') + '/' + href.lstrip('/'))
+                                if full_url not in candidate_hrefs:
+                                    candidate_hrefs.append(full_url)
                         
-                        # Если не нашли "СТРАНИЦА ИГРЫ", ищем любые похожие на страницу игры ссылки
-                        if not game_page_link:
-                            for link in game_links:
-                                href = link['href']
-                                if any(keyword in href.lower() for keyword in ['game', 'match', 'podrobno', 'id']):
-                                    game_page_link = href
-                                    break
+                        # Валидируем кандидатов: парсим страницу и сверяем названия команд
+                        matched_games = []
+                        for url in candidate_hrefs:
+                            info = await parse_game_info_simple(url)
+                            if not info:
+                                continue
+                            t1 = (info.get('team1') or '').lower()
+                            t2 = (info.get('team2') or '').lower()
+                            # Универсальная проверка для PullUP и фарм-версий
+                            def is_pullup_variant(name: str) -> bool:
+                                return bool(re.search(r"pull\s*[-\s]*up", name, re.IGNORECASE))
+                            if is_pullup_variant(t1) or is_pullup_variant(t2):
+                                matched_games.append((url, info))
                         
-                        if game_page_link:
-                            # Формируем полный URL
-                            if game_page_link.startswith('http'):
-                                full_url = game_page_link
-                            else:
-                                full_url = LETOBASKET_URL.rstrip('/') + '/' + game_page_link.lstrip('/')
-                            
-                            # Создаем уникальный идентификатор для уведомления
-                            notification_id = f"pullup_{full_url}"
-                            
-                            # Проверяем, не отправляли ли мы уже это уведомление
+                        if matched_games:
+                            lines = ["🏀 Найдены игры PullUP:"]
+                            for url, info in matched_games:
+                                n1 = info.get('team1') or 'Команда 1'
+                                n2 = info.get('team2') or 'Команда 2'
+                                tm = info.get('time') or 'Время не указано'
+                                lines.append(f"- {n1} vs {n2} — {tm}\n  📋 {url}")
+                            message = "\n".join(lines)
+                            id_base = "|".join([u for (u, _) in matched_games])
+                            notification_id = f"pullup_list_{hash(id_base)}"
                             if notification_id not in sent_notifications:
-                                message = f"🏀 Найдена команда {pullup_team}!\n\n📋 СТРАНИЦА ИГРЫ: {full_url}"
                                 await bot.send_message(chat_id=CHAT_ID, text=message)
                                 sent_notifications.add(notification_id)
-                                print(f"✅ Отправлено уведомление о команде {pullup_team}")
-                                
-                                # Проверяем конец игры простым методом
-                                await check_game_end_simple(full_url)
-                                
-                            else:
-                                print(f"ℹ️ Уведомление о команде {pullup_team} уже было отправлено")
-                                # Проверяем конец игры
-                                await check_game_end_simple(full_url)
-                                    
+                                print("✅ Отправлено агрегированное уведомление о играх PullUP")
+                            # Для каждой игры проверяем окончание
+                            for url, _ in matched_games:
+                                await check_game_end_simple(url)
                         else:
-                            message = f"🏀 Найдена команда {pullup_team}, но ссылка на страницу игры не найдена"
+                            message = f"🏀 Найдена команда {pullup_team}, но релевантные ссылки не прошли валидацию"
                             await bot.send_message(chat_id=CHAT_ID, text=message)
-                            print("⚠️ Ссылка на страницу игры не найдена")
+                            print("⚠️ Ссылки не прошли валидацию по командам")
                     else:
                         print("📊 Команды PullUP не найдены на странице")
                         

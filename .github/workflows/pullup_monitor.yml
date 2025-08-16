@@ -24,22 +24,88 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-github.txt
         
+    - name: Check secrets availability
+      run: |
+        echo "Checking secrets availability..."
+        if [ -n "${{ secrets.BOT_TOKEN }}" ]; then
+          echo "✅ BOT_TOKEN is available"
+        else
+          echo "⚠️ BOT_TOKEN is not available"
+        fi
+        
+        if [ -n "${{ secrets.CHAT_ID }}" ]; then
+          echo "✅ CHAT_ID is available"
+        else
+          echo "⚠️ CHAT_ID is not available"
+        fi
+        
+        if [ -n "${{ secrets.TEST_CHAT_ID }}" ]; then
+          echo "✅ TEST_CHAT_ID is available"
+        else
+          echo "⚠️ TEST_CHAT_ID is not available"
+        fi
+        
     - name: Run PullUP monitor
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
         TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
       run: |
-        # Загружаем переменные из .env если секреты не установлены
-        if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-          echo "Загружаем переменные из .env файла..."
-          export $(cat .env | xargs)
+        # Функция для безопасной загрузки переменных из .env
+        load_env_safely() {
+          if [ -f .env ]; then
+            echo "📁 .env файл найден, загружаем переменные..."
+            # Загружаем только непустые строки без комментариев
+            while IFS= read -r line; do
+              # Пропускаем пустые строки и комментарии
+              if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# ]]; then
+                # Экспортируем переменную
+                export "$line"
+                echo "  ✅ Загружена: ${line%%=*}"
+              fi
+            done < .env
+          else
+            echo "❌ .env файл не найден"
+            return 1
+          fi
+        }
+        
+        # Проверяем наличие необходимых переменных
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "❌ BOT_TOKEN не установлен в secrets"
+          if load_env_safely; then
+            echo "✅ Переменные загружены из .env"
+          else
+            echo "❌ Не удалось загрузить переменные из .env"
+            exit 1
+          fi
         fi
         
-        # Проверяем наличие TEST_CHAT_ID
+        if [ -z "$CHAT_ID" ]; then
+          echo "❌ CHAT_ID не установлен в secrets"
+          if load_env_safely; then
+            echo "✅ Переменные загружены из .env"
+          else
+            echo "❌ Не удалось загрузить переменные из .env"
+            exit 1
+          fi
+        fi
+        
+        # Устанавливаем значение по умолчанию для TEST_CHAT_ID если оно не задано
         if [ -z "$TEST_CHAT_ID" ]; then
           echo "TEST_CHAT_ID не установлен, используем значение по умолчанию"
           export TEST_CHAT_ID="-15573582"
+        fi
+        
+        # Проверяем финальные значения
+        echo "BOT_TOKEN: ${BOT_TOKEN:0:10}..."
+        echo "CHAT_ID: $CHAT_ID"
+        echo "TEST_CHAT_ID: $TEST_CHAT_ID"
+        
+        # Проверяем наличие Python скрипта
+        if [ ! -f "github_actions_monitor.py" ]; then
+          echo "❌ Файл github_actions_monitor.py не найден"
+          exit 1
         fi
         
         echo "Запуск монитора PullUP игр..."
@@ -52,4 +118,34 @@ jobs:
         TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
       run: |
         echo "❌ GitHub Actions завершился с ошибкой"
+        echo "Проверка доступности переменных для отправки уведомления об ошибке..."
+        
+        # Функция для безопасной загрузки переменных из .env
+        load_env_safely() {
+          if [ -f .env ]; then
+            echo "📁 .env файл найден, загружаем переменные..."
+            while IFS= read -r line; do
+              if [[ -n "$line" && ! "$line" =~ ^[[:space:]]*# ]]; then
+                export "$line"
+                echo "  ✅ Загружена: ${line%%=*}"
+              fi
+            done < .env
+          else
+            echo "❌ .env файл не найден"
+            return 1
+          fi
+        }
+        
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "⚠️ BOT_TOKEN недоступен для отправки уведомления об ошибке"
+          if load_env_safely; then
+            echo "✅ Переменные загружены из .env для отправки уведомления"
+          fi
+        fi
+        
+        # Устанавливаем значение по умолчанию для TEST_CHAT_ID если оно не задано
+        if [ -z "$TEST_CHAT_ID" ]; then
+          export TEST_CHAT_ID="-15573582"
+        fi
+        
         echo "Ошибки будут отправлены в тестовый чат через скрипт"

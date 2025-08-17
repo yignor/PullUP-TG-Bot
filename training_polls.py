@@ -25,7 +25,7 @@ load_dotenv()
 # Получаем переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-ANNOUNCEMENTS_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID")  # ID топика "АНОНСЫ ТРЕНИРОВОК"
+ANNOUNCEMENTS_TOPIC_ID = int(os.getenv("ANNOUNCEMENTS_TOPIC_ID", "26"))  # ID топика "АНОНСЫ ТРЕНИРОВОК"
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # JSON credentials
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # ID Google таблицы
 

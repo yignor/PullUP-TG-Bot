@@ -18,8 +18,13 @@ TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID")
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
 TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-ANNOUNCEMENTS_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID")
+CHAT_ID = os.getenv("CHAT_ID", "-1001535261616")  # Значение по умолчанию
+ANNOUNCEMENTS_TOPIC_ID = int(os.getenv("ANNOUNCEMENTS_TOPIC_ID", "26"))
+
+# Валидация обязательных переменных
+if not TELEGRAM_API_ID or not TELEGRAM_API_HASH or not TELEGRAM_PHONE:
+    print("⚠️ Переменные для Telegram Client API не настроены")
+    print("   Нужно: TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE")
 
 class PollResultsHandler:
     """Обработчик результатов опросов"""
@@ -38,6 +43,10 @@ class PollResultsHandler:
             
             # Импортируем только при необходимости
             from telethon import TelegramClient
+            
+            if not TELEGRAM_API_ID or not TELEGRAM_API_HASH:
+                print("❌ TELEGRAM_API_ID или TELEGRAM_API_HASH не настроены")
+                return
             
             self.client = TelegramClient(
                 'bot_session',
@@ -71,6 +80,10 @@ class PollResultsHandler:
             return None
         
         try:
+            if not CHAT_ID:
+                print("❌ CHAT_ID не настроен")
+                return None
+            
             # Получаем сообщение с опросом
             message = await self.client.get_messages(
                 int(CHAT_ID),

@@ -132,24 +132,34 @@ class NotificationManager:
     
     async def send_game_result_notification(self, game_info: Dict[str, Any], poll_results: Optional[Dict[str, Any]] = None):
         """Отправляет уведомление о результате игры с количеством участников"""
-        if not self.bot or not self.chat_id:
-            logger.error("Бот или CHAT_ID не настроены")
-            return
-        
         # Создаем уникальный ID для уведомления
-        notification_id = f"game_result_{game_info.get('team1', '')}_{game_info.get('team2', '')}_{game_info.get('date', '')}"
+        notification_id = f"game_result_{game_info.get('pullup_team', game_info.get('team1', ''))}_{game_info.get('opponent_team', game_info.get('team2', ''))}_{game_info.get('date', '')}"
         
         if notification_id in self.sent_game_result_notifications:
             logger.info("Уведомление о результате игры уже отправлено")
             return
         
+        if not self.bot or not self.chat_id:
+            logger.error("Бот или CHAT_ID не настроены")
+            # Сохраняем состояние даже при отсутствии бота, чтобы избежать повторных попыток
+            self.sent_game_result_notifications.add(notification_id)
+            self._save_sent_notifications()
+            return
+        
         try:
-            team1 = game_info.get('team1', 'Команда 1')
-            team2 = game_info.get('team2', 'Команда 2')
-            score = game_info.get('score', 'Неизвестно')
+            pullup_team = game_info.get('pullup_team', game_info.get('team1', 'Команда 1'))
+            opponent_team = game_info.get('opponent_team', game_info.get('team2', 'Команда 2'))
+            pullup_score = game_info.get('pullup_score', game_info.get('score', 'Неизвестно'))
+            opponent_score = game_info.get('opponent_score', '')
             date = game_info.get('date', '')
             
-            message = f"🏀 Игра против {team2} закончилась\n\n"
+            # Формируем счет
+            if opponent_score:
+                score = f"{pullup_score}:{opponent_score}"
+            else:
+                score = pullup_score
+            
+            message = f"🏀 Игра против {opponent_team} закончилась\n\n"
             message += f"🏆 Счет: {score}\n"
             
             if poll_results:

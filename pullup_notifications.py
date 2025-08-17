@@ -20,9 +20,9 @@ def get_moscow_time():
     return datetime.now(moscow_tz)
 
 def should_send_morning_notification():
-    """Проверяет, нужно ли отправить утреннее уведомление (только утром 9:00-10:00)"""
+    """Проверяет, нужно ли отправить утреннее уведомление (только в 9:00-9:29 по Москве)"""
     moscow_time = get_moscow_time()
-    return moscow_time.hour == 9  # Только в 9 утра по Москве
+    return moscow_time.hour == 9 and moscow_time.minute < 30  # Только в 9:00-9:29 по Москве
 
 class PullUPNotificationManager:
     def __init__(self):
@@ -270,10 +270,8 @@ class PullUPNotificationManager:
                 await self.send_finish_notification(finished_game)
             
             # Проверяем предстоящие игры (утреннее уведомление)
-            current_time = datetime.now().time()
-            if time(9, 55) <= current_time <= time(10, 5):  # Время отправки утреннего уведомления
-                pullup_games = self.find_pullup_games(page_text, current_date)
-                await self.send_morning_notification(pullup_games, html_content)
+            pullup_games = self.find_pullup_games(page_text, current_date)
+            await self.send_morning_notification(pullup_games, html_content)
             
         except Exception as e:
             logger.error(f"Ошибка в check_and_notify: {e}")

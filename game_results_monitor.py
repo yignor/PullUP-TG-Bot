@@ -115,8 +115,17 @@ class GameResultsMonitor:
             finished_games = self.check_finished_games(html_content, current_date)
             logger.info(f"Найдено {len(finished_games)} завершенных игр PullUP")
             
+            if not finished_games:
+                logger.info("Завершенных игр PullUP не найдено")
+                return
+            
             # Обрабатываем каждую завершенную игру
             for game_info in finished_games:
+                # Проверяем, что это реальная игра с валидными данными
+                if not game_info.get('pullup_team') or not game_info.get('opponent_team'):
+                    logger.warning(f"Пропускаем игру с неполными данными: {game_info}")
+                    continue
+                
                 logger.info(f"Обрабатываем игру: {game_info['pullup_team']} vs {game_info['opponent_team']}")
                 
                 # Получаем результаты голосования для этой игры

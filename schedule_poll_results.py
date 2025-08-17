@@ -57,6 +57,7 @@ class SchedulePollResultsHandler:
     async def start_client(self):
         """Запускает клиент"""
         if not self.client:
+            print("⚠️ Telegram Client не инициализирован (переменные окружения не настроены)")
             return False
         
         try:

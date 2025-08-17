@@ -25,12 +25,24 @@ if not BOT_TOKEN or not CHAT_ID:
     print("❌ BOT_TOKEN или CHAT_ID не заданы в переменных окружения")
     sys.exit(1)
 
-try:
-    bot: Any = Bot(token=BOT_TOKEN)
-    print(f"✅ Бот инициализирован успешно")
-except Exception as e:
-    print(f"❌ ОШИБКА при инициализации бота: {e}")
-    sys.exit(1)
+# Инициализируем бота как None, будет создан при необходимости
+bot: Any = None
+
+def get_bot():
+    """Получает инициализированного бота"""
+    global bot
+    if bot is None:
+        try:
+            if BOT_TOKEN:
+                bot = Bot(token=BOT_TOKEN)
+                print(f"✅ Бот инициализирован успешно")
+            else:
+                print("❌ BOT_TOKEN не настроен")
+                return None
+        except Exception as e:
+            print(f"❌ ОШИБКА при инициализации бота: {e}")
+            return None
+    return bot
 
 # Паттерны для поиска команд PullUP
 PULLUP_PATTERNS = [
@@ -132,8 +144,12 @@ async def check_birthdays():
 
         if birthday_people:
             text = "🎉 Сегодня день рождения у " + ", ".join(birthday_people) + "! \n Поздравляем! 🎂"
-            await bot.send_message(chat_id=CHAT_ID, text=text)
-            print("✅ Отправлено:", text)
+            current_bot = get_bot()
+            if current_bot:
+                await current_bot.send_message(chat_id=CHAT_ID, text=text)
+                print("✅ Отправлено:", text)
+            else:
+                print("❌ Не удалось отправить уведомление - бот не инициализирован")
         else:
             print("📅 Сегодня нет дней рождения.")
     except Exception as e:

@@ -5,6 +5,7 @@
 """
 
 import os
+import json
 import logging
 from typing import Dict, List, Optional, Any, Set
 from telegram import Bot
@@ -18,13 +19,15 @@ class NotificationManager:
     def __init__(self):
         self.bot = None
         self.chat_id = os.getenv('CHAT_ID')
+        self.notifications_file = "sent_notifications.json"
         self._init_bot()
         
-        # Множества для отслеживания отправленных уведомлений
+        # Загружаем отправленные уведомления из файла
         self.sent_game_end_notifications: Set[str] = set()
         self.sent_game_start_notifications: Set[str] = set()
         self.sent_game_result_notifications: Set[str] = set()
         self.sent_morning_notifications: Set[str] = set()
+        self._load_sent_notifications()
     
     def _init_bot(self):
         """Инициализация бота"""
@@ -37,6 +40,34 @@ class NotificationManager:
                 logger.error(f"❌ Ошибка инициализации бота: {e}")
         else:
             logger.error("❌ BOT_TOKEN не настроен")
+    
+    def _load_sent_notifications(self):
+        """Загружает отправленные уведомления из файла"""
+        try:
+            if os.path.exists(self.notifications_file):
+                with open(self.notifications_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.sent_game_end_notifications = set(data.get('game_end', []))
+                    self.sent_game_start_notifications = set(data.get('game_start', []))
+                    self.sent_game_result_notifications = set(data.get('game_result', []))
+                    self.sent_morning_notifications = set(data.get('morning', []))
+                logger.info(f"✅ Загружено {len(self.sent_game_end_notifications) + len(self.sent_game_start_notifications) + len(self.sent_game_result_notifications) + len(self.sent_morning_notifications)} отправленных уведомлений")
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки отправленных уведомлений: {e}")
+    
+    def _save_sent_notifications(self):
+        """Сохраняет отправленные уведомления в файл"""
+        try:
+            data = {
+                'game_end': list(self.sent_game_end_notifications),
+                'game_start': list(self.sent_game_start_notifications),
+                'game_result': list(self.sent_game_result_notifications),
+                'morning': list(self.sent_morning_notifications)
+            }
+            with open(self.notifications_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения отправленных уведомлений: {e}")
     
     async def send_game_end_notification(self, game_info: Dict[str, Any], game_url: str):
         """Отправляет уведомление о завершении игры"""
@@ -65,6 +96,7 @@ class NotificationManager:
             
             await self.bot.send_message(chat_id=self.chat_id, text=message)
             self.sent_game_end_notifications.add(notification_id)
+            self._save_sent_notifications()
             logger.info(f"✅ Отправлено уведомление о завершении игры: {score}")
             
         except Exception as e:
@@ -92,6 +124,7 @@ class NotificationManager:
             
             await self.bot.send_message(chat_id=self.chat_id, text=message)
             self.sent_game_start_notifications.add(notification_id)
+            self._save_sent_notifications()
             logger.info(f"✅ Отправлено уведомление о начале игры: {team1} vs {team2} в {game_time}")
             
         except Exception as e:
@@ -104,29 +137,21 @@ class NotificationManager:
             return
         
         # Создаем уникальный ID для уведомления
-        notification_id = f"game_result_{game_info['date']}_{game_info['opponent_team']}"
+        notification_id = f"game_result_{game_info.get('team1', '')}_{game_info.get('team2', '')}_{game_info.get('date', '')}"
         
         if notification_id in self.sent_game_result_notifications:
             logger.info("Уведомление о результате игры уже отправлено")
             return
         
         try:
-            # Определяем победителя
-            if game_info['pullup_score'] > game_info['opponent_score']:
-                result_emoji = "🏆"
-                result_text = "победили"
-            elif game_info['pullup_score'] < game_info['opponent_score']:
-                result_emoji = "😔"
-                result_text = "проиграли"
-            else:
-                result_emoji = "🤝"
-                result_text = "сыграли вничью"
+            team1 = game_info.get('team1', 'Команда 1')
+            team2 = game_info.get('team2', 'Команда 2')
+            score = game_info.get('score', 'Неизвестно')
+            date = game_info.get('date', '')
             
-            # Формируем сообщение
-            message = f"🏀 Игра против **{game_info['opponent_team']}** закончилась\n"
-            message += f"{result_emoji} Счет: **{game_info['pullup_team']} {game_info['pullup_score']} : {game_info['opponent_score']} {game_info['opponent_team']}** ({result_text})\n"
+            message = f"🏀 Игра против {team2} закончилась\n\n"
+            message += f"🏆 Счет: {score}\n"
             
-            # Добавляем информацию о голосовании, если есть
             if poll_results:
                 votes = poll_results.get('votes', {})
                 ready_count = votes.get('ready', 0)
@@ -134,40 +159,28 @@ class NotificationManager:
                 coach_count = votes.get('coach', 0)
                 total_votes = votes.get('total', 0)
                 
-                message += f"\n📊 **Статистика голосования:**\n"
+                message += f"\n📊 Статистика голосования:\n"
                 message += f"✅ Готовы: {ready_count}\n"
                 message += f"❌ Не готовы: {not_ready_count}\n"
                 message += f"👨‍🏫 Тренер: {coach_count}\n"
-                message += f"📈 Всего проголосовало: {total_votes}"
+                message += f"📈 Всего: {total_votes}\n"
                 
                 # Анализ посещаемости
-                if ready_count > 0:
-                    attendance_rate = (ready_count / total_votes * 100) if total_votes > 0 else 0
+                if ready_count > 0 and total_votes > 0:
+                    attendance_rate = (ready_count / total_votes) * 100
                     if attendance_rate >= 80:
-                        message += f"\n🎯 **Отличная готовность!** ({attendance_rate:.1f}%)"
+                        message += f"\n🎉 Отличная посещаемость! ({attendance_rate:.1f}%)"
                     elif attendance_rate >= 60:
-                        message += f"\n👍 **Хорошая готовность** ({attendance_rate:.1f}%)"
-                    elif attendance_rate >= 40:
-                        message += f"\n⚠️ **Средняя готовность** ({attendance_rate:.1f}%)"
+                        message += f"\n👍 Хорошая посещаемость ({attendance_rate:.1f}%)"
                     else:
-                        message += f"\n😕 **Низкая готовность** ({attendance_rate:.1f}%)"
-                else:
-                    message += f"\n⚠️ **Никто не проголосовал за участие**"
+                        message += f"\n⚠️ Низкая посещаемость ({attendance_rate:.1f}%)"
             else:
-                message += f"\n📊 **Статистика голосования:** Недоступна"
+                message += f"\n📊 Статистика голосования: Недоступна"
             
-            message += f"\n\n📅 Дата: {game_info['date']}"
-            
-            # Отправляем сообщение
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='Markdown'
-            )
-            
-            # Отмечаем уведомление как отправленное
+            await self.bot.send_message(chat_id=self.chat_id, text=message)
             self.sent_game_result_notifications.add(notification_id)
-            logger.info(f"Отправлено уведомление о результате игры: {game_info['opponent_team']}")
+            self._save_sent_notifications()
+            logger.info(f"✅ Отправлено уведомление о результате игры: {score}")
             
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления о результате игры: {e}")
@@ -187,15 +200,26 @@ class NotificationManager:
         
         try:
             if not games:
-                message = f"📅 {date}\n\n🏀 Сегодня игр PullUP нет"
-            else:
-                message = f"📅 {date}\n\n🏀 Сегодня игры PullUP:\n\n"
-                for i, game in enumerate(games, 1):
-                    message += f"{i}. {game['time']} - {game['team']} vs {game['opponent']}\n"
+                return
+            
+            message = f"🌅 Доброе утро! Сегодня {date} у нас игры:\n\n"
+            
+            for i, game in enumerate(games, 1):
+                team1 = game.get('team1', 'Команда 1')
+                team2 = game.get('team2', 'Команда 2')
+                game_time = game.get('time', 'Неизвестно')
+                game_url = game.get('url', '')
+                
+                message += f"{i}. 🏀 {team1} vs {team2}\n"
+                message += f"   ⏰ Время: {game_time}\n"
+                if game_url:
+                    message += f"   🔗 Ссылка: {game_url}\n"
+                message += "\n"
             
             await self.bot.send_message(chat_id=self.chat_id, text=message)
             self.sent_morning_notifications.add(notification_id)
-            logger.info(f"✅ Отправлено утреннее уведомление для {date}")
+            self._save_sent_notifications()
+            logger.info(f"✅ Отправлено утреннее уведомление для {len(games)} игр")
             
         except Exception as e:
             logger.error(f"Ошибка отправки утреннего уведомления: {e}")
@@ -206,7 +230,8 @@ class NotificationManager:
         self.sent_game_start_notifications.clear()
         self.sent_game_result_notifications.clear()
         self.sent_morning_notifications.clear()
-        logger.info("Очищены все отслеживаемые уведомления")
+        self._save_sent_notifications()
+        logger.info("✅ Все отслеживаемые уведомления очищены")
 
-# Глобальный экземпляр менеджера уведомлений
+# Создаем глобальный экземпляр
 notification_manager = NotificationManager()

@@ -47,9 +47,6 @@ class GameResultsMonitor:
     async def get_poll_results_for_game(self, opponent_team: str, game_date: str) -> Optional[Dict[str, Any]]:
         """Получает результаты голосования для конкретной игры"""
         try:
-            # Импортируем обработчик результатов
-            from schedule_poll_results import schedule_poll_handler
-            
             # Проверяем настройки Telegram Client API
             telegram_api_id = os.getenv('TELEGRAM_API_ID')
             telegram_api_hash = os.getenv('TELEGRAM_API_HASH')
@@ -58,6 +55,9 @@ class GameResultsMonitor:
             if not all([telegram_api_id, telegram_api_hash, telegram_phone]):
                 logger.warning("Telegram Client API не настроен, не удается получить результаты голосования")
                 return None
+            
+            # Импортируем обработчик результатов только если API настроен
+            from schedule_poll_results import schedule_poll_handler
             
             # Запускаем клиент
             if not await schedule_poll_handler.start_client():

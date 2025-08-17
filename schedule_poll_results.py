@@ -34,6 +34,7 @@ class SchedulePollResultsHandler:
             if not all([TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE]):
                 print("⚠️ Переменные для Telegram Client API не настроены")
                 print("   Нужно: TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE")
+                self.client = None
                 return
             
             # Импортируем только при необходимости
@@ -48,8 +49,10 @@ class SchedulePollResultsHandler:
             
         except ImportError:
             print("⚠️ telethon не установлен. Установите: pip install telethon")
+            self.client = None
         except Exception as e:
             print(f"❌ Ошибка инициализации Telegram Client: {e}")
+            self.client = None
     
     async def start_client(self):
         """Запускает клиент"""

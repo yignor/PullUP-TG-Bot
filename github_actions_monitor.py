@@ -76,6 +76,11 @@ async def main():
         manager = PullUPNotificationManager()
         print("✅ Менеджер уведомлений инициализирован")
         
+        # Проверяем дни рождения (только в 9:00-9:29 по Москве)
+        print("\n0. Проверка дней рождения...")
+        from birthday_bot import check_birthdays
+        await check_birthdays()
+        
         # Получаем свежий контент
         print("\n1. Получение данных с сайта...")
         html_content = await manager.get_fresh_page_content()

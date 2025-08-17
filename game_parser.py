@@ -37,10 +37,12 @@ class GameParser:
                 return await response.text()
     
     def extract_current_date(self, page_text: str) -> Optional[str]:
-        """Извлекает текущую дату со страницы"""
-        date_pattern = r'(\d{2}\.\d{2}\.\d{4})'
-        date_match = re.search(date_pattern, page_text)
-        return date_match.group(1) if date_match else None
+        """Извлекает текущую дату (использует реальную дату, а не с сайта)"""
+        import datetime
+        # Получаем московское время
+        moscow_tz = datetime.timezone(datetime.timedelta(hours=3))  # UTC+3 для Москвы
+        now = datetime.datetime.now(moscow_tz)
+        return now.strftime('%d.%m.%Y')
     
     def check_finished_games(self, html_content: str, current_date: str) -> List[Dict[str, Any]]:
         """Проверяет завершенные игры PullUP"""

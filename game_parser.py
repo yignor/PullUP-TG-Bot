@@ -84,6 +84,12 @@ class GameParser:
                     if game_info:
                         finished_games.append(game_info)
         
+        logger.info(f"Найдено {len(finished_games)} завершенных игр PullUP")
+        
+        # Логируем детали найденных игр для отладки
+        for i, game in enumerate(finished_games):
+            logger.info(f"Игра {i+1}: {game.get('pullup_team', 'N/A')} vs {game.get('opponent_team', 'N/A')} - {game.get('pullup_score', 'N/A')}:{game.get('opponent_score', 'N/A')}")
+        
         return finished_games
     
     def extract_finished_game_info(self, row, html_content: str, current_date: str) -> Optional[Dict[str, Any]]:
@@ -116,7 +122,7 @@ class GameParser:
             score2 = int(score_match.group(2))
             
             # Определяем соперника на основе названия команды PullUP и счета
-            opponent_team = "Соперник"
+            opponent_team = None
             if "Pull Up-Фарм" in pullup_team:
                 if score1 == 57 and score2 == 31:
                     opponent_team = "Ballers From The Hood"
@@ -127,6 +133,11 @@ class GameParser:
                     opponent_team = "Маиле Карго"
                 elif score1 == 92 and score2 == 46:
                     opponent_team = "Garde Marine"
+            
+            # Если не удалось определить соперника, пропускаем игру
+            if not opponent_team:
+                logger.warning(f"Не удалось определить соперника для {pullup_team} со счетом {score1}:{score2}")
+                return None
             
             # Определяем, какой счет у PullUP
             pullup_score = score1

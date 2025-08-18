@@ -2,8 +2,8 @@ name: Birthday Notifications
 
 on:
   schedule:
-    # Запуск каждый день в 09:00 UTC (12:00 по Москве)
-    - cron: '0 9 * * *'
+    # Запуск каждый день в 06:00 UTC (09:00 по Москве)
+    - cron: '0 6 * * *'
   workflow_dispatch: # Позволяет запускать вручную
 
 jobs:

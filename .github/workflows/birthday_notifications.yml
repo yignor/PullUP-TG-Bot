@@ -1,15 +1,13 @@
-name: PullUP Games Monitor
+name: Birthday Notifications
 
 on:
-  # schedule:
-  #   # Запуск каждые 30 минут
-  #   - cron: '*/30 * * * *'
+  schedule:
+    # Запуск каждый день в 09:00 UTC (12:00 по Москве)
+    - cron: '0 9 * * *'
   workflow_dispatch: # Позволяет запускать вручную
 
-# Временно отключено для переработки логики - закомментирован schedule
-
 jobs:
-  monitor:
+  check_birthdays:
     runs-on: ubuntu-latest
     
     steps:
@@ -41,17 +39,24 @@ jobs:
           echo "❌ CHAT_ID is not available - workflow will fail"
         fi
         
-        if [ -n "${{ secrets.TEST_CHAT_ID }}" ]; then
-          echo "✅ TEST_CHAT_ID is available"
+        if [ -n "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" ]; then
+          echo "✅ GOOGLE_SHEETS_CREDENTIALS is available"
         else
-          echo "⚠️ TEST_CHAT_ID is not available, will use default value"
+          echo "❌ GOOGLE_SHEETS_CREDENTIALS is not available - workflow will fail"
         fi
         
-    - name: Run PullUP monitor
+        if [ -n "${{ secrets.SPREADSHEET_ID }}" ]; then
+          echo "✅ SPREADSHEET_ID is available"
+        else
+          echo "❌ SPREADSHEET_ID is not available - workflow will fail"
+        fi
+        
+    - name: Run Birthday Notifications
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
-        TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
         # Проверяем наличие обязательных переменных
         if [ -z "$BOT_TOKEN" ]; then
@@ -66,31 +71,37 @@ jobs:
           exit 1
         fi
         
-        # Устанавливаем значение по умолчанию для TEST_CHAT_ID если оно не задано
-        if [ -z "$TEST_CHAT_ID" ]; then
-          echo "TEST_CHAT_ID не установлен, используем значение по умолчанию"
-          export TEST_CHAT_ID="-15573582"
+        if [ -z "$GOOGLE_SHEETS_CREDENTIALS" ]; then
+          echo "❌ ОШИБКА: GOOGLE_SHEETS_CREDENTIALS не установлен в GitHub Secrets"
+          echo "Добавьте GOOGLE_SHEETS_CREDENTIALS в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -z "$SPREADSHEET_ID" ]; then
+          echo "❌ ОШИБКА: SPREADSHEET_ID не установлен в GitHub Secrets"
+          echo "Добавьте SPREADSHEET_ID в Settings → Secrets and variables → Actions"
+          exit 1
         fi
         
         # Проверяем финальные значения (скрываем токен)
         echo "BOT_TOKEN: ${BOT_TOKEN:0:10}..."
         echo "CHAT_ID: $CHAT_ID"
-        echo "TEST_CHAT_ID: $TEST_CHAT_ID"
+        echo "SPREADSHEET_ID: $SPREADSHEET_ID"
         
         # Проверяем наличие Python скрипта
-        if [ ! -f "github_actions_monitor.py" ]; then
-          echo "❌ Файл github_actions_monitor.py не найден"
+        if [ ! -f "run_birthday_notifications.py" ]; then
+          echo "❌ Файл run_birthday_notifications.py не найден"
           exit 1
         fi
         
-        echo "Запуск монитора PullUP игр..."
-        python github_actions_monitor.py
+        echo "Запуск системы уведомлений о днях рождения..."
+        python run_birthday_notifications.py
         
     - name: Handle errors
       if: failure()
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
       run: |
         echo "❌ GitHub Actions завершился с ошибкой"
         echo "Проверка доступности переменных для отправки уведомления об ошибке..."
@@ -100,9 +111,9 @@ jobs:
           echo "Добавьте BOT_TOKEN в GitHub Secrets для получения уведомлений об ошибках"
         fi
         
-        # Устанавливаем значение по умолчанию для TEST_CHAT_ID если оно не задано
-        if [ -z "$TEST_CHAT_ID" ]; then
-          export TEST_CHAT_ID="-15573582"
+        if [ -z "$CHAT_ID" ]; then
+          echo "⚠️ CHAT_ID недоступен для отправки уведомления об ошибке"
+          echo "Добавьте CHAT_ID в GitHub Secrets для получения уведомлений об ошибках"
         fi
         
-        echo "Ошибки будут отправлены в тестовый чат через скрипт"
+        echo "Ошибки будут отправлены в основной чат через скрипт"

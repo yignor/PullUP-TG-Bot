@@ -46,55 +46,101 @@ class GameParser:
     
     def check_finished_games(self, html_content: str, current_date: str) -> List[Dict[str, Any]]:
         """Проверяет завершенные игры PullUP"""
-        soup = BeautifulSoup(html_content, 'html.parser')
-        finished_games = []
-        
-        # Ищем строки с играми
-        game_rows = soup.find_all('tr')
-        
-        for row in game_rows:
-            row_text = row.get_text()
+        try:
+            finished_games = []
             
-            # Проверяем, содержит ли строка PullUP
-            pullup_patterns = [
-                r'pull\s*up',
-                r'PullUP',
-                r'Pull\s*Up'
-            ]
+            # Ищем игры в формате "дата - команда1 - команда2 - счет"
+            game_pattern = r'(\d{2}\.\d{2}\.\d{4})\s*-\s*([^-]+)\s*-\s*([^-]+)\s*(\d+:\d+)'
+            matches = re.findall(game_pattern, html_content)
             
-            is_pullup_game = any(re.search(pattern, row_text, re.IGNORECASE) for pattern in pullup_patterns)
-            
-            if is_pullup_game:
-                # Проверяем завершение игры
-                js_period = row.get('js-period')
-                js_timer = row.get('js-timer')
-                score_match = re.search(r'(\d+)\s*:\s*(\d+)', row_text)
+            for match in matches:
+                game_date, team1, team2, score = match
                 
-                is_finished = False
-                if js_period == '4' and js_timer == '0:00':
-                    is_finished = True
-                elif js_period == '4' and (js_timer == '0:00' or js_timer == '00:00'):
-                    is_finished = True
-                elif '4ч' in row_text or '4 ч' in row_text:
-                    is_finished = True
-                elif score_match:
-                    is_finished = True
+                # Проверяем, участвует ли PullUP в игре
+                team1_clean = team1.strip()
+                team2_clean = team2.strip()
                 
-                if is_finished:
-                    # Извлекаем информацию о завершенной игре
-                    game_info = self.extract_finished_game_info(row, html_content, current_date)
-                    if game_info:
-                        finished_games.append(game_info)
-        
-        logger.info(f"Найдено {len(finished_games)} завершенных игр PullUP")
-        
-        # Логируем детали найденных игр для отладки
-        for i, game in enumerate(finished_games):
-            logger.info(f"Игра {i+1}: {game.get('pullup_team', 'N/A')} vs {game.get('opponent_team', 'N/A')} - {game.get('pullup_score', 'N/A')}:{game.get('opponent_score', 'N/A')}")
-        
-        return finished_games
+                pullup_patterns = [
+                    r'pull\s*up',
+                    r'PullUP',
+                    r'Pull\s*Up'
+                ]
+                
+                is_pullup_game = any(re.search(pattern, team1_clean, re.IGNORECASE) for pattern in pullup_patterns) or \
+                               any(re.search(pattern, team2_clean, re.IGNORECASE) for pattern in pullup_patterns)
+                
+                if is_pullup_game:
+                    # Проверяем, что игра недавняя
+                    if self.is_recent_game(game_date, current_date):
+                        # Определяем, какая команда PullUP
+                        if any(re.search(pattern, team1_clean, re.IGNORECASE) for pattern in pullup_patterns):
+                            pullup_team = team1_clean
+                            opponent_team = team2_clean
+                        else:
+                            pullup_team = team2_clean
+                            opponent_team = team1_clean
+                        
+                        # Парсим счет
+                        score_parts = score.split(':')
+                        if len(score_parts) == 2:
+                            score1 = int(score_parts[0])
+                            score2 = int(score_parts[1])
+                            
+                            # Определяем, какой счет у PullUP
+                            if pullup_team == team1_clean:
+                                pullup_score = score1
+                                opponent_score = score2
+                            else:
+                                pullup_score = score2
+                                opponent_score = score1
+                            
+                            game_info = {
+                                'pullup_team': pullup_team,
+                                'opponent_team': opponent_team,
+                                'pullup_score': pullup_score,
+                                'opponent_score': opponent_score,
+                                'date': game_date,
+                                'game_link': self.find_game_link_by_teams(pullup_team, opponent_team, html_content)
+                            }
+                            
+                            finished_games.append(game_info)
+                            logger.info(f"Найдена игра: {pullup_team} vs {opponent_team} - {pullup_score}:{opponent_score} от {game_date}")
+                    else:
+                        logger.info(f"Пропускаем старую игру от {game_date} (сегодня {current_date})")
+            
+            logger.info(f"Найдено {len(finished_games)} завершенных игр PullUP за последние дни")
+            
+            # Логируем детали найденных игр для отладки
+            for i, game in enumerate(finished_games):
+                logger.info(f"Игра {i+1}: {game.get('pullup_team', 'N/A')} vs {game.get('opponent_team', 'N/A')} - {game.get('pullup_score', 'N/A')}:{game.get('opponent_score', 'N/A')} от {game.get('date', 'N/A')}")
+            
+            return finished_games
+            
+        except Exception as e:
+            logger.error(f"Ошибка проверки завершенных игр: {e}")
+            return []
     
-    def extract_finished_game_info(self, row, html_content: str, current_date: str) -> Optional[Dict[str, Any]]:
+    def is_recent_game(self, game_date: str, current_date: str) -> bool:
+        """Проверяет, является ли игра недавней (сегодня или вчера)"""
+        try:
+            if not game_date or not current_date:
+                return False
+            
+            # Парсим даты
+            from datetime import datetime, timedelta
+            
+            game_dt = datetime.strptime(game_date, '%d.%m.%Y')
+            current_dt = datetime.strptime(current_date, '%d.%m.%Y')
+            
+            # Проверяем, что игра была сегодня или вчера
+            days_diff = (current_dt - game_dt).days
+            return days_diff <= 1 and days_diff >= 0
+            
+        except Exception as e:
+            logger.error(f"Ошибка проверки даты игры: {e}")
+            return False
+    
+    def extract_finished_game_info(self, row, html_content: str, current_date: str, row_text: str) -> Optional[Dict[str, Any]]:
         """Извлекает информацию о завершенной игре"""
         try:
             cells = row.find_all('td')
@@ -145,6 +191,9 @@ class GameParser:
             pullup_score = score1
             opponent_score = score2
             
+            # Извлекаем дату игры из строки
+            game_date = self.extract_game_date(row_text, current_date)
+            
             # Находим ссылку на игру
             game_link = self.find_game_link_for_row(row, html_content, current_date)
             
@@ -153,13 +202,49 @@ class GameParser:
                 'opponent_team': opponent_team,
                 'pullup_score': pullup_score,
                 'opponent_score': opponent_score,
-                'date': current_date,
+                'date': game_date,
                 'game_link': game_link
             }
             
         except Exception as e:
             logger.error(f"Ошибка извлечения информации о завершенной игре: {e}")
             return None
+    
+    def find_game_link_by_teams(self, team1: str, team2: str, html_content: str) -> Optional[str]:
+        """Находит ссылку на игру по названиям команд"""
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            links = soup.find_all('a', href=True)
+            
+            for link in links:
+                href = link.get('href', '')
+                if 'podrobno' in href or 'game' in href:
+                    link_text = link.get_text().strip()
+                    
+                    # Проверяем, содержит ли ссылка названия команд
+                    if team1.lower() in link_text.lower() or team2.lower() in link_text.lower():
+                        return href
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Ошибка поиска ссылки по командам: {e}")
+            return None
+    
+    def extract_game_date(self, row_text: str, current_date: str) -> str:
+        """Извлекает дату игры из текста строки"""
+        try:
+            # Ищем дату в формате DD.MM.YYYY
+            date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', row_text)
+            if date_match:
+                return date_match.group(1)
+            
+            # Если не нашли, возвращаем текущую дату
+            return current_date
+            
+        except Exception as e:
+            logger.error(f"Ошибка извлечения даты игры: {e}")
+            return current_date
     
     def find_game_link_for_row(self, row, html_content: str, current_date: str) -> Optional[str]:
         """Находит ссылку на игру для конкретной строки"""

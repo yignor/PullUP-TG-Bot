@@ -1,10 +1,12 @@
 name: Schedule Polls Creator
 
 on:
-  schedule:
-    # Запуск каждый день в 10:00 UTC (13:00 по Москве)
-    - cron: '0 10 * * *'
+  # schedule:
+  #   # Запуск каждый день в 10:00 UTC (13:00 по Москве)
+  #   - cron: '0 10 * * *'
   workflow_dispatch: # Позволяет запускать вручную
+
+# Временно отключено для переработки логики - закомментирован schedule
 
 jobs:
   create_polls:

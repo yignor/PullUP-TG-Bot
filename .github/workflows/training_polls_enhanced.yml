@@ -1,0 +1,93 @@
+name: Training Polls Management
+
+on:
+  schedule:
+    # Воскресенье 07:00 UTC = 10:00 MSK - Создание опроса
+    - cron: '0 7 * * 0'
+    # Среда 07:00 UTC = 10:00 MSK - Сбор данных за вторник
+    - cron: '0 7 * * 3'
+    # Суббота 07:00 UTC = 10:00 MSK - Сбор данных за пятницу
+    - cron: '0 7 * * 6'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Действие для выполнения'
+        required: true
+        default: 'check'
+        type: choice
+        options:
+        - check
+        - create_poll
+        - collect_tuesday
+        - collect_friday
+
+jobs:
+  training-polls:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install python-telegram-bot gspread google-auth python-dotenv
+        
+    - name: Create .env file
+      run: |
+        echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
+        echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
+        echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
+        echo "GOOGLE_SHEETS_CREDENTIALS=${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" >> .env
+        echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
+        
+    - name: Run Training Polls Management
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        ANNOUNCEMENTS_TOPIC_ID: ${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+      run: |
+        echo "🏀 Запуск системы управления опросами тренировок..."
+        echo "🕐 Время запуска: $(date)"
+        echo "📅 День недели: $(date +%u)"
+        
+        # Проверяем переменные окружения
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "❌ BOT_TOKEN не настроен"
+          exit 1
+        fi
+        if [ -z "$CHAT_ID" ]; then
+          echo "❌ CHAT_ID не настроен"
+          exit 1
+        fi
+        if [ -z "$GOOGLE_SHEETS_CREDENTIALS" ]; then
+          echo "❌ GOOGLE_SHEETS_CREDENTIALS не настроен"
+          exit 1
+        fi
+        if [ -z "$SPREADSHEET_ID" ]; then
+          echo "❌ SPREADSHEET_ID не настроен"
+          exit 1
+        fi
+        
+        echo "✅ Все переменные окружения настроены"
+        echo "🔄 Запуск системы управления опросами..."
+        
+        python training_polls_enhanced.py
+        
+    - name: Upload logs
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: training-polls-logs
+        path: |
+          *.json
+          *.log
+        retention-days: 7

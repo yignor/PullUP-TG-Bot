@@ -102,8 +102,29 @@ collect_schedule_poll_results.py
 run_*.py
 !run_birthday_notifications.py
 !run_training_polls.py
+!run_scheduled_collection.py
 stop_monitor.sh
 start_monitor.sh
+
+# Training polls temporary files
+check_real_poll_votes.py
+save_real_tuesday_data.py
+find_player_by_telegram_id.py
+update_player_name_in_sheet.py
+update_player_name_in_sheet_fixed.py
+collect_tuesday_data.py
+simulate_sunday_training_poll.py
+simulate_sunday_training_poll_simple.py
+create_and_track_poll.py
+start_poll_tracking.py
+scheduled_poll_collector.py
+run_scheduled_collection.py
+collect_real_poll_data.py
+start_real_data_collection.py
+test_real_data_collection.py
+simple_poll_tracker.py
+create_and_track_simple.py
+test_scheduled_collection.py
 
 # Data files (keep locally)
 *.json

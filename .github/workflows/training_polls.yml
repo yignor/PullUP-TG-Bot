@@ -58,7 +58,7 @@ jobs:
           echo "⚠️ ANNOUNCEMENTS_TOPIC_ID is not available - using default (26)"
         fi
         
-    - name: Run Training Polls
+    - name: Run Training Polls (Creation)
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -103,8 +103,50 @@ jobs:
           exit 1
         fi
         
-        echo "Запуск системы опросов тренировок..."
+        echo "Запуск системы создания опросов тренировок..."
         python run_training_polls.py
+        
+    - name: Run Scheduled Data Collection
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        ANNOUNCEMENTS_TOPIC_ID: ${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}
+      run: |
+        # Проверяем наличие обязательных переменных
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "❌ ОШИБКА: BOT_TOKEN не установлен в GitHub Secrets"
+          echo "Добавьте BOT_TOKEN в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -z "$CHAT_ID" ]; then
+          echo "❌ ОШИБКА: CHAT_ID не установлен в GitHub Secrets"
+          echo "Добавьте CHAT_ID в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -z "$GOOGLE_SHEETS_CREDENTIALS" ]; then
+          echo "❌ ОШИБКА: GOOGLE_SHEETS_CREDENTIALS не установлен в GitHub Secrets"
+          echo "Добавьте GOOGLE_SHEETS_CREDENTIALS в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -z "$SPREADSHEET_ID" ]; then
+          echo "❌ ОШИБКА: SPREADSHEET_ID не установлен в GitHub Secrets"
+          echo "Добавьте SPREADSHEET_ID в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        # Проверяем наличие Python скрипта
+        if [ ! -f "run_scheduled_collection.py" ]; then
+          echo "❌ Файл run_scheduled_collection.py не найден"
+          exit 1
+        fi
+        
+        echo "Запуск сбора данных по расписанию..."
+        python run_scheduled_collection.py
         
     - name: Handle errors
       if: failure()

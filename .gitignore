@@ -20,6 +20,7 @@ google_credentials.json
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 *.so
 .Python
 build/
@@ -68,3 +69,50 @@ tmp/
 # Test artifacts
 test_*.py.bak
 *_test_backup.py
+
+# Development and test files (keep locally)
+tests/
+test_*.py
+send_*_notification.py
+test_github_actions.py
+
+# Documentation files (keep locally)
+*_REPORT.md
+*_SETUP_*.md
+*_PLAN.md
+*_CHECKLIST.md
+*_GUIDE.md
+*_ALERT.md
+OPTIMIZATION_REPORT.md
+GITHUB_SYNC_REPORT.md
+SYSTEM_READINESS_REPORT.md
+CLEANUP_REPORT.md
+TEST_REPORT.md
+SECURITY_ALERT.md
+TRAINING_CHECKLIST.md
+TRAINING_SETUP_GUIDE.md
+
+# Development utilities (keep locally)
+*_topic_*.py
+*_monitor.py
+github_actions_monitor.py
+clear_notifications.py
+check_updates.py
+collect_schedule_poll_results.py
+run_*.py
+stop_monitor.sh
+start_monitor.sh
+
+# Data files (keep locally)
+*.json
+*.log
+group_admins.txt
+sent_notifications.json
+schedule_polls.json
+
+# Session files
+session_name.session
+
+# Requirements for local development
+requirements-simple.txt
+requirements.txt

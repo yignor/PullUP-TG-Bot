@@ -101,6 +101,7 @@ check_updates.py
 collect_schedule_poll_results.py
 run_*.py
 !run_birthday_notifications.py
+!run_training_polls.py
 stop_monitor.sh
 start_monitor.sh
 

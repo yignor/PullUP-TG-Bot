@@ -37,7 +37,7 @@ jobs:
       run: |
         echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
         echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
-        echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
+        echo "GAMES_TOPIC_ID=${{ secrets.GAMES_TOPIC_ID }}" >> .env
         echo "GOOGLE_SHEETS_CREDENTIALS='${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}'" >> .env
         echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
         echo "TARGET_TEAMS=${{ secrets.TARGET_TEAMS }}" >> .env

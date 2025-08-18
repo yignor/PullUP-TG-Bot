@@ -20,7 +20,7 @@ load_dotenv()
 # Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-ANNOUNCEMENTS_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID", "1282")
+GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
 TARGET_TEAMS = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм")
 
 # Файл для хранения созданных опросов
@@ -276,13 +276,15 @@ class GameScheduleMonitorFixed:
                 "👨‍🏫 Тренер"
             ]
             
-            # Отправляем опрос (пока без топика для тестирования)
+            # Отправляем опрос в топик для игр
+            message_thread_id = int(GAMES_TOPIC_ID) if GAMES_TOPIC_ID else None
             poll_message = await self.bot.send_poll(
                 chat_id=int(CHAT_ID),
                 question=question,
                 options=options,
                 is_anonymous=False,
-                allows_multiple_answers=False
+                allows_multiple_answers=False,
+                message_thread_id=message_thread_id
             )
             
             # Сохраняем информацию об опросе
@@ -297,7 +299,8 @@ class GameScheduleMonitorFixed:
                 'team_category': team_category,
                 'day_of_week': day_of_week,
                 'date': get_moscow_time().isoformat(),
-                'chat_id': CHAT_ID
+                'chat_id': CHAT_ID,
+                'topic_id': GAMES_TOPIC_ID
             }
             
             # Сохраняем в историю
@@ -371,7 +374,7 @@ async def main():
     print("🔧 ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:")
     print(f"BOT_TOKEN: {'✅' if bot_token else '❌'}")
     print(f"CHAT_ID: {'✅' if chat_id else '❌'}")
-    print(f"ANNOUNCEMENTS_TOPIC_ID: {ANNOUNCEMENTS_TOPIC_ID}")
+    print(f"GAMES_TOPIC_ID: {GAMES_TOPIC_ID}")
     print(f"TARGET_TEAMS: {TARGET_TEAMS}")
     
     if not all([bot_token, chat_id]):

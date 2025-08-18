@@ -12,6 +12,7 @@ from typing import Any, cast
 # Импортируем общие модули
 from game_parser import game_parser
 from notification_manager import notification_manager
+from players_manager import PlayersManager
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -58,42 +59,8 @@ PULLUP_PATTERNS = [
     r'pull up\s+\w+',  # pull up с любым словом после
 ]
 
-players = [
-    {"name": "Амбразас Никита",  "birthday": "2001-09-08"},
-    # {"name": "Булатов Игорь",  "birthday": "2002-12-01"},
-    {"name": "Валиев Равиль",  "birthday": "1998-05-21"},
-    {"name": "Веселов Егор",  "birthday": "2006-12-25"},
-    {"name": "Гайда Иван",     "birthday": "1984-03-28"},
-    {"name": "Головченко Максим",  "birthday": "2002-06-29"},
-    {"name": "Горбунов Никита",  "birthday": "2004-10-13"},
-    {"name": "Гребнев Антон",  "birthday": "1990-12-24"},
-    {"name": "Долгих Владислав",  "birthday": "2002-06-09"},
-    {"name": "Долгих Денис",  "birthday": "1997-04-23"},
-    {"name": "Дроздов Даниил",  "birthday": "1999-04-24"},
-    {"name": "Дудкин Евгений",  "birthday": "2004-03-03"},
-    {"name": "Звягинцев Олег",  "birthday": "1992-01-20"},
-    {"name": "Касаткин Александр",     "birthday": "2006-04-19"},
-    {"name": "Литус Дмитрий",  "birthday": "2005-08-04"},
-    {"name": "Логинов Никита",  "birthday": "2007-10-24"},
-    {"name": "Максимов Иван",  "birthday": "2001-07-24"},
-    {"name": "Морецкий Игорь",  "birthday": "1986-04-30"},
-    {"name": "Морозов Евгений",  "birthday": "2002-06-13"},
-    {"name": "Мясников Юрий",  "birthday": "2003-05-28"},
-    {"name": "Никитин Артем",  "birthday": "2000-06-30"},
-    {"name": "Новиков Савва",  "birthday": "2007-01-14"},
-    {"name": "Оболенский Григорий",  "birthday": "2004-11-06"},
-    {"name": "Смирнов Александр",  "birthday": "2006-11-23"},
-    {"name": "Сопп Эдуард",  "birthday": "2008-11-12"},
-    {"name": "Федотов Дмитрий",  "birthday": "2003-09-04"},
-    {"name": "Харитонов Эдуард",  "birthday": "2005-06-16"},
-    {"name": "Чжан Тимофей",  "birthday": "2005-03-28"},
-    {"name": "Шараев Юрий",  "birthday": "1987-09-20"},
-    {"name": "Шахманов Максим",  "birthday": "2006-08-17"},
-    {"name": "Ясинко Денис",  "birthday": "1987-06-18"},
-    {"name": "Якупов Данил",  "birthday": "2005-06-02"},
-    {"name": "Хан Александр",  "birthday": "1994-08-24"},
-#    {"name": "НЕ ПИЗДАБОЛ МАКСИМ СЕРГЕЕВИЧ",  "birthday": "7777-77-77"}
-]
+# Инициализируем менеджер игроков
+players_manager = PlayersManager()
 
 def get_years_word(age: int) -> str:
     if 11 <= age % 100 <= 14:
@@ -128,26 +95,37 @@ async def check_birthdays():
             print("📅 Не время для проверки дней рождения (только в 09:00)")
             return
             
-        today = datetime.datetime.now()
-        today_md = today.strftime("%m-%d")
-        birthday_people = []
-
-        for p in players:
-            try:
-                bd = datetime.datetime.strptime(p["birthday"], "%Y-%m-%d")
-                if bd.strftime("%m-%d") == today_md:
-                    age = today.year - bd.year
-                    birthday_people.append(f"{p['name']} ({age} {get_years_word(age)})")
-            except Exception as e:
-                print(f"⚠️ Ошибка при обработке дня рождения {p['name']}: {e}")
-                continue
-
-        if birthday_people:
-            text = "🎉 Сегодня день рождения у " + ", ".join(birthday_people) + "! \n Поздравляем! 🎂"
+        # Получаем игроков с днями рождения сегодня
+        birthday_players = players_manager.get_players_with_birthdays_today()
+        
+        if birthday_players:
+            birthday_messages = []
+            for player in birthday_players:
+                surname = player.get('surname', '')
+                nickname = player.get('nickname', '')
+                telegram_id = player.get('telegram_id', '')
+                first_name = player.get('name', '')
+                age = player.get('age', 0)
+                
+                # Формируем сообщение
+                if nickname and telegram_id:
+                    message = f"🎉 Сегодня день рождения у {surname} \"{nickname}\" ({telegram_id}) {first_name} ({age} {get_years_word(age)})!"
+                elif nickname:
+                    message = f"🎉 Сегодня день рождения у {surname} \"{nickname}\" {first_name} ({age} {get_years_word(age)})!"
+                elif telegram_id:
+                    message = f"🎉 Сегодня день рождения у {surname} ({telegram_id}) {first_name} ({age} {get_years_word(age)})!"
+                else:
+                    message = f"🎉 Сегодня день рождения у {surname} {first_name} ({age} {get_years_word(age)})!"
+                
+                message += "\n Поздравляем! 🎂"
+                birthday_messages.append(message)
+            
+            # Отправляем уведомления
             current_bot = get_bot()
             if current_bot:
-                await current_bot.send_message(chat_id=CHAT_ID, text=text)
-                print("✅ Отправлено:", text)
+                for message in birthday_messages:
+                    await current_bot.send_message(chat_id=CHAT_ID, text=message)
+                    print("✅ Отправлено:", message[:50] + "...")
             else:
                 print("❌ Не удалось отправить уведомление - бот не инициализирован")
         else:
@@ -543,25 +521,14 @@ async def create_scheduled_polls(now):
         
         # Опрос в день рождения (если есть именинники)
         if should_check_birthdays():
-            today = datetime.datetime.now().date()
-            birthday_people = []
+            birthday_players = players_manager.get_players_with_birthdays_today()
             
-            for player in players:
-                try:
-                    birthday = datetime.datetime.strptime(player["birthday"], "%Y-%m-%d").date()
-                    birthday_this_year = birthday.replace(year=today.year)
-                    
-                    if birthday_this_year < today:
-                        birthday_this_year = birthday.replace(year=today.year + 1)
-                    
-                    if birthday_this_year == today:
-                        birthday_people.append(player['name'])
-                except Exception:
-                    continue
-            
-            if birthday_people:
-                print(f"🎂 Создаю опрос для поздравления {birthday_people[0]}...")
-                await create_birthday_poll(birthday_people[0])
+            if birthday_players:
+                # Берем первого именинника для создания опроса
+                first_birthday_player = birthday_players[0]
+                player_name = f"{first_birthday_player.get('surname', '')} {first_birthday_player.get('name', '')}"
+                print(f"🎂 Создаю опрос для поздравления {player_name}...")
+                await create_birthday_poll(player_name)
                 
     except Exception as e:
         print(f"❌ Ошибка при создании запланированных опросов: {e}")

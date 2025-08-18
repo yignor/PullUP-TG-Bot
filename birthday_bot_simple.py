@@ -20,6 +20,8 @@ load_dotenv()
 # Получаем переменные окружения (уже настроены в Railway)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+DISABLE_GAME_SEARCH = os.getenv("DISABLE_GAME_SEARCH", "1") == "1"
+DISABLE_GAME_RESULTS = os.getenv("DISABLE_GAME_RESULTS", "1") == "1"
 
 # Валидация переменных окружения для корректной типизации и раннего выхода
 if not BOT_TOKEN or not CHAT_ID:
@@ -302,7 +304,10 @@ async def check_letobasket_site():
                                 sent_notifications.add(notification_id)
                                 print(f"✅ Отправлено сообщение: Сегодня игра против {opponent}")
                             # Опционально проверим окончание игры
-                            await check_game_end_simple(url)
+                            if not DISABLE_GAME_RESULTS:
+                                await check_game_end_simple(url)
+                            else:
+                                print("⏸ Проверка окончания игры отключена (DISABLE_GAME_RESULTS=1)")
                         else:
                             message = f"🏀 Найдена команда {pullup_team}, но релевантные ссылки не прошли валидацию"
                             await bot.send_message(chat_id=CHAT_ID, text=message)
@@ -410,16 +415,23 @@ async def main():
         # Проверяем дни рождения (только в 09:00)
         await check_birthdays()
         
-        # Проверяем сайт letobasket.ru
-        await check_letobasket_site()
+        # Проверяем сайт letobasket.ru (поиск игр)
+        if not DISABLE_GAME_SEARCH:
+            await check_letobasket_site()
+        else:
+            print("⏸ Поиск игр отключен (DISABLE_GAME_SEARCH=1)")
 
         # Тест: парсим указанную пользователем страницу статистики и отправляем уведомление, если игра окончена
         test_stats_url = (
             "http://letobasket.ru/game.html?gameId=920445&apiUrl=https://reg.infobasket.su&lang=ru#preview"
         )
         
-        # Используем только простой метод без браузера
-        await check_game_end_simple(test_stats_url)
+        # Проверка результатов игр
+        if not DISABLE_GAME_RESULTS:
+            # Используем только простой метод без браузера
+            await check_game_end_simple(test_stats_url)
+        else:
+            print("⏸ Проверка результатов игр отключена (DISABLE_GAME_RESULTS=1)")
         
         # Создаем опросы при определенных условиях
         await create_scheduled_polls(now)

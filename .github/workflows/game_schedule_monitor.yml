@@ -1,0 +1,55 @@
+name: Game Schedule Monitor
+
+on:
+  schedule:
+    # Каждый день в 10:00 МСК (07:00 UTC)
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Действие для выполнения'
+        required: true
+        default: 'check'
+        type: choice
+        options:
+        - check
+        - force_check
+
+jobs:
+  monitor-game-schedule:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install python-telegram-bot python-dotenv aiohttp beautifulsoup4 gspread google-auth
+    
+    - name: Create .env file
+      run: |
+        echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
+        echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
+        echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
+        echo "GOOGLE_SHEETS_CREDENTIALS='${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}'" >> .env
+        echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
+        echo "TARGET_TEAMS=${{ secrets.TARGET_TEAMS }}" >> .env
+    
+    - name: Run game schedule monitor
+      run: |
+        python game_schedule_monitor_fixed.py
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add game_polls_history.json
+        git commit -m "Update game polls history" || echo "No changes to commit"
+        git push

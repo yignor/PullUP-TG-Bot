@@ -139,3 +139,9 @@ session_name.session
 # Requirements for local development
 requirements-simple.txt
 requirements.txt
+correct_game_poll_creator.py
+correct_game_poll_creator_simple.py
+debug_letobasket_parser.py
+game_schedule_collector.py
+game_schedule_monitor_final.py
+letobasket_debug.html

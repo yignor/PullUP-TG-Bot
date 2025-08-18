@@ -1,0 +1,51 @@
+name: Test Birthday System
+
+on:
+  workflow_dispatch: # Только ручной запуск для тестирования
+
+jobs:
+  test_birthday_system:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-github.txt
+        
+    - name: Test New Birthday System
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+      run: |
+        echo "🧪 ТЕСТИРОВАНИЕ НОВОЙ СИСТЕМЫ ДНЕЙ РОЖДЕНИЯ"
+        echo "=================================================="
+        python test_github_actions.py
+        
+    - name: Success Notification
+      if: success()
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        echo "✅ ТЕСТ СИСТЕМЫ ДНЕЙ РОЖДЕНИЯ ПРОЙДЕН УСПЕШНО"
+        python send_success_notification.py
+        
+    - name: Failure Notification
+      if: failure()
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        echo "❌ ТЕСТ СИСТЕМЫ ДНЕЙ РОЖДЕНИЯ ПРОВАЛЕН"
+        python send_failure_notification.py

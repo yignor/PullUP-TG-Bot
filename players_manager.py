@@ -122,9 +122,15 @@ class PlayersManager:
             today = datetime.datetime.now()
             today_str = today.strftime("%m-%d")
             
+            print(f"📅 Проверяем дни рождения на {today_str}")
+            print(f"👥 Активных игроков: {len(active_players)}")
+            
             birthday_players = []
             for player in active_players:
                 birthday = player.get('birthday', '')
+                name = player.get('name', 'Unknown')
+                surname = player.get('surname', '')
+                
                 if birthday:
                     try:
                         # Парсим дату рождения
@@ -135,9 +141,12 @@ class PlayersManager:
                             # Формат DD.MM.YYYY
                             bd_date = datetime.datetime.strptime(birthday, "%d.%m.%Y")
                         else:
+                            print(f"⚠️ Неизвестный формат даты для {surname} {name}: {birthday}")
                             continue
                         
                         bd_str = bd_date.strftime("%m-%d")
+                        print(f"🔍 Проверяем {surname} {name}: {birthday} -> {bd_str} vs {today_str}")
+                        
                         if bd_str == today_str:
                             # Вычисляем возраст
                             age = today.year - bd_date.year
@@ -146,11 +155,15 @@ class PlayersManager:
                             
                             player['age'] = age
                             birthday_players.append(player)
+                            print(f"🎉 Найден именинник: {surname} {name} ({age} лет)")
                             
                     except ValueError:
-                        print(f"⚠️ Неверный формат даты для {player.get('name')}: {birthday}")
+                        print(f"⚠️ Неверный формат даты для {surname} {name}: {birthday}")
                         continue
+                else:
+                    print(f"⚠️ Нет даты рождения для {surname} {name}")
             
+            print(f"🎂 Всего именинников сегодня: {len(birthday_players)}")
             return birthday_players
             
         except Exception as e:

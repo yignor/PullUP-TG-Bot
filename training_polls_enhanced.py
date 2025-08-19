@@ -159,18 +159,60 @@ class TrainingPollsManager:
         """Проверяет, нужно ли создавать еженедельный опрос"""
         now = get_moscow_time()
         
-        # Создаем опрос каждое воскресенье в 10:00
-        if now.weekday() == 6 and now.hour == 10 and now.minute == 0:
+        # Создаем опрос каждое воскресенье в 10:00-10:59
+        if now.weekday() == 6 and now.hour == 10:
+            # Проверяем, не был ли уже создан опрос сегодня
+            if self._was_poll_created_today():
+                print("📊 Опрос уже был создан сегодня")
+                return False
             return True
         
         return False
+    
+    def _was_poll_created_today(self) -> bool:
+        """Проверяет, был ли уже создан опрос сегодня"""
+        try:
+            if not os.path.exists('current_poll_info.json'):
+                return False
+            
+            with open('current_poll_info.json', 'r', encoding='utf-8') as f:
+                poll_info = json.load(f)
+            
+            # Получаем дату создания опроса
+            poll_date_str = poll_info.get('date', '')
+            if not poll_date_str:
+                return False
+            
+            # Парсим дату создания опроса
+            poll_date = datetime.datetime.fromisoformat(poll_date_str.replace('Z', '+00:00'))
+            poll_date_moscow = poll_date.replace(tzinfo=datetime.timezone.utc).astimezone(
+                datetime.timezone(datetime.timedelta(hours=3))
+            )
+            
+            # Сравниваем с сегодняшней датой
+            today = get_moscow_time().date()
+            poll_date_only = poll_date_moscow.date()
+            
+            if poll_date_only == today:
+                print(f"📊 Опрос уже создан сегодня: {poll_date_moscow.strftime('%Y-%m-%d %H:%M')}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки даты создания опроса: {e}")
+            return False
     
     def should_collect_tuesday_data(self):
         """Проверяет, нужно ли собирать данные за вторник"""
         now = get_moscow_time()
         
-        # Собираем данные каждую среду в 10:00
-        if now.weekday() == 2 and now.hour == 10 and now.minute == 0:
+        # Собираем данные каждую среду в 10:00-10:59
+        if now.weekday() == 2 and now.hour == 10:
+            # Проверяем, не были ли уже собраны данные сегодня
+            if self._was_data_collected_today("Вторник"):
+                print("📊 Данные за вторник уже были собраны сегодня")
+                return False
             return True
         
         return False
@@ -179,11 +221,70 @@ class TrainingPollsManager:
         """Проверяет, нужно ли собирать данные за пятницу"""
         now = get_moscow_time()
         
-        # Собираем данные каждую субботу в 10:00
-        if now.weekday() == 5 and now.hour == 10 and now.minute == 0:
+        # Собираем данные каждую субботу в 10:00-10:59
+        if now.weekday() == 5 and now.hour == 10:
+            # Проверяем, не были ли уже собраны данные сегодня
+            if self._was_data_collected_today("Пятница"):
+                print("📊 Данные за пятницу уже были собраны сегодня")
+                return False
             return True
         
         return False
+    
+    def _was_data_collected_today(self, day_name: str) -> bool:
+        """Проверяет, были ли уже собраны данные за указанный день сегодня"""
+        try:
+            # Проверяем файл с результатами сбора данных
+            if not os.path.exists('training_data_collection_log.json'):
+                return False
+            
+            with open('training_data_collection_log.json', 'r', encoding='utf-8') as f:
+                collection_log = json.load(f)
+            
+            today = get_moscow_time().date().isoformat()
+            
+            # Проверяем, есть ли запись о сборе данных за сегодня
+            for entry in collection_log.get('collections', []):
+                if (entry.get('date') == today and 
+                    entry.get('day_name') == day_name):
+                    print(f"📊 Данные за {day_name} уже собраны сегодня: {entry.get('time', '')}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки сбора данных: {e}")
+            return False
+    
+    def _log_data_collection(self, day_name: str):
+        """Логирует сбор данных"""
+        try:
+            # Загружаем существующий лог или создаем новый
+            if os.path.exists('training_data_collection_log.json'):
+                with open('training_data_collection_log.json', 'r', encoding='utf-8') as f:
+                    collection_log = json.load(f)
+            else:
+                collection_log = {'collections': []}
+            
+            # Добавляем новую запись
+            now = get_moscow_time()
+            new_entry = {
+                'date': now.date().isoformat(),
+                'time': now.strftime('%H:%M:%S'),
+                'day_name': day_name,
+                'timestamp': now.isoformat()
+            }
+            
+            collection_log['collections'].append(new_entry)
+            
+            # Сохраняем лог
+            with open('training_data_collection_log.json', 'w', encoding='utf-8') as f:
+                json.dump(collection_log, f, ensure_ascii=False, indent=2)
+            
+            print(f"📝 Сбор данных за {day_name} залогирован")
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка логирования сбора данных: {e}")
     
     def find_player_by_telegram_id(self, telegram_id: str) -> Optional[Dict]:
         """Ищет игрока по Telegram ID в листе 'Игроки'"""
@@ -350,6 +451,9 @@ class TrainingPollsManager:
             print(f"   Тренер: {len(trainer_voters)} участников")
             print(f"   Нет: {len(no_voters)} участников")
             
+            # Логируем сбор данных
+            self._log_data_collection(target_day)
+            
             return True
             
         except Exception as e:
@@ -478,6 +582,12 @@ async def main():
         return
     
     print(f"✅ SPREADSHEET_ID: {spreadsheet_id}")
+    
+    # Проверяем условия выполнения
+    print("\n🔍 ПРОВЕРКА УСЛОВИЙ ВЫПОЛНЕНИЯ:")
+    print(f"   Создание опроса (воскресенье 10:00): {'✅' if training_manager.should_create_weekly_poll() else '❌'}")
+    print(f"   Сбор данных за вторник (среда 10:00): {'✅' if training_manager.should_collect_tuesday_data() else '❌'}")
+    print(f"   Сбор данных за пятницу (суббота 10:00): {'✅' if training_manager.should_collect_friday_data() else '❌'}")
     
     # Проверяем, что нужно сделать
     if training_manager.should_create_weekly_poll():

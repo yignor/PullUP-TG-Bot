@@ -360,14 +360,11 @@ class GameDayAnnouncer:
             # Формируем сообщение анонса
             announcement_text = self.format_announcement_message(game_info, game_link)
             
-            # Отправляем сообщение в топик для анонсов
-            message_thread_id = int(ANNOUNCEMENTS_TOPIC_ID) if ANNOUNCEMENTS_TOPIC_ID else None
-            
+            # Отправляем сообщение в основной топик (без указания топика)
             message = await self.bot.send_message(
                 chat_id=int(CHAT_ID),
                 text=announcement_text,
-                parse_mode='HTML',
-                message_thread_id=message_thread_id
+                parse_mode='HTML'
             )
             
             # Сохраняем информацию об анонсе
@@ -380,7 +377,7 @@ class GameDayAnnouncer:
                 'game_position': game_position,
                 'date': get_moscow_time().isoformat(),
                 'chat_id': CHAT_ID,
-                'topic_id': ANNOUNCEMENTS_TOPIC_ID
+                'topic_id': 'main'  # Основной топик
             }
             
             # Сохраняем в историю

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Исправленный мониторинг расписания игр с анонсами
-- Создает опросы для будущих игр
+Модуль для анонса игр в день игр
+- Проверяет расписание игр
 - Отправляет анонсы для игр, которые происходят сегодня
+- Интегрируется с существующей системой мониторинга
 """
 
 import os
@@ -22,52 +23,17 @@ load_dotenv()
 # Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
-ANNOUNCEMENTS_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID", "26")  # Топик для анонсов игр
+GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")
+ANNOUNCEMENTS_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID", "26")
 TARGET_TEAMS = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм")
 
-# Файлы для хранения данных
-POLLS_HISTORY_FILE = "game_polls_history.json"
+# Файл для хранения отправленных анонсов
 ANNOUNCEMENTS_HISTORY_FILE = "game_day_announcements.json"
 
 def get_moscow_time():
     """Возвращает текущее время в часовом поясе Москвы"""
     moscow_tz = datetime.timezone(datetime.timedelta(hours=3))
     return datetime.datetime.now(moscow_tz)
-
-def get_day_of_week(date_str: str) -> str:
-    """Получает день недели из даты"""
-    try:
-        date_obj = datetime.datetime.strptime(date_str, '%d.%m.%Y')
-        days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
-        return days[date_obj.weekday()]
-    except:
-        return "Неизвестно"
-
-def get_team_category(team_name: str) -> str:
-    """Определяет категорию команды"""
-    if "фарм" in team_name.lower():
-        return "развитие"
-    else:
-        return "первый состав"
-
-def load_polls_history() -> Dict:
-    """Загружает историю созданных опросов"""
-    try:
-        if os.path.exists(POLLS_HISTORY_FILE):
-            with open(POLLS_HISTORY_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"⚠️ Ошибка загрузки истории опросов: {e}")
-    return {}
-
-def save_polls_history(history: Dict):
-    """Сохраняет историю созданных опросов"""
-    try:
-        with open(POLLS_HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"⚠️ Ошибка сохранения истории опросов: {e}")
 
 def load_announcements_history() -> Dict:
     """Загружает историю отправленных анонсов"""
@@ -87,16 +53,22 @@ def save_announcements_history(history: Dict):
     except Exception as e:
         print(f"⚠️ Ошибка сохранения истории анонсов: {e}")
 
-def create_game_key(game_info: Dict) -> str:
-    """Создает уникальный ключ для игры"""
+def create_announcement_key(game_info: Dict) -> str:
+    """Создает уникальный ключ для анонса игры"""
     return f"{game_info['date']}_{game_info['time']}_{game_info['team1']}_{game_info['team2']}"
 
-class GameScheduleMonitorFixed:
-    """Исправленный мониторинг расписания игр"""
+def get_team_category(team_name: str) -> str:
+    """Определяет категорию команды с правильным склонением"""
+    if "фарм" in team_name.lower():
+        return "фарм состава"
+    else:
+        return "первого состава"
+
+class GameDayAnnouncer:
+    """Анонсер игр в день игр"""
     
     def __init__(self):
         self.bot = None
-        self.polls_history = load_polls_history()
         self.announcements_history = load_announcements_history()
         self._init_bot()
     
@@ -144,7 +116,7 @@ class GameScheduleMonitorFixed:
         games = []
         
         # Паттерн для поиска игр: дата время (место) - команда1 - команда2
-        # Пример: 20.08.2025 20.30 (ВО СШОР Малый 66) - Кирпичный Завод - Pull Up-Фарм
+        # Пример: 19.08.2025 20.30 (MarvelHall) - Визотек - Old Stars
         pattern = r'(\d{1,2}\.\d{2}\.\d{4})\s+(\d{1,2}\.\d{2})\s+\(([^)]+)\)\s+-\s+([^-]+)\s+-\s+([^-]+)'
         
         matches = re.findall(pattern, text)
@@ -161,7 +133,7 @@ class GameScheduleMonitorFixed:
             
             game_info = {
                 'date': date_str,
-                'time': full_time,
+                'time': time_str,  # Только время без даты
                 'venue': venue.strip(),
                 'team1': team1,
                 'team2': team2,
@@ -169,6 +141,28 @@ class GameScheduleMonitorFixed:
             }
             
             games.append(game_info)
+        
+        # Также ищем игры в формате табло (если есть)
+        # Паттерн для табло: команда1 vs команда2
+        scoreboard_pattern = r'([А-ЯЁA-Z\s-]+)\s+vs\s+([А-ЯЁA-Z\s-]+)'
+        scoreboard_matches = re.findall(scoreboard_pattern, text)
+        
+        for match in scoreboard_matches:
+            team1, team2 = match
+            team1 = team1.strip()
+            team2 = team2.strip()
+            
+            # Если это не дубликат уже найденной игры
+            if not any(g['team1'] == team1 and g['team2'] == team2 for g in games):
+                game_info = {
+                    'date': datetime.datetime.now().strftime('%d.%m.%Y'),
+                    'time': '20.30',  # Время по умолчанию
+                    'venue': 'MarvelHall',  # Место по умолчанию
+                    'team1': team1,
+                    'team2': team2,
+                    'full_text': f"Табло: {team1} vs {team2}"
+                }
+                games.append(game_info)
         
         return games
     
@@ -212,7 +206,7 @@ class GameScheduleMonitorFixed:
             seen_games = set()
             
             for game in all_games:
-                game_key = create_game_key(game)
+                game_key = create_announcement_key(game)
                 if game_key not in seen_games:
                     unique_games.append(game)
                     seen_games.add(game_key)
@@ -224,12 +218,12 @@ class GameScheduleMonitorFixed:
             print(f"❌ Ошибка получения расписания: {e}")
             return []
     
-    async def find_game_link(self, team1: str, team2: str) -> Optional[str]:
-        """Находит ссылку на игру по названиям команд"""
+    async def find_game_link(self, team1: str, team2: str, game_position: int = 1) -> Optional[str]:
+        """Находит ссылку на игру по позиции в табло"""
         try:
             url = "http://letobasket.ru"
             
-            print(f"🔍 Поиск ссылки на игру: {team1} vs {team2}")
+            print(f"🔍 Поиск ссылки на игру: {team1} vs {team2} (позиция {game_position})")
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=30) as response:
@@ -242,178 +236,43 @@ class GameScheduleMonitorFixed:
             # Парсим HTML
             soup = BeautifulSoup(html, 'html.parser')
             
-            # Ищем секцию "Табло игры"
-            scoreboard_section = None
-            for element in soup.find_all(['div', 'section', 'h2', 'h3']):
-                if element.get_text().strip().lower() in ['табло игры', 'табло', 'игры']:
-                    scoreboard_section = element
-                    break
-            
-            if not scoreboard_section:
-                print("⚠️ Секция 'Табло игры' не найдена")
-                return None
-            
-            # Ищем ссылки в секции между "Табло игры" и "Последние результаты"
-            game_links = []
-            
             # Ищем все ссылки на странице
             all_links = soup.find_all('a', href=True)
             
+            print(f"🔍 Анализируем {len(all_links)} ссылок на странице...")
+            
+            # Ищем ссылки "СТРАНИЦА ИГРЫ" в порядке их появления на странице
+            game_page_links = []
             for link in all_links:
                 href = link.get('href', '')
                 link_text = link.get_text().strip()
-                
-                # Проверяем, что ссылка содержит названия команд
-                team1_lower = team1.lower()
-                team2_lower = team2.lower()
                 link_text_lower = link_text.lower()
                 
-                # Ищем ссылки, содержащие названия команд
-                if (team1_lower in link_text_lower or team2_lower in link_text_lower or
-                    any(word in link_text_lower for word in team1_lower.split()) or
-                    any(word in link_text_lower for word in team2_lower.split())):
-                    
-                    # Проверяем, что это ссылка на игру (не на главную страницу)
-                    if href and href != '/' and 'http' in href:
-                        game_links.append({
-                            'href': href,
-                            'text': link_text
-                        })
-                        print(f"🔗 Найдена ссылка: {link_text} -> {href}")
+                if 'страница игры' in link_text_lower and href:
+                    game_page_links.append({
+                        'href': href,
+                        'text': link_text,
+                        'position': len(game_page_links) + 1
+                    })
+                    print(f"🔗 Найдена ссылка 'СТРАНИЦА ИГРЫ' #{len(game_page_links)}: {link_text} -> {href}")
             
-            # Возвращаем первую найденную ссылку
-            if game_links:
-                game_link = game_links[0]['href']
-                print(f"✅ Ссылка на игру найдена: {game_link}")
-                return game_link
+            # Возвращаем ссылку по позиции (если позиция указана и существует)
+            if game_position <= len(game_page_links):
+                selected_link = game_page_links[game_position - 1]
+                print(f"✅ Выбрана ссылка 'СТРАНИЦА ИГРЫ' #{game_position}: {selected_link['href']}")
+                return selected_link['href']
+            elif game_page_links:
+                # Если позиция не указана или неверная, возвращаем первую
+                first_link = game_page_links[0]
+                print(f"✅ Возвращена первая ссылка 'СТРАНИЦА ИГРЫ': {first_link['href']}")
+                return first_link['href']
             else:
-                print("❌ Ссылка на игру не найдена")
+                print("❌ Ссылки 'СТРАНИЦА ИГРЫ' не найдены")
                 return None
                 
         except Exception as e:
             print(f"❌ Ошибка поиска ссылки на игру: {e}")
             return None
-    
-    def should_create_poll_for_game(self, game_info: Dict) -> bool:
-        """Проверяет, нужно ли создать опрос для игры"""
-        # Создаем уникальный ключ для игры
-        game_key = create_game_key(game_info)
-        
-        # Проверяем, не создавали ли мы уже опрос для этой игры
-        if game_key in self.polls_history:
-            print(f"⏭️ Опрос для игры {game_key} уже создан ранее")
-            return False
-        
-        # Проверяем, есть ли наши команды в игре
-        game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
-        target_teams = self.find_target_teams_in_text(game_text)
-        
-        if not target_teams:
-            print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
-            return False
-        
-        # Проверяем дату игры (создаем опрос для игр в ближайшие 30 дней)
-        try:
-            game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
-            now = get_moscow_time().date()
-            days_until_game = (game_date - now).days
-            
-            if days_until_game < 0:
-                print(f"⏰ Игра {game_info['date']} уже прошла")
-                return False
-            elif days_until_game > 30:
-                print(f"⏰ Игра {game_info['date']} слишком далеко (через {days_until_game} дней)")
-                return False
-            
-            print(f"✅ Игра {game_info['date']} подходит для создания опроса (через {days_until_game} дней)")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Ошибка проверки даты игры: {e}")
-            return False
-    
-    async def create_game_poll(self, game_info: Dict) -> bool:
-        """Создает опрос для игры в правильном формате"""
-        if not self.bot or not CHAT_ID:
-            print("❌ Бот или CHAT_ID не настроены")
-            return False
-        
-        try:
-            # Определяем нашу команду и соперника
-            team1 = game_info.get('team1', '')
-            team2 = game_info.get('team2', '')
-            
-            if "pull" in team1.lower() and "up" in team1.lower():
-                our_team = team1
-                opponent = team2
-            elif "pull" in team2.lower() and "up" in team2.lower():
-                our_team = team2
-                opponent = team1
-            else:
-                print("❌ Не найдена команда PullUP в игре")
-                return False
-            
-            # Определяем категорию команды
-            team_category = get_team_category(our_team)
-            
-            # Получаем день недели
-            day_of_week = get_day_of_week(game_info['date'])
-            
-            # Формируем вопрос в правильном формате
-            question = f"Летняя лига, {team_category}, {opponent}: {day_of_week} ({game_info['date']}) {game_info['time'].split()[1]}, {game_info['venue']}"
-            
-            # Правильные варианты ответов
-            options = [
-                "✅ Готов",
-                "❌ Нет", 
-                "👨‍🏫 Тренер"
-            ]
-            
-            # Отправляем опрос в топик для игр
-            message_thread_id = int(GAMES_TOPIC_ID) if GAMES_TOPIC_ID else None
-            poll_message = await self.bot.send_poll(
-                chat_id=int(CHAT_ID),
-                question=question,
-                options=options,
-                is_anonymous=False,
-                allows_multiple_answers=False,
-                message_thread_id=message_thread_id
-            )
-            
-            # Сохраняем информацию об опросе
-            poll_info = {
-                'message_id': poll_message.message_id,
-                'poll_id': poll_message.poll.id,
-                'question': question,
-                'options': options,
-                'game_info': game_info,
-                'our_team': our_team,
-                'opponent': opponent,
-                'team_category': team_category,
-                'day_of_week': day_of_week,
-                'date': get_moscow_time().isoformat(),
-                'chat_id': CHAT_ID,
-                'topic_id': GAMES_TOPIC_ID
-            }
-            
-            # Сохраняем в историю
-            game_key = create_game_key(game_info)
-            self.polls_history[game_key] = poll_info
-            save_polls_history(self.polls_history)
-            
-            print(f"✅ Опрос для игры создан")
-            print(f"📊 ID опроса: {poll_info['poll_id']}")
-            print(f"🏀 Формат: {question}")
-            print(f"📅 Дата: {game_info['date']}")
-            print(f"🕐 Время: {game_info['time'].split()[1]}")
-            print(f"📍 Место: {game_info['venue']}")
-            print(f"👥 Категория: {team_category}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ Ошибка создания опроса для игры: {e}")
-            return False
     
     def is_game_today(self, game_info: Dict) -> bool:
         """Проверяет, происходит ли игра сегодня"""
@@ -428,7 +287,7 @@ class GameScheduleMonitorFixed:
     def should_send_announcement(self, game_info: Dict) -> bool:
         """Проверяет, нужно ли отправить анонс для игры"""
         # Создаем уникальный ключ для игры
-        announcement_key = create_game_key(game_info)
+        announcement_key = create_announcement_key(game_info)
         
         # Проверяем, не отправляли ли мы уже анонс для этой игры
         if announcement_key in self.announcements_history:
@@ -486,17 +345,17 @@ class GameScheduleMonitorFixed:
         
         return announcement
     
-    async def send_game_announcement(self, game_info: Dict) -> bool:
+    async def send_game_announcement(self, game_info: Dict, game_position: int = 1) -> bool:
         """Отправляет анонс игры"""
         if not self.bot or not CHAT_ID:
             print("❌ Бот или CHAT_ID не настроены")
             return False
         
         try:
-            # Ищем ссылку на игру
+            # Ищем ссылку на игру по позиции
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
-            game_link = await self.find_game_link(team1, team2)
+            game_link = await self.find_game_link(team1, team2, game_position)
             
             # Формируем сообщение анонса
             announcement_text = self.format_announcement_message(game_info, game_link)
@@ -512,12 +371,13 @@ class GameScheduleMonitorFixed:
             )
             
             # Сохраняем информацию об анонсе
-            announcement_key = create_game_key(game_info)
+            announcement_key = create_announcement_key(game_info)
             announcement_info = {
                 'message_id': message.message_id,
                 'text': announcement_text,
                 'game_info': game_info,
                 'game_link': game_link,
+                'game_position': game_position,
                 'date': get_moscow_time().isoformat(),
                 'chat_id': CHAT_ID,
                 'topic_id': ANNOUNCEMENTS_TOPIC_ID
@@ -532,6 +392,7 @@ class GameScheduleMonitorFixed:
             print(f"📅 Дата: {game_info['date']}")
             print(f"🕐 Время: {game_info['time']}")
             print(f"📍 Место: {game_info['venue']}")
+            print(f"🎯 Позиция в табло: {game_position}")
             if game_link:
                 print(f"🔗 Ссылка: {game_link}")
             
@@ -572,45 +433,13 @@ class GameScheduleMonitorFixed:
             
         except Exception as e:
             print(f"❌ Ошибка проверки расписания игр: {e}")
-    
-    async def check_and_create_game_polls(self):
-        """Проверяет расписание и создает опросы для игр"""
-        try:
-            print("🔍 Проверка расписания игр...")
-            
-            # Получаем расписание
-            games = await self.fetch_letobasket_schedule()
-            
-            if not games:
-                print("⚠️ Игры не найдены")
-                return
-            
-            # Показываем все найденные игры
-            print(f"\n📊 НАЙДЕННЫЕ ИГРЫ:")
-            for i, game in enumerate(games, 1):
-                print(f"   {i}. {game['full_text']}")
-            
-            # Проверяем каждую игру
-            created_polls = 0
-            for game in games:
-                print(f"\n🏀 Проверка игры: {game.get('team1', '')} vs {game.get('team2', '')}")
-                
-                if self.should_create_poll_for_game(game):
-                    print(f"📊 Создаю опрос для игры...")
-                    if await self.create_game_poll(game):
-                        created_polls += 1
-            
-            print(f"\n📊 ИТОГО: Создано {created_polls} новых опросов")
-            
-        except Exception as e:
-            print(f"❌ Ошибка проверки расписания игр: {e}")
 
 # Глобальный экземпляр
-game_monitor = GameScheduleMonitorFixed()
+game_announcer = GameDayAnnouncer()
 
 async def main():
     """Основная функция"""
-    print("🏀 ИСПРАВЛЕННЫЙ МОНИТОРИНГ РАСПИСАНИЯ ИГР С АНОНСАМИ")
+    print("📢 АНОНСЕР ИГР В ДЕНЬ ИГР")
     print("=" * 60)
     
     moscow_tz = datetime.timezone(datetime.timedelta(hours=3))
@@ -625,7 +454,6 @@ async def main():
     print("🔧 ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:")
     print(f"BOT_TOKEN: {'✅' if bot_token else '❌'}")
     print(f"CHAT_ID: {'✅' if chat_id else '❌'}")
-    print(f"GAMES_TOPIC_ID: {GAMES_TOPIC_ID}")
     print(f"ANNOUNCEMENTS_TOPIC_ID: {ANNOUNCEMENTS_TOPIC_ID}")
     print(f"TARGET_TEAMS: {TARGET_TEAMS}")
     
@@ -635,33 +463,19 @@ async def main():
     
     print(f"✅ CHAT_ID: {chat_id}")
     
-    # Показываем историю опросов
-    print(f"\n📋 ИСТОРИЯ СОЗДАННЫХ ОПРОСОВ:")
-    if game_monitor.polls_history:
-        for game_key, poll_info in game_monitor.polls_history.items():
-            print(f"   🏀 {game_key}")
-            print(f"      📊 ID: {poll_info.get('poll_id', 'N/A')}")
-            print(f"      📅 Дата создания: {poll_info.get('date', 'N/A')}")
-    else:
-        print("   📝 История пуста")
-    
     # Показываем историю анонсов
     print(f"\n📋 ИСТОРИЯ ОТПРАВЛЕННЫХ АНОНСОВ:")
-    if game_monitor.announcements_history:
-        for announcement_key, announcement_info in game_monitor.announcements_history.items():
+    if game_announcer.announcements_history:
+        for announcement_key, announcement_info in game_announcer.announcements_history.items():
             print(f"   🏀 {announcement_key}")
             print(f"      📊 ID: {announcement_info.get('message_id', 'N/A')}")
             print(f"      📅 Дата отправки: {announcement_info.get('date', 'N/A')}")
     else:
         print("   📝 История пуста")
     
-    # Запускаем проверку опросов
-    print("\n🔄 Запуск проверки расписания игр для создания опросов...")
-    await game_monitor.check_and_create_game_polls()
-    
-    # Запускаем проверку анонсов
-    print("\n🔄 Запуск проверки расписания игр для отправки анонсов...")
-    await game_monitor.check_and_send_game_announcements()
+    # Запускаем проверку
+    print("\n🔄 Запуск проверки расписания игр на сегодня...")
+    await game_announcer.check_and_send_game_announcements()
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -22,7 +22,7 @@ TARGET_TEAMS = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм").split(",")
 
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
-ANNOUNCEMENTS_HISTORY_FILE = "game_day_announcements.json"
+ANNOUNCEMENTS_HISTORY_FILE = "game_announcements.json"
 
 def get_moscow_time():
     """Возвращает текущее время в московском часовом поясе"""

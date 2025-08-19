@@ -131,6 +131,8 @@ test_scheduled_collection.py
 
 # Data files (keep locally)
 *.json
+!game_polls_history.json
+!game_announcements.json
 *.log
 group_admins.txt
 sent_notifications.json

@@ -1,0 +1,56 @@
+{
+  "20.08.2025_Кирпичный Завод_Pull Up": {
+    "message_id": 120,
+    "game_info": {
+      "date": "20.08.2025",
+      "time": "20.08.2025 20.30",
+      "venue": "ВО СШОР Малый 66",
+      "team1": "Кирпичный Завод",
+      "team2": "Pull Up",
+      "full_text": "20.08.2025 20.30 (ВО СШОР Малый 66) - Кирпичный Завод - Pull Up"
+    },
+    "our_team": "Pull Up",
+    "opponent": "Кирпичный Завод",
+    "day_of_week": "Среда",
+    "task_date": "20.08.2025",
+    "created_date": "2025-08-18T18:00:39.634079+03:00",
+    "chat_id": "-15573582",
+    "status": "scheduled"
+  },
+  "21.08.2025_Lion_Pull Up": {
+    "message_id": 121,
+    "game_info": {
+      "date": "21.08.2025",
+      "time": "21.08.2025 21.45",
+      "venue": "MarvelHall",
+      "team1": "Lion",
+      "team2": "Pull Up",
+      "full_text": "21.08.2025 21.45 (MarvelHall) - Lion - Pull Up"
+    },
+    "our_team": "Pull Up",
+    "opponent": "Lion",
+    "day_of_week": "Четверг",
+    "task_date": "21.08.2025",
+    "created_date": "2025-08-18T18:00:39.704050+03:00",
+    "chat_id": "-15573582",
+    "status": "scheduled"
+  },
+  "23.08.2025_Quasar_Pull Up": {
+    "message_id": 122,
+    "game_info": {
+      "date": "23.08.2025",
+      "time": "23.08.2025 11.10",
+      "venue": "MarvelHall",
+      "team1": "Quasar",
+      "team2": "Pull Up",
+      "full_text": "23.08.2025 11.10 (MarvelHall) - Quasar - Pull Up"
+    },
+    "our_team": "Pull Up",
+    "opponent": "Quasar",
+    "day_of_week": "Суббота",
+    "task_date": "23.08.2025",
+    "created_date": "2025-08-18T18:00:39.774039+03:00",
+    "chat_id": "-15573582",
+    "status": "scheduled"
+  }
+}

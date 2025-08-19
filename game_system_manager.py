@@ -104,9 +104,12 @@ class GameSystemManager:
     def find_target_teams_in_text(self, text: str) -> List[str]:
         """Находит целевые команды в тексте"""
         found_teams = []
-        for team in TARGET_TEAMS:
-            if team.strip() in text:
-                found_teams.append(team.strip())
+        # Расширенный список команд для поиска
+        search_teams = ['PullUP', 'Pull Up', 'Pull Up-Фарм', 'Pull Up-Фарм']
+        
+        for team in search_teams:
+            if team in text:
+                found_teams.append(team)
         return found_teams
     
     def parse_schedule_text(self, text: str) -> List[Dict]:
@@ -171,20 +174,36 @@ class GameSystemManager:
                         content = await response.text()
                         soup = BeautifulSoup(content, 'html.parser')
                         
-                        # Ищем блок с расписанием
-                        schedule_text = ""
+                        # Получаем весь текст страницы
+                        full_text = soup.get_text()
                         
-                        # Ищем текст расписания в различных блоках
-                        schedule_blocks = soup.find_all(['div', 'p', 'span'], string=re.compile(r'PullUP|Фарм|vs'))
+                        # Ищем игры с нашими командами
+                        games = []
                         
-                        for block in schedule_blocks:
-                            if block.get_text():
-                                schedule_text += block.get_text() + "\n"
+                        # Паттерн для игр в формате: дата время (место) - команда1 - команда2
+                        game_pattern = r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+)\s*-\s*([^-]+)'
+                        matches = re.findall(game_pattern, full_text)
                         
-                        if schedule_text:
-                            return self.parse_schedule_text(schedule_text)
+                        for match in matches:
+                            date, time, venue, team1, team2 = match
+                            game_text = f"{team1} {team2}"
+                            
+                            # Проверяем, есть ли наши команды
+                            if self.find_target_teams_in_text(game_text):
+                                games.append({
+                                    'date': date,
+                                    'time': time,
+                                    'team1': team1.strip(),
+                                    'team2': team2.strip(),
+                                    'venue': venue.strip(),
+                                    'full_text': f"{date} {time} ({venue}) - {team1.strip()} - {team2.strip()}"
+                                })
+                        
+                        if games:
+                            print(f"✅ Найдено {len(games)} игр с нашими командами")
+                            return games
                         else:
-                            print("⚠️ Расписание не найдено на странице")
+                            print("⚠️ Игры с нашими командами не найдены")
                             return []
                     else:
                         print(f"❌ Ошибка получения страницы: {response.status}")

@@ -31,7 +31,11 @@ jobs:
         GAMES_TOPIC_ID: ${{ secrets.GAMES_TOPIC_ID }}
         TARGET_TEAMS: ${{ secrets.TARGET_TEAMS }}
       run: |
+        echo "🏀 Запуск системы управления играми..."
+        echo "=================================================="
         python run_game_system.py
+        echo "=================================================="
+        echo "Завершение работы системы"
         
     - name: Upload logs
       uses: actions/upload-artifact@v4
@@ -40,5 +44,5 @@ jobs:
         name: game-system-logs
         path: |
           game_polls_history.json
-          game_day_announcements.json
+          game_announcements.json
           *.log

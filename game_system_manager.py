@@ -11,6 +11,7 @@ import json
 import re
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
+from datetime_utils import get_moscow_time, get_moscow_date, is_today, log_current_time
 
 load_dotenv()
 
@@ -23,11 +24,6 @@ TARGET_TEAMS = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм").split(",")
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
 ANNOUNCEMENTS_HISTORY_FILE = "game_announcements.json"
-
-def get_moscow_time():
-    """Возвращает текущее время в московском часовом поясе"""
-    moscow_tz = datetime.timezone(datetime.timedelta(hours=3))
-    return datetime.datetime.now(moscow_tz)
 
 def load_polls_history() -> Dict:
     """Загружает историю созданных опросов"""
@@ -216,9 +212,7 @@ class GameSystemManager:
     def is_game_today(self, game_info: Dict) -> bool:
         """Проверяет, происходит ли игра сегодня"""
         try:
-            game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
-            today = get_moscow_time().date()
-            return game_date == today
+            return is_today(game_info['date'])
         except Exception as e:
             print(f"❌ Ошибка проверки даты игры: {e}")
             return False
@@ -525,10 +519,10 @@ class GameSystemManager:
             print("🚀 ЗАПУСК ПОЛНОЙ СИСТЕМЫ УПРАВЛЕНИЯ ИГРАМИ")
             print("=" * 60)
             
-            moscow_tz = datetime.timezone(datetime.timedelta(hours=3))
-            now = datetime.datetime.now(moscow_tz)
-            print(f"🕐 Текущее время (Москва): {now.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"📅 День недели: {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][now.weekday()]}")
+            # Используем централизованное логирование времени
+            time_info = log_current_time()
+            print(f"🕐 Текущее время (Москва): {time_info['formatted_datetime']}")
+            print(f"📅 День недели: {time_info['weekday_name']}")
             
             print(f"\n🔧 НАСТРОЙКИ:")
             print(f"   CHAT_ID: {CHAT_ID}")

@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from telegram import Bot
 from telegram.ext import Application, MessageHandler, filters
 import gspread
+from datetime_utils import get_moscow_time, log_current_time
 from google.oauth2.service_account import Credentials
 
 # Загружаем переменные окружения
@@ -31,10 +32,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-def get_moscow_time():
-    """Возвращает текущее время в часовом поясе Москвы"""
-    moscow_tz = datetime.timezone(datetime.timedelta(hours=3))
-    return datetime.datetime.now(moscow_tz)
+
 
 def get_next_tuesday_date():
     """Возвращает дату следующего вторника"""

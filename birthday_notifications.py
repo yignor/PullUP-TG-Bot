@@ -8,6 +8,7 @@ import os
 import asyncio
 import datetime
 from dotenv import load_dotenv
+from datetime_utils import get_moscow_time, log_current_time
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -24,17 +25,14 @@ def get_years_word(age: int) -> str:
 def should_check_birthdays() -> bool:
     """Проверяет, нужно ли проверять дни рождения (в 09:00 по Москве)"""
     # Получаем московское время
-    moscow_tz = datetime.timezone(datetime.timedelta(hours=3))  # UTC+3 для Москвы
-    now = datetime.datetime.now(moscow_tz)
+    now = get_moscow_time()
     return now.hour == 9  # Проверяем весь час с 09:00 до 09:59 по Москве
 
 async def check_birthdays():
     """Проверяет дни рождения и отправляет уведомления"""
     try:
-        # Показываем текущее время для отладки
-        moscow_tz = datetime.timezone(datetime.timedelta(hours=3))
-        now = datetime.datetime.now(moscow_tz)
-        print(f"🕐 Текущее время (Москва): {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        # Используем централизованное логирование времени
+        time_info = log_current_time()
         
         if not should_check_birthdays():
             print("📅 Не время для проверки дней рождения (только в 09:00)")

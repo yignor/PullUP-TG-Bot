@@ -25,6 +25,24 @@ jobs:
         name: game-system-logs
         path: ./
       continue-on-error: true
+      
+    - name: Check downloaded artifacts
+      run: |
+        echo "🔍 ПРОВЕРКА ЗАГРУЖЕННЫХ АРТЕФАКТОВ"
+        echo "=================================================="
+        echo "📋 Содержимое рабочей директории:"
+        ls -la
+        echo ""
+        echo "📋 Содержимое всех JSON файлов:"
+        find . -name "*.json" -type f
+        echo ""
+        echo "📄 Содержимое game_announcements.json (если есть):"
+        if [ -f "game_announcements.json" ]; then
+          cat game_announcements.json
+        else
+          echo "❌ Файл game_announcements.json не найден"
+        fi
+        echo "=================================================="
         
     - name: Install dependencies
       run: |
@@ -51,6 +69,22 @@ jobs:
         else
           echo "❌ Файл game_polls_history.json не найден"
         fi
+        echo "=================================================="
+        
+    - name: Initialize history files
+      run: |
+        echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ ИСТОРИИ"
+        echo "=================================================="
+        # Создаем пустые файлы истории, если они не существуют
+        if [ ! -f "game_announcements.json" ]; then
+          echo "📝 Создаем пустой game_announcements.json"
+          echo '{}' > game_announcements.json
+        fi
+        if [ ! -f "game_polls_history.json" ]; then
+          echo "📝 Создаем пустой game_polls_history.json"
+          echo '{}' > game_polls_history.json
+        fi
+        echo "✅ Файлы истории инициализированы"
         echo "=================================================="
         
     - name: Run complete game system

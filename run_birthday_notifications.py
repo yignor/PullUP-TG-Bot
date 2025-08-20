@@ -33,6 +33,13 @@ async def main():
     print(f"GOOGLE_SHEETS_CREDENTIALS: {'✅' if google_credentials else '❌'}")
     print(f"SPREADSHEET_ID: {'✅' if spreadsheet_id else '❌'}")
     
+    # Дополнительная диагностика
+    if google_credentials:
+        print(f"🔍 GOOGLE_SHEETS_CREDENTIALS длина: {len(google_credentials)} символов")
+        print(f"🔍 Первые 100 символов: {google_credentials[:100]}...")
+    if spreadsheet_id:
+        print(f"🔍 SPREADSHEET_ID: {spreadsheet_id}")
+    
     if not bot_token:
         print("❌ BOT_TOKEN не настроен")
         return

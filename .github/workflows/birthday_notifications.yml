@@ -27,24 +27,30 @@ jobs:
     - name: Check secrets availability
       run: |
         echo "Checking secrets availability..."
+        
+        # Проверяем BOT_TOKEN
         if [ -n "${{ secrets.BOT_TOKEN }}" ]; then
           echo "✅ BOT_TOKEN is available"
         else
           echo "❌ BOT_TOKEN is not available - workflow will fail"
         fi
         
+        # Проверяем CHAT_ID
         if [ -n "${{ secrets.CHAT_ID }}" ]; then
           echo "✅ CHAT_ID is available"
         else
           echo "❌ CHAT_ID is not available - workflow will fail"
         fi
         
-        if [ -n "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" ]; then
+        # Проверяем GOOGLE_SHEETS_CREDENTIALS (без кавычек для избежания проблем с JSON)
+        GOOGLE_CREDS="${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}"
+        if [ -n "$GOOGLE_CREDS" ]; then
           echo "✅ GOOGLE_SHEETS_CREDENTIALS is available"
         else
           echo "❌ GOOGLE_SHEETS_CREDENTIALS is not available - workflow will fail"
         fi
         
+        # Проверяем SPREADSHEET_ID
         if [ -n "${{ secrets.SPREADSHEET_ID }}" ]; then
           echo "✅ SPREADSHEET_ID is available"
         else
@@ -102,6 +108,7 @@ jobs:
         echo "SPREADSHEET_ID длина: ${#SPREADSHEET_ID}"
         echo "GOOGLE_SHEETS_CREDENTIALS длина: ${#GOOGLE_SHEETS_CREDENTIALS}"
         echo "Первые 50 символов GOOGLE_SHEETS_CREDENTIALS: ${GOOGLE_SHEETS_CREDENTIALS:0:50}..."
+        echo "SPREADSHEET_ID значение: $SPREADSHEET_ID"
         
         python run_birthday_notifications.py
         

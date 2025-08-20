@@ -9,7 +9,6 @@ import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import gspread
-from google.oauth2.service_account import Credentials
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -66,20 +65,14 @@ class PlayersManager:
             print(f"✅ Все обязательные поля присутствуют")
             print(f"📧 Сервисный аккаунт: {creds_dict.get('client_email', 'Не найден')}")
             
-            # Создаем credentials из словаря (не из файла)
+            # Авторизуемся напрямую через gspread
             try:
-                creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-                print("✅ Credentials созданы из service account info")
-            except Exception as e:
-                print(f"❌ Ошибка создания credentials: {e}")
-                return
-            
-            # Авторизуемся
-            try:
-                self.gc = gspread.authorize(creds)
+                self.gc = gspread.service_account_from_dict(creds_dict, scopes=SCOPES)
                 print("✅ Авторизация в Google API успешна")
             except Exception as e:
                 print(f"❌ Ошибка авторизации в Google API: {e}")
+                print(f"🔍 Тип creds_dict: {type(creds_dict)}")
+                print(f"🔍 Ключи в creds_dict: {list(creds_dict.keys())}")
                 return
             
             # Открываем таблицу

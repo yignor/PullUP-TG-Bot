@@ -83,7 +83,7 @@ def get_day_of_week(date_str: str) -> str:
 def get_team_category(team_name: str) -> str:
     """Определяет категорию команды с правильным склонением"""
     if "Фарм" in team_name or "PULL UP-ФАРМ" in team_name.upper() or "PULL UP ФАРМ" in team_name.upper():
-        return "фарм состава"
+        return "состав развития"
     else:
         return "первого состава"
 

@@ -46,7 +46,7 @@ class PlayersManager:
             print(f"🔍 Отладка: SPREADSHEET_ID = {SPREADSHEET_ID}")
             print(f"🔍 Отладка: GOOGLE_SHEETS_CREDENTIALS длина = {len(GOOGLE_SHEETS_CREDENTIALS)} символов")
             
-            # Парсим JSON credentials с обработкой экранированных символов
+            # Парсим JSON credentials с тщательной очисткой
             try:
                 # Сначала пробуем прямой парсинг
                 creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
@@ -54,13 +54,27 @@ class PlayersManager:
             except json.JSONDecodeError as e:
                 print(f"⚠️ Ошибка прямого парсинга: {e}")
                 try:
-                    # Пробуем с обработкой экранированных символов
-                    cleaned_credentials = GOOGLE_SHEETS_CREDENTIALS.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                    # Тщательная очистка от всех проблемных символов
+                    cleaned_credentials = GOOGLE_SHEETS_CREDENTIALS
+                    
+                    # Убираем экранированные символы
+                    cleaned_credentials = cleaned_credentials.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                    
+                    # Убираем недопустимые управляющие символы
+                    import re
+                    cleaned_credentials = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_credentials)
+                    
+                    # Убираем лишние пробелы
+                    cleaned_credentials = cleaned_credentials.strip()
+                    
+                    print(f"🔍 Очищенная строка (первые 200 символов): {cleaned_credentials[:200]}...")
+                    
                     creds_dict = json.loads(cleaned_credentials)
-                    print("✅ JSON credentials успешно распарсен (после очистки)")
+                    print("✅ JSON credentials успешно распарсен (после тщательной очистки)")
                 except json.JSONDecodeError as e2:
                     print(f"❌ Ошибка парсинга JSON credentials: {e2}")
-                    print(f"🔍 Первые 100 символов: {GOOGLE_SHEETS_CREDENTIALS[:100]}...")
+                    print(f"🔍 Первые 100 символов оригинала: {GOOGLE_SHEETS_CREDENTIALS[:100]}...")
+                    print(f"🔍 Первые 100 символов после очистки: {cleaned_credentials[:100]}...")
                     return
             
             # Проверяем обязательные поля

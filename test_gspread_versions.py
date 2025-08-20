@@ -22,9 +22,21 @@ def test_gspread_versions():
         print("❌ GOOGLE_SHEETS_CREDENTIALS не найден")
         return
     
-    # Парсим JSON
+    # Парсим JSON с тщательной очисткой
     try:
-        cleaned_credentials = google_credentials.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+        # Тщательная очистка от всех проблемных символов
+        cleaned_credentials = google_credentials
+        
+        # Убираем экранированные символы
+        cleaned_credentials = cleaned_credentials.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+        
+        # Убираем недопустимые управляющие символы
+        import re
+        cleaned_credentials = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_credentials)
+        
+        # Убираем лишние пробелы
+        cleaned_credentials = cleaned_credentials.strip()
+        
         creds_dict = json.loads(cleaned_credentials)
         
         # Обрабатываем private_key

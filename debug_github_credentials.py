@@ -49,11 +49,24 @@ def debug_credentials():
     except json.JSONDecodeError as e:
         print(f"❌ Ошибка прямого парсинга: {e}")
         
-        # Способ 2: Очистка от лишних символов
+        # Способ 2: Тщательная очистка от всех проблемных символов
         try:
-            cleaned_credentials = google_credentials.strip().replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+            cleaned_credentials = google_credentials
+            
+            # Убираем экранированные символы
+            cleaned_credentials = cleaned_credentials.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+            
+            # Убираем недопустимые управляющие символы
+            import re
+            cleaned_credentials = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned_credentials)
+            
+            # Убираем лишние пробелы
+            cleaned_credentials = cleaned_credentials.strip()
+            
+            print(f"   🔍 Очищенная строка (первые 200 символов): {cleaned_credentials[:200]}...")
+            
             creds_dict = json.loads(cleaned_credentials)
-            print("✅ JSON успешно распарсен (после очистки)")
+            print("✅ JSON успешно распарсен (после тщательной очистки)")
             print(f"   Тип: {type(creds_dict)}")
             print(f"   Ключи: {list(creds_dict.keys())}")
             
@@ -67,6 +80,8 @@ def debug_credentials():
                     
         except json.JSONDecodeError as e2:
             print(f"❌ Ошибка парсинга после очистки: {e2}")
+            print(f"   🔍 Первые 100 символов оригинала: {google_credentials[:100]}...")
+            print(f"   🔍 Первые 100 символов после очистки: {cleaned_credentials[:100]}...")
             return
     
     # Проверяем обязательные поля

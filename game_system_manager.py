@@ -68,7 +68,8 @@ def create_game_key(game_info: Dict) -> str:
 
 def create_announcement_key(game_info: Dict) -> str:
     """Создает уникальный ключ для анонса"""
-    return f"{game_info['date']}_{game_info['team1']}_{game_info['team2']}"
+    # Включаем время в ключ для уникальности
+    return f"{game_info['date']}_{game_info['time']}_{game_info['team1']}_{game_info['team2']}"
 
 def get_day_of_week(date_str: str) -> str:
     """Возвращает день недели на русском языке"""

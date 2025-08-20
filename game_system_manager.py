@@ -432,10 +432,18 @@ class GameSystemManager:
                             # Проверяем разные варианты написания команд
                             team1_found = (team1_upper in row_text or 
                                           team1_upper.replace(' ', '') in row_text or
-                                          team1_upper.replace('-', ' ') in row_text)
+                                          team1_upper.replace('-', ' ') in row_text or
+                                          team1_upper.replace(' ', '-') in row_text)
                             team2_found = (team2_upper in row_text or 
                                           team2_upper.replace(' ', '') in row_text or
-                                          team2_upper.replace('-', ' ') in row_text)
+                                          team2_upper.replace('-', ' ') in row_text or
+                                          team2_upper.replace(' ', '-') in row_text)
+                            
+                            # Специальная проверка для Pull Up (может быть Pull Up-Фарм)
+                            if team2_upper == 'PULL UP':
+                                team2_found = (team2_found or 
+                                              'PULL UP-ФАРМ' in row_text or
+                                              'PULL UP ФАРМ' in row_text)
                             
                             if team1_found and team2_found:
                                 # Находим позицию этой строки среди всех строк с играми

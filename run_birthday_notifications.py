@@ -36,7 +36,15 @@ async def main():
     # Дополнительная диагностика
     if google_credentials:
         print(f"🔍 GOOGLE_SHEETS_CREDENTIALS длина: {len(google_credentials)} символов")
-        print(f"🔍 Первые 100 символов: {google_credentials[:100]}...")
+        # Проверяем, что это валидный JSON
+        try:
+            import json
+            json.loads(google_credentials)
+            print("✅ GOOGLE_SHEETS_CREDENTIALS - валидный JSON")
+        except json.JSONDecodeError as e:
+            print(f"❌ GOOGLE_SHEETS_CREDENTIALS - невалидный JSON: {e}")
+        except Exception as e:
+            print(f"❌ Ошибка проверки JSON: {e}")
     if spreadsheet_id:
         print(f"🔍 SPREADSHEET_ID: {spreadsheet_id}")
     

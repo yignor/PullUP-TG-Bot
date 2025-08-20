@@ -42,9 +42,8 @@ jobs:
           echo "❌ CHAT_ID is not available - workflow will fail"
         fi
         
-        # Проверяем GOOGLE_SHEETS_CREDENTIALS (без кавычек для избежания проблем с JSON)
-        GOOGLE_CREDS="${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}"
-        if [ -n "$GOOGLE_CREDS" ]; then
+        # Проверяем GOOGLE_SHEETS_CREDENTIALS (безопасная проверка)
+        if [ -n "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" ]; then
           echo "✅ GOOGLE_SHEETS_CREDENTIALS is available"
         else
           echo "❌ GOOGLE_SHEETS_CREDENTIALS is not available - workflow will fail"
@@ -107,7 +106,6 @@ jobs:
         echo "🔍 ДИАГНОСТИКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:"
         echo "SPREADSHEET_ID длина: ${#SPREADSHEET_ID}"
         echo "GOOGLE_SHEETS_CREDENTIALS длина: ${#GOOGLE_SHEETS_CREDENTIALS}"
-        echo "Первые 50 символов GOOGLE_SHEETS_CREDENTIALS: ${GOOGLE_SHEETS_CREDENTIALS:0:50}..."
         echo "SPREADSHEET_ID значение: $SPREADSHEET_ID"
         
         python run_birthday_notifications.py

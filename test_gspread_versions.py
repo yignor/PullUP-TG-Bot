@@ -39,11 +39,31 @@ def test_gspread_versions():
         
         creds_dict = json.loads(cleaned_credentials)
         
-        # Обрабатываем private_key
+        # Обрабатываем private_key с добавлением переносов строк
         if 'private_key' in creds_dict:
             private_key = creds_dict['private_key']
             if isinstance(private_key, str):
+                # Убираем экранированные символы из private_key
                 cleaned_private_key = private_key.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                
+                # Если ключ в одной строке, добавляем переносы строк
+                if '\n' not in cleaned_private_key:
+                    print("⚠️ Private key в одной строке, добавляем переносы строк...")
+                    
+                    # Добавляем переносы строк в нужных местах
+                    key_content = cleaned_private_key.replace('-----BEGIN PRIVATE KEY-----', '').replace('-----END PRIVATE KEY-----', '')
+                    key_content = key_content.strip()
+                    
+                    # Разбиваем на строки по 64 символа
+                    lines = []
+                    for i in range(0, len(key_content), 64):
+                        lines.append(key_content[i:i+64])
+                    
+                    # Собираем обратно с переносами строк
+                    formatted_key = '-----BEGIN PRIVATE KEY-----\n' + '\n'.join(lines) + '\n-----END PRIVATE KEY-----\n'
+                    cleaned_private_key = formatted_key
+                    print(f"✅ Private key отформатирован с переносами строк")
+                
                 creds_dict['private_key'] = cleaned_private_key
         
         print("✅ JSON успешно обработан")

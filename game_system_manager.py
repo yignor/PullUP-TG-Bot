@@ -226,6 +226,8 @@ class GameSystemManager:
         
         # Создаем уникальный ключ для игры
         game_key = create_game_key(game_info)
+        print(f"🔍 Проверяем ключ опроса: {game_key}")
+        print(f"📋 История опросов содержит {len(self.polls_history)} записей")
         
         # Проверяем, не создавали ли мы уже опрос для этой игры
         if game_key in self.polls_history:
@@ -411,14 +413,30 @@ class GameSystemManager:
                             if "СТРАНИЦА ИГРЫ" in link.get_text():
                                 game_links.append(link['href'])
                         
-                        # Ищем строки с командами
+                        # Ищем строки с командами (с учетом разных вариантов написания)
                         for row in soup.find_all(['div', 'tr', 'td']):
-                            row_text = row.get_text().strip()
-                            if team1 in row_text and team2 in row_text:
+                            row_text = row.get_text().strip().upper()
+                            team1_upper = team1.upper()
+                            team2_upper = team2.upper()
+                            
+                            # Проверяем разные варианты написания команд
+                            team1_found = (team1_upper in row_text or 
+                                          team1_upper.replace(' ', '') in row_text or
+                                          team1_upper.replace('-', ' ') in row_text)
+                            team2_found = (team2_upper in row_text or 
+                                          team2_upper.replace(' ', '') in row_text or
+                                          team2_upper.replace('-', ' ') in row_text)
+                            
+                            if team1_found and team2_found:
                                 # Находим позицию этой строки среди всех строк с играми
                                 all_game_rows = []
                                 for game_row in soup.find_all(['div', 'tr', 'td']):
-                                    if any(team in game_row.get_text() for team in ['PULL UP', 'КИРПИЧНЫЙ ЗАВОД', 'LION', 'QUASAR']):
+                                    # Расширенный поиск команд с разными вариантами написания
+                                    if any(team in game_row.get_text().upper() for team in [
+                                        'PULL UP', 'PULLUP', 'PULL UP ФАРМ', 'PULL UP-ФАРМ',
+                                        'КИРПИЧНЫЙ ЗАВОД', 'LION', 'QUASAR', 'КОНСТАНТА', 'АТОМПРОЕКТ',
+                                        'SETL GROUP', 'МБИ', 'КОРОЛИ СЕВЕРА', 'ТРЕНД', 'БОРДО', 'ВСЁ СМАРТ', 'ГАП', 'ШТУРВАЛ'
+                                    ]):
                                         all_game_rows.append(game_row)
                                 
                                 for i, game_row in enumerate(all_game_rows):

@@ -66,13 +66,21 @@ class PlayersManager:
             print(f"✅ Все обязательные поля присутствуют")
             print(f"📧 Сервисный аккаунт: {creds_dict.get('client_email', 'Не найден')}")
             
-            # Создаем credentials
-            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-            print("✅ Credentials созданы")
+            # Создаем credentials из словаря (не из файла)
+            try:
+                creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+                print("✅ Credentials созданы из service account info")
+            except Exception as e:
+                print(f"❌ Ошибка создания credentials: {e}")
+                return
             
             # Авторизуемся
-            self.gc = gspread.authorize(creds)
-            print("✅ Авторизация в Google API успешна")
+            try:
+                self.gc = gspread.authorize(creds)
+                print("✅ Авторизация в Google API успешна")
+            except Exception as e:
+                print(f"❌ Ошибка авторизации в Google API: {e}")
+                return
             
             # Открываем таблицу
             try:

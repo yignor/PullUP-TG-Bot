@@ -424,9 +424,22 @@ class GameSystemManager:
                             if "СТРАНИЦА ИГРЫ" in link.get_text():
                                 game_links.append(link['href'])
                         
-                        # Ищем строки с командами только в первых 6 элементах font (соответствуют ссылкам)
+                        # Ищем строки с командами только в первых 6 элементах font с играми (соответствуют ссылкам)
                         font_elements = list(soup.find_all('font'))
-                        for i, row in enumerate(font_elements[:6]):  # Только первые 6
+                        game_font_elements = []
+                        
+                        # Ищем элементы font с играми (длинный текст с датами)
+                        for font in font_elements:
+                            text = font.get_text().strip()
+                            if len(text) > 100:  # Длинный текст
+                                import re
+                                date_pattern = r'(\d{2}\.\d{2}\.\d{4})'
+                                dates = re.findall(date_pattern, text)
+                                if dates:  # Содержит даты
+                                    game_font_elements.append(font)
+                        
+                        # Берем только первые 6 элементов с играми
+                        for i, row in enumerate(game_font_elements[:6], 1):
                             row_text = row.get_text().strip().upper()
                             team1_upper = team1.upper()
                             team2_upper = team2.upper()
@@ -450,9 +463,9 @@ class GameSystemManager:
                                     team2_found = team2_found or 'PULL UP' in row_text
                             
                             if team1_found and team2_found:
-                                # Находим позицию этой строки среди первых 6 элементов font
+                                # Находим позицию этой строки среди первых 6 элементов font с играми
                                 all_game_rows = []
-                                for game_row in font_elements[:6]:  # Только первые 6
+                                for game_row in game_font_elements[:6]:  # Только первые 6
                                     # Расширенный поиск команд с разными вариантами написания
                                     if any(team in game_row.get_text().upper() for team in [
                                         'PULL UP', 'PULLUP', 'PULL UP ФАРМ', 'PULL UP-ФАРМ',

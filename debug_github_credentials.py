@@ -31,9 +31,12 @@ def debug_credentials():
     
     # Проверяем на специальные символы
     print(f"\n🔍 Проверка специальных символов:")
-    print(f"   Содержит \\n: {'✅' if '\\n' in google_credentials else '❌'}")
-    print(f"   Содержит \\r: {'✅' if '\\r' in google_credentials else '❌'}")
-    print(f"   Содержит \\t: {'✅' if '\\t' in google_credentials else '❌'}")
+    contains_newline = '\\n' in google_credentials
+    contains_return = '\\r' in google_credentials
+    contains_tab = '\\t' in google_credentials
+    print(f"   Содержит \\n: {'✅' if contains_newline else '❌'}")
+    print(f"   Содержит \\r: {'✅' if contains_return else '❌'}")
+    print(f"   Содержит \\t: {'✅' if contains_tab else '❌'}")
     
     # Пробуем разные способы парсинга
     print(f"\n1️⃣ Парсинг JSON...")

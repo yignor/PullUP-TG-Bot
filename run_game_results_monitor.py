@@ -6,8 +6,61 @@
 import asyncio
 import json
 import os
-from game_results_monitor import GameResultsMonitor, load_game_monitor_history
-from datetime_utils import get_moscow_time
+from datetime import datetime, timezone, timedelta
+from game_results_monitor import GameResultsMonitor, load_game_monitor_history, save_game_monitor_history
+from datetime_utils import get_moscow_time, is_today
+from game_system_manager import GameSystemManager
+
+async def check_games_for_monitoring() -> list:
+    """Проверяет игры, которые должны начаться в ближайшие 5 минут"""
+    try:
+        print("🔍 Проверяем игры для мониторинга...")
+        
+        # Создаем экземпляр GameSystemManager для парсинга расписания
+        game_manager = GameSystemManager()
+        
+        # Парсим расписание
+        schedule = await game_manager.fetch_letobasket_schedule()
+        
+        if not schedule:
+            print("   📅 Расписание не найдено")
+            return []
+        
+        # Проверяем игры сегодня
+        now = get_moscow_time()
+        games_to_monitor = []
+        
+        for game in schedule:
+            if not is_today(game['date']):
+                continue
+                
+            try:
+                # Парсим время игры
+                time_str = game['time'].replace('.', ':')
+                game_time = datetime.strptime(f"{game['date']} {time_str}", '%d.%m.%Y %H:%M')
+                game_time = game_time.replace(tzinfo=timezone(timedelta(hours=3)))  # МСК
+                
+                # Проверяем, начинается ли игра в ближайшие 5 минут
+                time_diff = (game_time - now).total_seconds()
+                
+                if 0 <= time_diff <= 300:  # От 0 до 5 минут (300 секунд)
+                    games_to_monitor.append(game)
+                    print(f"   🏀 Игра {game['team1']} vs {game['team2']} начинается через {time_diff/60:.1f} минут")
+                    
+            except Exception as e:
+                print(f"   ⚠️ Ошибка парсинга времени игры: {e}")
+                continue
+        
+        if games_to_monitor:
+            print(f"   ✅ Найдено {len(games_to_monitor)} игр для мониторинга")
+        else:
+            print(f"   ℹ️ Нет игр для мониторинга в ближайшие 5 минут")
+            
+        return games_to_monitor
+        
+    except Exception as e:
+        print(f"   ❌ Ошибка проверки игр: {e}")
+        return []
 
 async def run_game_results_monitor():
     """Запускает мониторинг результатов игр"""
@@ -18,6 +71,13 @@ async def run_game_results_monitor():
     now = get_moscow_time()
     print(f"🕐 Текущее время (Москва): {now.strftime('%d.%m.%Y %H:%M:%S')}")
     
+    # Проверяем игры для мониторинга
+    games_to_monitor = await check_games_for_monitoring()
+    
+    if not games_to_monitor:
+        print("📅 Нет игр для мониторинга, завершаем работу")
+        return
+    
     try:
         # Загружаем историю мониторинга
         monitor_history = load_game_monitor_history()
@@ -25,6 +85,18 @@ async def run_game_results_monitor():
         
         # Создаем экземпляр монитора
         monitor = GameResultsMonitor()
+        
+        # Запускаем мониторинг для каждой игры
+        for game in games_to_monitor:
+            print(f"\n🎮 Запускаем мониторинг для игры: {game['team1']} vs {game['team2']}")
+            
+            # Запускаем мониторинг (ссылка будет найдена внутри мониторинга)
+            success = await monitor.start_monitoring_for_game(game, "")
+            
+            if success:
+                print(f"   ✅ Мониторинг запущен успешно")
+            else:
+                print(f"   ❌ Ошибка запуска мониторинга")
         
         # Проверяем активные мониторинги
         active_monitors = 0
@@ -80,7 +152,6 @@ async def run_game_results_monitor():
                 completed_monitors += 1
         
         # Сохраняем обновленную историю
-        from game_results_monitor import save_game_monitor_history
         save_game_monitor_history(monitor_history)
         
         print(f"\n📋 ИТОГИ МОНИТОРИНГА:")

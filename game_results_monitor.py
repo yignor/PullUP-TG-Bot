@@ -68,8 +68,8 @@ class GameResultsMonitor:
             
             now = get_moscow_time()
             
-            # Мониторинг должен начинаться не раньше чем за 10 минут до игры
-            earliest_start = game_time - timedelta(minutes=10)
+            # Мониторинг должен начинаться не раньше чем за 5 минут до игры
+            earliest_start = game_time - timedelta(minutes=5)
             
             if now < earliest_start:
                 print(f"⏰ Слишком рано для мониторинга. Игра в {game_time.strftime('%H:%M')}, мониторинг начнется в {earliest_start.strftime('%H:%M')}")
@@ -325,8 +325,8 @@ class GameResultsMonitor:
         game_time = datetime.strptime(f"{game_info['date']} {time_str}", '%d.%m.%Y %H:%M')
         game_time = game_time.replace(tzinfo=timezone(timedelta(hours=3)))  # МСК
         
-        # Начинаем мониторинг за 10 минут до игры
-        start_monitoring = game_time - timedelta(minutes=10)
+        # Начинаем мониторинг за 5 минут до игры
+        start_monitoring = game_time - timedelta(minutes=5)
         end_monitoring = game_time + timedelta(hours=3)
         
         now = get_moscow_time()

@@ -19,16 +19,19 @@ jobs:
       with:
         python-version: '3.11'
         
-    - name: Download previous artifacts
-      uses: actions/download-artifact@v4
+    - name: Restore history from cache
+      uses: actions/cache@v3
       with:
-        name: game-system-logs
-        path: ./
-      continue-on-error: true
+        path: |
+          game_announcements.json
+          game_polls_history.json
+        key: game-history-${{ github.ref }}
+        restore-keys: |
+          game-history-
       
-    - name: Check downloaded artifacts
+    - name: Check restored history
       run: |
-        echo "🔍 ПРОВЕРКА ЗАГРУЖЕННЫХ АРТЕФАКТОВ"
+        echo "🔍 ПРОВЕРКА ВОССТАНОВЛЕННОЙ ИСТОРИИ"
         echo "=================================================="
         echo "📋 Содержимое рабочей директории:"
         ls -la
@@ -99,6 +102,15 @@ jobs:
         python run_game_system.py
         echo "=================================================="
         echo "Завершение работы системы"
+        
+    - name: Save history to cache
+      uses: actions/cache@v3
+      if: always()
+      with:
+        path: |
+          game_announcements.json
+          game_polls_history.json
+        key: game-history-${{ github.ref }}
         
     - name: Upload logs
       uses: actions/upload-artifact@v4

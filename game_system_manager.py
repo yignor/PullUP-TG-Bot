@@ -234,6 +234,16 @@ class GameSystemManager:
             print(f"⏭️ Опрос для игры {game_key} уже создан")
             return False
         
+        # Специальная проверка для уже созданных опросов (временное решение)
+        game_text = f"{game_info.get('team1', '')} vs {game_info.get('team2', '')}"
+        if any(existing_game in game_text for existing_game in [
+            "Кирпичный Завод vs Pull Up",
+            "Lion vs Pull Up", 
+            "Quasar vs Pull Up"
+        ]):
+            print(f"⏭️ Опрос для игры {game_text} уже создан ранее (пропускаем)")
+            return False
+        
         # Проверяем, есть ли наши команды в игре
         game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
         target_teams = self.find_target_teams_in_text(game_text)

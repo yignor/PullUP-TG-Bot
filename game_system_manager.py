@@ -63,7 +63,8 @@ def save_announcements_history(history: Dict):
 
 def create_game_key(game_info: Dict) -> str:
     """Создает уникальный ключ для игры"""
-    return f"{game_info['date']}_{game_info['team1']}_{game_info['team2']}"
+    # Включаем время в ключ для уникальности
+    return f"{game_info['date']}_{game_info['time']}_{game_info['team1']}_{game_info['team2']}"
 
 def create_announcement_key(game_info: Dict) -> str:
     """Создает уникальный ключ для анонса"""
@@ -387,8 +388,8 @@ class GameSystemManager:
             print(f"❌ Ошибка создания опроса для игры: {e}")
             return False
     
-    async def find_game_link(self, team1: str, team2: str, game_position: int = 1) -> Optional[str]:
-        """Ищет ссылку на игру по позиции в табло"""
+    async def find_game_link(self, team1: str, team2: str) -> Optional[str]:
+        """Ищет ссылку на игру по командам в табло"""
         try:
             import aiohttp
             from bs4 import BeautifulSoup
@@ -401,17 +402,38 @@ class GameSystemManager:
                         content = await response.text()
                         soup = BeautifulSoup(content, 'html.parser')
                         
-                        # Ищем все ссылки с текстом "СТРАНИЦА ИГРЫ"
+                        # Ищем все строки с играми и их ссылки
+                        game_rows = []
                         game_links = []
+                        
+                        # Ищем все ссылки с текстом "СТРАНИЦА ИГРЫ"
                         for link in soup.find_all('a', href=True):
                             if "СТРАНИЦА ИГРЫ" in link.get_text():
                                 game_links.append(link['href'])
                         
-                        if game_links and game_position <= len(game_links):
-                            return game_links[game_position - 1]
-                        else:
-                            print(f"⚠️ Ссылка на игру не найдена (позиция {game_position})")
-                            return None
+                        # Ищем строки с командами
+                        for row in soup.find_all(['div', 'tr', 'td']):
+                            row_text = row.get_text().strip()
+                            if team1 in row_text and team2 in row_text:
+                                # Находим позицию этой строки среди всех строк с играми
+                                all_game_rows = []
+                                for game_row in soup.find_all(['div', 'tr', 'td']):
+                                    if any(team in game_row.get_text() for team in ['PULL UP', 'КИРПИЧНЫЙ ЗАВОД', 'LION', 'QUASAR']):
+                                        all_game_rows.append(game_row)
+                                
+                                for i, game_row in enumerate(all_game_rows):
+                                    if game_row == row:
+                                        game_position = i + 1
+                                        print(f"🎯 Найдена игра {team1} vs {team2} на позиции {game_position}")
+                                        
+                                        if game_position <= len(game_links):
+                                            return game_links[game_position - 1]
+                                        else:
+                                            print(f"⚠️ Ссылка на игру не найдена (позиция {game_position})")
+                                            return None
+                        
+                        print(f"⚠️ Игра {team1} vs {team2} не найдена в табло")
+                        return None
                     else:
                         print(f"❌ Ошибка получения страницы: {response.status}")
                         return None
@@ -466,10 +488,10 @@ class GameSystemManager:
             return False
         
         try:
-            # Ищем ссылку на игру по позиции
+            # Ищем ссылку на игру по командам
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
-            game_link = await self.find_game_link(team1, team2, game_position)
+            game_link = await self.find_game_link(team1, team2)
             
             # Формируем сообщение анонса
             announcement_text = self.format_announcement_message(game_info, game_link)

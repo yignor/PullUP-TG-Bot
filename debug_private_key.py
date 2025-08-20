@@ -62,8 +62,10 @@ def debug_private_key():
     
     # Проверяем на наличие переносов строк
     print(f"\n🔍 Проверка переносов строк:")
-    print(f"   Содержит '\\n': {'✅' if '\\n' in private_key else '❌'}")
-    print(f"   Содержит реальные переносы строк: {'✅' if '\n' in private_key else '❌'}")
+    contains_escaped_newline = '\\n' in private_key
+    contains_real_newline = '\n' in private_key
+    print(f"   Содержит '\\n': {'✅' if contains_escaped_newline else '❌'}")
+    print(f"   Содержит реальные переносы строк: {'✅' if contains_real_newline else '❌'}")
     
     # Показываем количество строк
     lines = private_key.split('\n')

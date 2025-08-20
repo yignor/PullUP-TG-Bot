@@ -82,7 +82,7 @@ def get_day_of_week(date_str: str) -> str:
 
 def get_team_category(team_name: str) -> str:
     """Определяет категорию команды с правильным склонением"""
-    if "Фарм" in team_name:
+    if "Фарм" in team_name or "PULL UP-ФАРМ" in team_name.upper() or "PULL UP ФАРМ" in team_name.upper():
         return "фарм состава"
     else:
         return "первого состава"
@@ -459,16 +459,17 @@ class GameSystemManager:
                                                           team2_upper.replace('-', ' ') in iframe_text or
                                                           team2_upper.replace(' ', '-') in iframe_text)
                                             
-                                            # Специальная проверка для Pull Up (исключаем Pull Up-Фарм)
+                                            # Специальная проверка для Pull Up (включаем и обычный, и фарм)
                                             if team2_upper == 'PULL UP':
-                                                # Ищем Pull Up, но НЕ Pull Up-Фарм
+                                                # Ищем Pull Up (обычный или фарм)
                                                 if 'PULL UP-ФАРМ' in iframe_text or 'PULL UP ФАРМ' in iframe_text:
-                                                    team2_found = False
-                                                    print(f"   ⚠️ Найден Pull Up-Фарм, исключаем")
+                                                    team2_found = True
+                                                    print(f"   ✅ Найден Pull Up-Фарм")
+                                                elif 'PULL UP' in iframe_text:
+                                                    team2_found = True
+                                                    print(f"   ✅ Найден Pull Up (обычный)")
                                                 else:
-                                                    team2_found = team2_found or 'PULL UP' in iframe_text
-                                                    if 'PULL UP' in iframe_text:
-                                                        print(f"   ✅ Найден Pull Up (без Фарм)")
+                                                    team2_found = False
                                             
                                             print(f"   🏀 {team1_upper} найдена: {'✅' if team1_found else '❌'}")
                                             print(f"   🏀 {team2_upper} найдена: {'✅' if team2_found else '❌'}")
@@ -550,7 +551,14 @@ class GameSystemManager:
             return f"🏀 Сегодня игра против {opponent} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
         
         # Определяем категорию команды с правильным склонением
+        # Проверяем, есть ли в iframe упоминание фарм
         team_category = get_team_category(our_team)
+        
+        # Если это Pull Up, дополнительно проверяем iframe на наличие фарм
+        if 'PULL UP' in our_team.upper():
+            # Здесь можно добавить дополнительную логику для определения фарм
+            # на основе данных из iframe, если нужно
+            pass
         
         # Формируем анонс
         announcement = f"🏀 Сегодня игра {team_category} против {opponent} в {game_info['venue']}.\n"

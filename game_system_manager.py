@@ -83,7 +83,7 @@ def get_day_of_week(date_str: str) -> str:
 def get_team_category(team_name: str) -> str:
     """Определяет категорию команды с правильным склонением"""
     if "Фарм" in team_name or "PULL UP-ФАРМ" in team_name.upper() or "PULL UP ФАРМ" in team_name.upper():
-        return "состав развития"
+        return "состава развития"
     else:
         return "первого состава"
 
@@ -568,22 +568,27 @@ class GameSystemManager:
         team1 = game_info.get('team1', '')
         team2 = game_info.get('team2', '')
         
-        # Находим нашу команду
+        print(f"🔍 Анализируем команды: {team1} vs {team2}")
+        
+        # Находим нашу команду (используем расширенный поиск)
         our_team = None
         opponent = None
         
-        for team in TARGET_TEAMS:
-            if team.strip() in team1:
-                our_team = team1
-                opponent = team2
-                break
-            elif team.strip() in team2:
-                our_team = team2
-                opponent = team1
-                break
-        
-        if not our_team:
-            return f"🏀 Сегодня игра против {opponent} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
+        # Проверяем team1
+        if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+            our_team = team1
+            opponent = team2
+            print(f"   ✅ Наша команда найдена в team1: {our_team}")
+            print(f"   🏀 Соперник: {opponent}")
+        # Проверяем team2
+        elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+            our_team = team2
+            opponent = team1
+            print(f"   ✅ Наша команда найдена в team2: {our_team}")
+            print(f"   🏀 Соперник: {opponent}")
+        else:
+            print(f"   ❌ Наша команда не найдена ни в одной из команд")
+            return f"🏀 Сегодня игра против {team2} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
         
         # Определяем категорию команды с правильным склонением
         # Используем найденную команду из iframe, если она передана

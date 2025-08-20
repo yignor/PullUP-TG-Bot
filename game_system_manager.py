@@ -102,12 +102,22 @@ class GameSystemManager:
     def find_target_teams_in_text(self, text: str) -> List[str]:
         """Находит целевые команды в тексте"""
         found_teams = []
-        # Расширенный список команд для поиска
-        search_teams = ['PullUP', 'Pull Up', 'Pull Up-Фарм', 'Pull Up-Фарм']
+        # Расширенный список команд для поиска (в порядке приоритета)
+        search_teams = [
+            'Pull Up-Фарм',  # Сначала ищем более специфичные варианты
+            'Pull Up Фарм',  # Без дефиса
+            'Pull Up',       # Обычный Pull Up
+            'PullUP'         # Без пробела
+        ]
         
         for team in search_teams:
             if team in text:
                 found_teams.append(team)
+                print(f"   ✅ Найдена команда: {team}")
+        
+        if not found_teams:
+            print(f"   ❌ Команды Pull Up не найдены в тексте: {text[:100]}...")
+        
         return found_teams
     
     def parse_schedule_text(self, text: str) -> List[Dict]:
@@ -488,8 +498,22 @@ class GameSystemManager:
                                                 # Проверяем, что это сегодняшняя игра
                                                 # Ищем дату в iframe
                                                 import re
-                                                date_pattern = r'(\d{2}\.\d{2}\.\d{4})'
-                                                dates = re.findall(date_pattern, iframe_content)
+                                                # Различные паттерны дат
+                                                date_patterns = [
+                                                    r'(\d{2}\.\d{2}\.\d{4})',  # DD.MM.YYYY
+                                                    r'(\d{2}/\d{2}/\d{4})',    # DD/MM/YYYY
+                                                    r'(\d{4}-\d{2}-\d{2})',    # YYYY-MM-DD
+                                                ]
+                                                
+                                                dates = []
+                                                for pattern in date_patterns:
+                                                    found_dates = re.findall(pattern, iframe_content)
+                                                    dates.extend(found_dates)
+                                                
+                                                # Также ищем дату в заголовке
+                                                title_match = re.search(r'<TITLE>.*?(\d{2}\.\d{2}\.\d{4})', iframe_content, re.IGNORECASE)
+                                                if title_match:
+                                                    dates.append(title_match.group(1))
                                                 
                                                 if dates:
                                                     print(f"   📅 Даты в iframe: {dates}")
@@ -506,9 +530,9 @@ class GameSystemManager:
                                                     else:
                                                         print(f"   ⏭️ Игра не сегодня, пропускаем")
                                                 else:
-                                                    print(f"   ⚠️ Даты не найдены в iframe")
-                                                
-                                                return None
+                                                    print(f"   ⚠️ Даты не найдены в iframe, но команды найдены - возвращаем ссылку")
+                                                    print(f"🔗 Ссылка для игры: {game_link}")
+                                                    return game_link
                                             
                                         else:
                                             print(f"   ❌ Ошибка загрузки iframe: {iframe_response.status}")

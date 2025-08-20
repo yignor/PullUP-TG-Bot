@@ -234,6 +234,13 @@ class TrainingPollsManager:
         try:
             # Проверяем файл с результатами сбора данных
             if not os.path.exists('training_data_collection_log.json'):
+                print(f"📄 Файл training_data_collection_log.json не найден")
+                return False
+            
+            # Проверяем размер файла
+            file_size = os.path.getsize('training_data_collection_log.json')
+            if file_size == 0:
+                print(f"📄 Файл training_data_collection_log.json пустой")
                 return False
             
             with open('training_data_collection_log.json', 'r', encoding='utf-8') as f:
@@ -384,14 +391,30 @@ class TrainingPollsManager:
     
     async def collect_poll_data(self, target_day: str):
         """Собирает данные опроса для указанного дня"""
+        print(f"🔍 Начинаем сбор данных за {target_day}")
+        
         if not os.path.exists('current_poll_info.json'):
             print("❌ Файл current_poll_info.json не найден")
+            return False
+        
+        # Проверяем размер файла
+        file_size = os.path.getsize('current_poll_info.json')
+        print(f"📄 Размер файла current_poll_info.json: {file_size} байт")
+        
+        if file_size == 0:
+            print("❌ Файл current_poll_info.json пустой")
             return False
         
         try:
             # Загружаем информацию об опросе
             with open('current_poll_info.json', 'r', encoding='utf-8') as f:
                 poll_info = json.load(f)
+            
+            # Проверяем, есть ли poll_id в файле
+            if not poll_info or 'poll_id' not in poll_info:
+                print(f"❌ Файл current_poll_info.json не содержит poll_id")
+                print(f"📄 Содержимое файла: {poll_info}")
+                return False
             
             print(f"📊 Сбор данных за {target_day}")
             print(f"📊 ID опроса: {poll_info['poll_id']}")

@@ -63,13 +63,17 @@ def save_announcements_history(history: Dict):
 
 def create_game_key(game_info: Dict) -> str:
     """Создает уникальный ключ для игры"""
+    # Нормализуем время (заменяем точку на двоеточие для единообразия)
+    time_str = game_info['time'].replace('.', ':')
     # Включаем время в ключ для уникальности
-    return f"{game_info['date']}_{game_info['time']}_{game_info['team1']}_{game_info['team2']}"
+    return f"{game_info['date']}_{time_str}_{game_info['team1']}_{game_info['team2']}"
 
 def create_announcement_key(game_info: Dict) -> str:
     """Создает уникальный ключ для анонса"""
+    # Нормализуем время (заменяем точку на двоеточие для единообразия)
+    time_str = game_info['time'].replace('.', ':')
     # Включаем время в ключ для уникальности
-    return f"{game_info['date']}_{game_info['time']}_{game_info['team1']}_{game_info['team2']}"
+    return f"{game_info['date']}_{time_str}_{game_info['team1']}_{game_info['team2']}"
 
 def get_day_of_week(date_str: str) -> str:
     """Возвращает день недели на русском языке"""

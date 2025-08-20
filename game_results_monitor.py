@@ -290,7 +290,9 @@ class GameResultsMonitor:
         save_game_monitor_history(self.monitor_history)
         
         # Определяем время начала мониторинга (близко ко времени игры)
-        game_time = datetime.strptime(f"{game_info['date']} {game_info['time']}", '%d.%m.%Y %H:%M')
+        # Исправляем формат времени (заменяем точку на двоеточие)
+        time_str = game_info['time'].replace('.', ':')
+        game_time = datetime.strptime(f"{game_info['date']} {time_str}", '%d.%m.%Y %H:%M')
         game_time = game_time.replace(tzinfo=timezone(timedelta(hours=3)))  # МСК
         
         # Начинаем мониторинг за 5 минут до игры

@@ -32,31 +32,10 @@ jobs:
         echo "✅ GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS != '' && 'available' || 'not available' }}"
         echo "✅ SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID != '' && 'available' || 'not available' }}"
         
-    - name: Debug Google Sheets Credentials
-      env:
-        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-      run: |
-        echo "🔍 ДИАГНОСТИКА GOOGLE SHEETS CREDENTIALS"
-        echo "=================================================="
-        python debug_github_credentials.py
-        
-    - name: Test GSpread Versions
-      env:
-        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-      run: |
-        echo "🧪 ТЕСТИРОВАНИЕ ВЕРСИЙ GSPREAD"
-        echo "=================================================="
-        python test_gspread_versions.py
-        
-    - name: Debug Private Key
-      env:
-        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-      run: |
-        echo "🔍 ДИАГНОСТИКА PRIVATE KEY"
-        echo "=================================================="
-        python debug_private_key.py
+    # Диагностические шаги временно отключены - проблема решена
+    # - name: Debug Google Sheets Credentials
+    # - name: Test GSpread Versions  
+    # - name: Debug Private Key
         
     - name: Run Birthday Notifications
       env:

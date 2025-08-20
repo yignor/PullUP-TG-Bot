@@ -423,8 +423,9 @@ class GameSystemManager:
                             if "СТРАНИЦА ИГРЫ" in link.get_text():
                                 game_links.append(link['href'])
                         
-                        # Ищем строки с командами (с учетом разных вариантов написания)
-                        for row in soup.find_all(['div', 'tr', 'td']):
+                        # Ищем строки с командами только в первых 6 элементах font (соответствуют ссылкам)
+                        font_elements = list(soup.find_all('font'))
+                        for i, row in enumerate(font_elements[:6]):  # Только первые 6
                             row_text = row.get_text().strip().upper()
                             team1_upper = team1.upper()
                             team2_upper = team2.upper()
@@ -439,16 +440,18 @@ class GameSystemManager:
                                           team2_upper.replace('-', ' ') in row_text or
                                           team2_upper.replace(' ', '-') in row_text)
                             
-                            # Специальная проверка для Pull Up (может быть Pull Up-Фарм)
+                            # Специальная проверка для Pull Up (исключаем Pull Up-Фарм)
                             if team2_upper == 'PULL UP':
-                                team2_found = (team2_found or 
-                                              'PULL UP-ФАРМ' in row_text or
-                                              'PULL UP ФАРМ' in row_text)
+                                # Ищем Pull Up, но НЕ Pull Up-Фарм
+                                if 'PULL UP-ФАРМ' in row_text or 'PULL UP ФАРМ' in row_text:
+                                    team2_found = False
+                                else:
+                                    team2_found = team2_found or 'PULL UP' in row_text
                             
                             if team1_found and team2_found:
-                                # Находим позицию этой строки среди всех строк с играми
+                                # Находим позицию этой строки среди первых 6 элементов font
                                 all_game_rows = []
-                                for game_row in soup.find_all(['div', 'tr', 'td']):
+                                for game_row in font_elements[:6]:  # Только первые 6
                                     # Расширенный поиск команд с разными вариантами написания
                                     if any(team in game_row.get_text().upper() for team in [
                                         'PULL UP', 'PULLUP', 'PULL UP ФАРМ', 'PULL UP-ФАРМ',

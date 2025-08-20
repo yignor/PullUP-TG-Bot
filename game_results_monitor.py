@@ -60,6 +60,34 @@ class GameResultsMonitor:
             print(f"📅 Игра {game_info['date']} не сегодня, пропускаем мониторинг")
             return False
         
+        # Проверяем время - мониторинг должен начинаться близко ко времени игры
+        try:
+            time_str = game_info['time'].replace('.', ':')
+            game_time = datetime.strptime(f"{game_info['date']} {time_str}", '%d.%m.%Y %H:%M')
+            game_time = game_time.replace(tzinfo=timezone(timedelta(hours=3)))  # МСК
+            
+            now = get_moscow_time()
+            
+            # Мониторинг должен начинаться не раньше чем за 2 часа до игры
+            earliest_start = game_time - timedelta(hours=2)
+            
+            if now < earliest_start:
+                print(f"⏰ Слишком рано для мониторинга. Игра в {game_time.strftime('%H:%M')}, мониторинг начнется в {earliest_start.strftime('%H:%M')}")
+                return False
+            
+            # Мониторинг должен начинаться не позже чем через 1 час после игры
+            latest_start = game_time + timedelta(hours=1)
+            
+            if now > latest_start:
+                print(f"⏰ Слишком поздно для мониторинга. Игра была в {game_time.strftime('%H:%M')}")
+                return False
+            
+            print(f"🕐 Время подходящее для мониторинга. Игра в {game_time.strftime('%H:%M')}, сейчас {now.strftime('%H:%M')}")
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки времени игры: {e}")
+            return False
+        
         # Создаем уникальный ключ для игры
         game_key = create_game_monitor_key(game_info)
         

@@ -46,14 +46,22 @@ class PlayersManager:
             print(f"🔍 Отладка: SPREADSHEET_ID = {SPREADSHEET_ID}")
             print(f"🔍 Отладка: GOOGLE_SHEETS_CREDENTIALS длина = {len(GOOGLE_SHEETS_CREDENTIALS)} символов")
             
-            # Парсим JSON credentials
+            # Парсим JSON credentials с обработкой экранированных символов
             try:
+                # Сначала пробуем прямой парсинг
                 creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
-                print("✅ JSON credentials успешно распарсен")
+                print("✅ JSON credentials успешно распарсен (прямой)")
             except json.JSONDecodeError as e:
-                print(f"❌ Ошибка парсинга JSON credentials: {e}")
-                print(f"🔍 Первые 100 символов: {GOOGLE_SHEETS_CREDENTIALS[:100]}...")
-                return
+                print(f"⚠️ Ошибка прямого парсинга: {e}")
+                try:
+                    # Пробуем с обработкой экранированных символов
+                    cleaned_credentials = GOOGLE_SHEETS_CREDENTIALS.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                    creds_dict = json.loads(cleaned_credentials)
+                    print("✅ JSON credentials успешно распарсен (после очистки)")
+                except json.JSONDecodeError as e2:
+                    print(f"❌ Ошибка парсинга JSON credentials: {e2}")
+                    print(f"🔍 Первые 100 символов: {GOOGLE_SHEETS_CREDENTIALS[:100]}...")
+                    return
             
             # Проверяем обязательные поля
             required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
@@ -64,6 +72,15 @@ class PlayersManager:
             
             print(f"✅ Все обязательные поля присутствуют")
             print(f"📧 Сервисный аккаунт: {creds_dict.get('client_email', 'Не найден')}")
+            
+            # Обрабатываем private_key - убираем экранированные символы
+            if 'private_key' in creds_dict:
+                private_key = creds_dict['private_key']
+                if isinstance(private_key, str):
+                    # Убираем экранированные символы из private_key
+                    cleaned_private_key = private_key.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                    creds_dict['private_key'] = cleaned_private_key
+                    print(f"✅ Private key обработан (длина: {len(cleaned_private_key)})")
             
             # Авторизуемся через временный файл (решение для GitHub Actions)
             try:

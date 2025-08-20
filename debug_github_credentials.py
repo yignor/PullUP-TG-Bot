@@ -51,11 +51,20 @@ def debug_credentials():
         
         # Способ 2: Очистка от лишних символов
         try:
-            cleaned_credentials = google_credentials.strip().replace('\\n', '\n').replace('\\r', '\r')
+            cleaned_credentials = google_credentials.strip().replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
             creds_dict = json.loads(cleaned_credentials)
             print("✅ JSON успешно распарсен (после очистки)")
             print(f"   Тип: {type(creds_dict)}")
             print(f"   Ключи: {list(creds_dict.keys())}")
+            
+            # Обрабатываем private_key
+            if 'private_key' in creds_dict:
+                private_key = creds_dict['private_key']
+                if isinstance(private_key, str):
+                    cleaned_private_key = private_key.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                    creds_dict['private_key'] = cleaned_private_key
+                    print(f"   ✅ Private key обработан (длина: {len(cleaned_private_key)})")
+                    
         except json.JSONDecodeError as e2:
             print(f"❌ Ошибка парсинга после очистки: {e2}")
             return

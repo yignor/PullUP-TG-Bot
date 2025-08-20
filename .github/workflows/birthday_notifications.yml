@@ -41,6 +41,15 @@ jobs:
         echo "=================================================="
         python debug_github_credentials.py
         
+    - name: Test GSpread Versions
+      env:
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+      run: |
+        echo "🧪 ТЕСТИРОВАНИЕ ВЕРСИЙ GSPREAD"
+        echo "=================================================="
+        python test_gspread_versions.py
+        
     - name: Run Birthday Notifications
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}

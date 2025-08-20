@@ -82,37 +82,54 @@ class PlayersManager:
                     creds_dict['private_key'] = cleaned_private_key
                     print(f"✅ Private key обработан (длина: {len(cleaned_private_key)})")
             
-            # Авторизуемся через временный файл (решение для GitHub Actions)
+            # Авторизуемся через google-auth напрямую
             try:
-                import tempfile
-                import os
+                from google.oauth2.service_account import Credentials
                 
-                # Создаем временный файл с credentials
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                    json.dump(creds_dict, f)
-                    temp_file = f.name
+                # Создаем credentials через google-auth
+                creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+                print("✅ Credentials созданы через google-auth")
                 
-                print(f"📁 Создан временный файл: {temp_file}")
-                
-                # Используем временный файл для авторизации
-                self.gc = gspread.service_account(temp_file)
-                print("✅ Авторизация в Google API успешна через временный файл")
-                
-                # Удаляем временный файл
-                os.unlink(temp_file)
-                print("🗑️ Временный файл удален")
+                # Авторизуемся через gspread
+                self.gc = gspread.authorize(creds)
+                print("✅ Авторизация в Google API успешна через google-auth")
                 
             except Exception as e:
-                print(f"❌ Ошибка авторизации в Google API: {e}")
+                print(f"❌ Ошибка авторизации через google-auth: {e}")
                 print(f"🔍 Тип creds_dict: {type(creds_dict)}")
                 print(f"🔍 Ключи в creds_dict: {list(creds_dict.keys())}")
-                # Удаляем временный файл если он был создан
-                if 'temp_file' in locals():
-                    try:
-                        os.unlink(temp_file)
-                    except:
-                        pass
-                return
+                
+                # Попробуем альтернативный способ с временным файлом
+                try:
+                    import tempfile
+                    import os
+                    
+                    print("🔄 Пробуем альтернативный способ с временным файлом...")
+                    
+                    # Создаем временный файл с credentials
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                        json.dump(creds_dict, f, ensure_ascii=False, indent=2)
+                        temp_file = f.name
+                    
+                    print(f"📁 Создан временный файл: {temp_file}")
+                    
+                    # Используем временный файл для авторизации
+                    self.gc = gspread.service_account(temp_file)
+                    print("✅ Авторизация в Google API успешна через временный файл")
+                    
+                    # Удаляем временный файл
+                    os.unlink(temp_file)
+                    print("🗑️ Временный файл удален")
+                    
+                except Exception as e2:
+                    print(f"❌ Ошибка авторизации через временный файл: {e2}")
+                    # Удаляем временный файл если он был создан
+                    if 'temp_file' in locals():
+                        try:
+                            os.unlink(temp_file)
+                        except:
+                            pass
+                    return
             
             # Открываем таблицу
             try:

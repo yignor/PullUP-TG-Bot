@@ -411,7 +411,7 @@ class GameSystemManager:
             print(f"❌ Ошибка создания опроса для игры: {e}")
             return False
     
-    async def find_game_link(self, team1: str, team2: str) -> Optional[str]:
+    async def find_game_link(self, team1: str, team2: str) -> Optional[tuple]:
         """Ищет ссылку на игру по командам в табло"""
         try:
             import aiohttp
@@ -495,6 +495,17 @@ class GameSystemManager:
                                             if team1_found and team2_found:
                                                 print(f"✅ Найдена игра {team1} vs {team2} в ссылке {i}")
                                                 
+                                                # Определяем найденную команду Pull Up
+                                                found_pull_up_team = None
+                                                if 'PULL UP-ФАРМ' in iframe_text:
+                                                    found_pull_up_team = 'Pull Up-Фарм'
+                                                elif 'PULL UP ФАРМ' in iframe_text:
+                                                    found_pull_up_team = 'Pull Up Фарм'
+                                                elif 'PULL UP' in iframe_text:
+                                                    found_pull_up_team = 'Pull Up'
+                                                
+                                                print(f"   🏷️ Найдена команда в iframe: {found_pull_up_team}")
+                                                
                                                 # Проверяем, что это сегодняшняя игра
                                                 # Ищем дату в iframe
                                                 import re
@@ -526,13 +537,13 @@ class GameSystemManager:
                                                     
                                                     if today_found:
                                                         print(f"🔗 Ссылка для сегодняшней игры: {game_link}")
-                                                        return game_link
+                                                        return game_link, found_pull_up_team
                                                     else:
                                                         print(f"   ⏭️ Игра не сегодня, пропускаем")
                                                 else:
                                                     print(f"   ⚠️ Даты не найдены в iframe, но команды найдены - возвращаем ссылку")
                                                     print(f"🔗 Ссылка для игры: {game_link}")
-                                                    return game_link
+                                                    return game_link, found_pull_up_team
                                             
                                         else:
                                             print(f"   ❌ Ошибка загрузки iframe: {iframe_response.status}")
@@ -551,7 +562,7 @@ class GameSystemManager:
             print(f"❌ Ошибка поиска ссылки на игру: {e}")
             return None
     
-    def format_announcement_message(self, game_info: Dict, game_link: Optional[str] = None) -> str:
+    def format_announcement_message(self, game_info: Dict, game_link: Optional[str] = None, found_team: Optional[str] = None) -> str:
         """Форматирует сообщение анонса игры"""
         # Определяем нашу команду и соперника
         team1 = game_info.get('team1', '')
@@ -575,14 +586,13 @@ class GameSystemManager:
             return f"🏀 Сегодня игра против {opponent} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
         
         # Определяем категорию команды с правильным склонением
-        # Проверяем, есть ли в iframe упоминание фарм
-        team_category = get_team_category(our_team)
-        
-        # Если это Pull Up, дополнительно проверяем iframe на наличие фарм
-        if 'PULL UP' in our_team.upper():
-            # Здесь можно добавить дополнительную логику для определения фарм
-            # на основе данных из iframe, если нужно
-            pass
+        # Используем найденную команду из iframe, если она передана
+        if found_team:
+            team_category = get_team_category(found_team)
+            print(f"🏷️ Используем найденную команду для категории: {found_team} -> {team_category}")
+        else:
+            team_category = get_team_category(our_team)
+            print(f"🏷️ Используем команду из расписания для категории: {our_team} -> {team_category}")
         
         # Формируем анонс
         announcement = f"🏀 Сегодня игра {team_category} против {opponent} в {game_info['venue']}.\n"
@@ -607,10 +617,16 @@ class GameSystemManager:
             # Ищем ссылку на игру по командам
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
-            game_link = await self.find_game_link(team1, team2)
+            result = await self.find_game_link(team1, team2)
+            
+            # Обрабатываем результат (может быть tuple или None)
+            if isinstance(result, tuple):
+                game_link, found_team = result
+            else:
+                game_link, found_team = result, None
             
             # Формируем сообщение анонса
-            announcement_text = self.format_announcement_message(game_info, game_link)
+            announcement_text = self.format_announcement_message(game_info, game_link, found_team)
             
             # Отправляем сообщение в основной топик (без указания топика)
             message = await self.bot.send_message(

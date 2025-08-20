@@ -211,6 +211,12 @@ class TrainingPollsManager:
             if self._was_data_collected_today("Вторник"):
                 print("📊 Данные за вторник уже были собраны сегодня")
                 return False
+            
+            # Проверяем, существует ли опрос для сбора данных
+            if not self._poll_exists():
+                print("❌ Опрос не найден - невозможно собрать данные")
+                return False
+            
             return True
         
         return False
@@ -225,6 +231,12 @@ class TrainingPollsManager:
             if self._was_data_collected_today("Пятница"):
                 print("📊 Данные за пятницу уже были собраны сегодня")
                 return False
+            
+            # Проверяем, существует ли опрос для сбора данных
+            if not self._poll_exists():
+                print("❌ Опрос не найден - невозможно собрать данные")
+                return False
+            
             return True
         
         return False
@@ -479,6 +491,34 @@ class TrainingPollsManager:
             
         except Exception as e:
             print(f"❌ Ошибка сбора данных: {e}")
+            return False
+    
+    def _poll_exists(self) -> bool:
+        """Проверяет, существует ли активный опрос для сбора данных"""
+        try:
+            if not os.path.exists('current_poll_info.json'):
+                print("📄 Файл current_poll_info.json не найден")
+                return False
+            
+            # Проверяем размер файла
+            file_size = os.path.getsize('current_poll_info.json')
+            if file_size <= 3:  # Файл пустой или содержит только {}
+                print("📄 Файл current_poll_info.json пустой")
+                return False
+            
+            with open('current_poll_info.json', 'r', encoding='utf-8') as f:
+                poll_info = json.load(f)
+            
+            # Проверяем наличие poll_id
+            if not poll_info or 'poll_id' not in poll_info:
+                print("📄 Файл current_poll_info.json не содержит poll_id")
+                return False
+            
+            print(f"✅ Активный опрос найден: {poll_info['poll_id']}")
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки существования опроса: {e}")
             return False
     
     def save_to_training_sheet(self, target_day: str):

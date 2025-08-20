@@ -50,6 +50,14 @@ jobs:
         echo "=================================================="
         python test_gspread_versions.py
         
+    - name: Debug Private Key
+      env:
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      run: |
+        echo "🔍 ДИАГНОСТИКА PRIVATE KEY"
+        echo "=================================================="
+        python debug_private_key.py
+        
     - name: Run Birthday Notifications
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}

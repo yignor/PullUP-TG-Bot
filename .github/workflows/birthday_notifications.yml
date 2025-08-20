@@ -27,34 +27,10 @@ jobs:
     - name: Check secrets availability
       run: |
         echo "Checking secrets availability..."
-        
-        # Проверяем BOT_TOKEN
-        if [ -n "${{ secrets.BOT_TOKEN }}" ]; then
-          echo "✅ BOT_TOKEN is available"
-        else
-          echo "❌ BOT_TOKEN is not available - workflow will fail"
-        fi
-        
-        # Проверяем CHAT_ID
-        if [ -n "${{ secrets.CHAT_ID }}" ]; then
-          echo "✅ CHAT_ID is available"
-        else
-          echo "❌ CHAT_ID is not available - workflow will fail"
-        fi
-        
-        # Проверяем GOOGLE_SHEETS_CREDENTIALS (безопасная проверка)
-        if [ -n "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" ]; then
-          echo "✅ GOOGLE_SHEETS_CREDENTIALS is available"
-        else
-          echo "❌ GOOGLE_SHEETS_CREDENTIALS is not available - workflow will fail"
-        fi
-        
-        # Проверяем SPREADSHEET_ID
-        if [ -n "${{ secrets.SPREADSHEET_ID }}" ]; then
-          echo "✅ SPREADSHEET_ID is available"
-        else
-          echo "❌ SPREADSHEET_ID is not available - workflow will fail"
-        fi
+        echo "✅ BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' && 'available' || 'not available' }}"
+        echo "✅ CHAT_ID: ${{ secrets.CHAT_ID != '' && 'available' || 'not available' }}"
+        echo "✅ GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS != '' && 'available' || 'not available' }}"
+        echo "✅ SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID != '' && 'available' || 'not available' }}"
         
     - name: Run Birthday Notifications
       env:

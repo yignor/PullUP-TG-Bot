@@ -19,10 +19,39 @@ jobs:
       with:
         python-version: '3.11'
         
+    - name: Download previous artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: game-system-logs
+        path: ./
+      continue-on-error: true
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements-github.txt
+        
+    - name: Debug history files
+      run: |
+        echo "🔍 ДИАГНОСТИКА ФАЙЛОВ ИСТОРИИ"
+        echo "=================================================="
+        echo "📋 Проверяем наличие файлов истории:"
+        ls -la *.json 2>/dev/null || echo "❌ JSON файлы не найдены"
+        echo ""
+        echo "📄 Содержимое game_announcements.json:"
+        if [ -f "game_announcements.json" ]; then
+          cat game_announcements.json
+        else
+          echo "❌ Файл game_announcements.json не найден"
+        fi
+        echo ""
+        echo "📄 Содержимое game_polls_history.json:"
+        if [ -f "game_polls_history.json" ]; then
+          cat game_polls_history.json
+        else
+          echo "❌ Файл game_polls_history.json не найден"
+        fi
+        echo "=================================================="
         
     - name: Run complete game system
       env:

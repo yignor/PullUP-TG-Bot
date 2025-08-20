@@ -4,8 +4,8 @@ on:
   schedule:
     # Воскресенье 07:00, 07:15, 07:30, 07:45 UTC = 10:00-10:45 MSK - Создание опроса
     - cron: '0,15,30,45 7 * * 0'
-    # Среда 07:00, 07:15, 07:30, 07:45 UTC = 10:00-10:45 MSK - Сбор данных за вторник
-    - cron: '0,15,30,45 7 * * 3'
+    # Среда 12:00, 12:15, 12:30, 12:45 UTC = 15:00-15:45 MSK - Сбор данных за вторник
+    - cron: '0,15,30,45 12 * * 3'
     # Суббота 07:00, 07:15, 07:30, 07:45 UTC = 10:00-10:45 MSK - Сбор данных за пятницу
     - cron: '0,15,30,45 7 * * 6'
   workflow_dispatch:
@@ -66,6 +66,22 @@ jobs:
         fi
         echo "=================================================="
         
+    - name: Initialize training polls files
+      run: |
+        echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ ОПРОСОВ ТРЕНИРОВОК"
+        echo "=================================================="
+        # Создаем пустые файлы, если они не существуют
+        if [ ! -f "current_poll_info.json" ]; then
+          echo "📝 Создаем пустой current_poll_info.json"
+          echo '{}' > current_poll_info.json
+        fi
+        if [ ! -f "training_data_collection_log.json" ]; then
+          echo "📝 Создаем пустой training_data_collection_log.json"
+          echo '{"collections": []}' > training_data_collection_log.json
+        fi
+        echo "✅ Файлы опросов инициализированы"
+        echo "=================================================="
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -117,6 +133,22 @@ jobs:
         
         echo "=================================================="
         echo "Завершение работы системы"
+        
+    - name: Check files before cache
+      run: |
+        echo "🔍 ПРОВЕРКА ФАЙЛОВ ПЕРЕД СОХРАНЕНИЕМ В CACHE"
+        echo "=================================================="
+        if [ -f "current_poll_info.json" ]; then
+          echo "✅ current_poll_info.json существует"
+        else
+          echo "❌ current_poll_info.json не существует"
+        fi
+        if [ -f "training_data_collection_log.json" ]; then
+          echo "✅ training_data_collection_log.json существует"
+        else
+          echo "❌ training_data_collection_log.json не существует"
+        fi
+        echo "=================================================="
         
     - name: Save training polls cache
       uses: actions/cache@v3

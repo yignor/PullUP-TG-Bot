@@ -415,78 +415,109 @@ class GameSystemManager:
                         content = await response.text()
                         soup = BeautifulSoup(content, 'html.parser')
                         
-                        # Ищем все строки с играми и их ссылки
-                        game_rows = []
+                        # Ищем все ссылки "СТРАНИЦА ИГРЫ"
                         game_links = []
-                        
-                        # Ищем все ссылки с текстом "СТРАНИЦА ИГРЫ"
                         for link in soup.find_all('a', href=True):
                             if "СТРАНИЦА ИГРЫ" in link.get_text():
                                 game_links.append(link['href'])
                         
-                        # Ищем строки с командами только в первых 6 элементах font с играми (соответствуют ссылкам)
-                        font_elements = list(soup.find_all('font'))
-                        game_font_elements = []
+                        print(f"🔗 Найдено ссылок: {len(game_links)}")
                         
-                        # Ищем элементы font с играми (длинный текст с датами)
-                        for font in font_elements:
-                            text = font.get_text().strip()
-                            if len(text) > 100:  # Длинный текст
-                                import re
-                                date_pattern = r'(\d{2}\.\d{2}\.\d{4})'
-                                dates = re.findall(date_pattern, text)
-                                if dates:  # Содержит даты
-                                    game_font_elements.append(font)
-                        
-                        # Берем только первые 6 элементов с играми
-                        for i, row in enumerate(game_font_elements[:6], 1):
-                            row_text = row.get_text().strip().upper()
-                            team1_upper = team1.upper()
-                            team2_upper = team2.upper()
+                        # Парсим каждую ссылку и ищем Pull Up в iframe
+                        for i, game_link in enumerate(game_links, 1):
+                            print(f"🎮 Проверяем ссылку {i}: {game_link}")
                             
-                            # Проверяем разные варианты написания команд
-                            team1_found = (team1_upper in row_text or 
-                                          team1_upper.replace(' ', '') in row_text or
-                                          team1_upper.replace('-', ' ') in row_text or
-                                          team1_upper.replace(' ', '-') in row_text)
-                            team2_found = (team2_upper in row_text or 
-                                          team2_upper.replace(' ', '') in row_text or
-                                          team2_upper.replace('-', ' ') in row_text or
-                                          team2_upper.replace(' ', '-') in row_text)
-                            
-                            # Специальная проверка для Pull Up (исключаем Pull Up-Фарм)
-                            if team2_upper == 'PULL UP':
-                                # Ищем Pull Up, но НЕ Pull Up-Фарм
-                                if 'PULL UP-ФАРМ' in row_text or 'PULL UP ФАРМ' in row_text:
-                                    team2_found = False
-                                else:
-                                    team2_found = team2_found or 'PULL UP' in row_text
-                            
-                            if team1_found and team2_found:
-                                # Находим позицию этой строки среди первых 6 элементов font с играми
-                                all_game_rows = []
-                                for game_row in game_font_elements[:6]:  # Только первые 6
-                                    # Расширенный поиск команд с разными вариантами написания
-                                    if any(team in game_row.get_text().upper() for team in [
-                                        'PULL UP', 'PULLUP', 'PULL UP ФАРМ', 'PULL UP-ФАРМ',
-                                        'КИРПИЧНЫЙ ЗАВОД', 'LION', 'QUASAR', 'КОНСТАНТА', 'АТОМПРОЕКТ',
-                                        'SETL GROUP', 'МБИ', 'КОРОЛИ СЕВЕРА', 'ТРЕНД', 'БОРДО', 'ВСЁ СМАРТ', 'ГАП', 'ШТУРВАЛ'
-                                    ]):
-                                        all_game_rows.append(game_row)
+                            # Извлекаем gameId из ссылки
+                            if 'gameId=' in game_link:
+                                game_id = game_link.split('gameId=')[1].split('&')[0]
+                                print(f"   🔍 GameId: {game_id}")
                                 
-                                for i, game_row in enumerate(all_game_rows):
-                                    if game_row == row:
-                                        game_position = i + 1
-                                        print(f"🎯 Найдена игра {team1} vs {team2} на позиции {game_position}")
-                                        
-                                        if game_position <= len(game_links):
-                                            return game_links[game_position - 1]
+                                # Формируем URL iframe
+                                iframe_url = f"http://ig.russiabasket.ru/online/?id={game_id}&compId=62953&db=reg&tab=0&tv=0&color=5&logo=0&foul=0&white=1&timer24=0&blank=6&short=1&teamA=&teamB="
+                                
+                                try:
+                                    # Загружаем iframe
+                                    async with session.get(iframe_url) as iframe_response:
+                                        if iframe_response.status == 200:
+                                            iframe_content = await iframe_response.text()
+                                            
+                                            # Ищем команды в iframe
+                                            iframe_text = iframe_content.upper()
+                                            team1_upper = team1.upper()
+                                            team2_upper = team2.upper()
+                                            
+                                            print(f"   🔍 Ищем команды: {team1_upper} vs {team2_upper}")
+                                            print(f"   📄 Длина iframe: {len(iframe_content)} символов")
+                                            
+                                            # Проверяем разные варианты написания команд
+                                            team1_found = (team1_upper in iframe_text or 
+                                                          team1_upper.replace(' ', '') in iframe_text or
+                                                          team1_upper.replace('-', ' ') in iframe_text or
+                                                          team1_upper.replace(' ', '-') in iframe_text)
+                                            team2_found = (team2_upper in iframe_text or 
+                                                          team2_upper.replace(' ', '') in iframe_text or
+                                                          team2_upper.replace('-', ' ') in iframe_text or
+                                                          team2_upper.replace(' ', '-') in iframe_text)
+                                            
+                                            # Специальная проверка для Pull Up (исключаем Pull Up-Фарм)
+                                            if team2_upper == 'PULL UP':
+                                                # Ищем Pull Up, но НЕ Pull Up-Фарм
+                                                if 'PULL UP-ФАРМ' in iframe_text or 'PULL UP ФАРМ' in iframe_text:
+                                                    team2_found = False
+                                                    print(f"   ⚠️ Найден Pull Up-Фарм, исключаем")
+                                                else:
+                                                    team2_found = team2_found or 'PULL UP' in iframe_text
+                                                    if 'PULL UP' in iframe_text:
+                                                        print(f"   ✅ Найден Pull Up (без Фарм)")
+                                            
+                                            print(f"   🏀 {team1_upper} найдена: {'✅' if team1_found else '❌'}")
+                                            print(f"   🏀 {team2_upper} найдена: {'✅' if team2_found else '❌'}")
+                                            
+                                            # Показываем часть iframe для отладки
+                                            if 'PULL UP' in iframe_text:
+                                                pull_up_pos = iframe_text.find('PULL UP')
+                                                start = max(0, pull_up_pos - 50)
+                                                end = min(len(iframe_text), pull_up_pos + 100)
+                                                context = iframe_text[start:end]
+                                                print(f"   📄 Контекст Pull Up: {context}")
+                                            
+                                            if team1_found and team2_found:
+                                                print(f"✅ Найдена игра {team1} vs {team2} в ссылке {i}")
+                                                
+                                                # Проверяем, что это сегодняшняя игра
+                                                # Ищем дату в iframe
+                                                import re
+                                                date_pattern = r'(\d{2}\.\d{2}\.\d{4})'
+                                                dates = re.findall(date_pattern, iframe_content)
+                                                
+                                                if dates:
+                                                    print(f"   📅 Даты в iframe: {dates}")
+                                                    today_found = False
+                                                    for date in dates:
+                                                        if self.is_game_today({'date': date}):
+                                                            today_found = True
+                                                            print(f"   ✅ Сегодняшняя дата найдена: {date}")
+                                                            break
+                                                    
+                                                    if today_found:
+                                                        print(f"🔗 Ссылка для сегодняшней игры: {game_link}")
+                                                        return game_link
+                                                    else:
+                                                        print(f"   ⏭️ Игра не сегодня, пропускаем")
+                                                else:
+                                                    print(f"   ⚠️ Даты не найдены в iframe")
+                                                
+                                                return None
+                                            
                                         else:
-                                            print(f"⚠️ Ссылка на игру не найдена (позиция {game_position})")
-                                            return None
+                                            print(f"   ❌ Ошибка загрузки iframe: {iframe_response.status}")
+                                            
+                                except Exception as e:
+                                    print(f"   ❌ Ошибка парсинга iframe: {e}")
                         
                         print(f"⚠️ Игра {team1} vs {team2} не найдена в табло")
                         return None
+                        
                     else:
                         print(f"❌ Ошибка получения страницы: {response.status}")
                         return None

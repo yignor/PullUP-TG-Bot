@@ -606,8 +606,10 @@ class GameSystemManager:
             print(f"🏷️ Используем команду из расписания для категории: {our_team} -> {team_category}")
         
         # Формируем анонс
+        # Нормализуем время (заменяем точку на двоеточие для ясности)
+        normalized_time = game_info['time'].replace('.', ':')
         announcement = f"🏀 Сегодня игра {team_category} против {opponent} в {game_info['venue']}.\n"
-        announcement += f"🕐 Время игры: {game_info['time']}."
+        announcement += f"🕐 Время игры: {normalized_time}."
         
         if game_link:
             if game_link.startswith('game.html?'):

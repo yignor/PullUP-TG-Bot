@@ -246,6 +246,8 @@ class GameResultsMonitor:
                 opponent = "соперник"
             
             # Формируем сообщение
+            # Нормализуем время (заменяем точку на двоеточие для ясности)
+            normalized_time = game_info['time'].replace('.', ':')
             message = f"🏀 Игра против {opponent} закончилась\n"
             message += f"🏆 Счет: {scoreboard_info['team1_name']} {scoreboard_info['score1']} : {scoreboard_info['score2']} {scoreboard_info['team2_name']}\n"
             

@@ -65,14 +65,36 @@ class PlayersManager:
             print(f"✅ Все обязательные поля присутствуют")
             print(f"📧 Сервисный аккаунт: {creds_dict.get('client_email', 'Не найден')}")
             
-            # Авторизуемся напрямую через gspread
+            # Авторизуемся через временный файл (решение для GitHub Actions)
             try:
-                self.gc = gspread.service_account_from_dict(creds_dict, scopes=SCOPES)
-                print("✅ Авторизация в Google API успешна")
+                import tempfile
+                import os
+                
+                # Создаем временный файл с credentials
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json.dump(creds_dict, f)
+                    temp_file = f.name
+                
+                print(f"📁 Создан временный файл: {temp_file}")
+                
+                # Используем временный файл для авторизации
+                self.gc = gspread.service_account(temp_file)
+                print("✅ Авторизация в Google API успешна через временный файл")
+                
+                # Удаляем временный файл
+                os.unlink(temp_file)
+                print("🗑️ Временный файл удален")
+                
             except Exception as e:
                 print(f"❌ Ошибка авторизации в Google API: {e}")
                 print(f"🔍 Тип creds_dict: {type(creds_dict)}")
                 print(f"🔍 Ключи в creds_dict: {list(creds_dict.keys())}")
+                # Удаляем временный файл если он был создан
+                if 'temp_file' in locals():
+                    try:
+                        os.unlink(temp_file)
+                    except:
+                        pass
                 return
             
             # Открываем таблицу
@@ -88,24 +110,34 @@ class PlayersManager:
             
             # Получаем или создаем лист "Игроки"
             try:
+                # Сначала показываем все доступные листы
+                all_worksheets = self.spreadsheet.worksheets()
+                print(f"📋 Доступные листы в таблице:")
+                for ws in all_worksheets:
+                    print(f"   - {ws.title}")
+                
                 self.players_sheet = self.spreadsheet.worksheet("Игроки")
                 print("✅ Лист 'Игроки' найден")
             except gspread.WorksheetNotFound:
                 print("⚠️ Лист 'Игроки' не найден, создаем новый...")
-                # Создаем новый лист
-                self.players_sheet = self.spreadsheet.add_worksheet(
-                    title="Игроки", 
-                    rows=100, 
-                    cols=10
-                )
-                
-                # Создаем заголовки
-                headers = [
-                    "Фамилия", "Имя", "Ник", "Telegram ID", "Дата рождения", 
-                    "Статус", "Команда", "Дата добавления", "Примечания"
-                ]
-                self.players_sheet.update('A1:I1', [headers])
-                print("✅ Лист 'Игроки' создан с заголовками")
+                try:
+                    # Создаем новый лист
+                    self.players_sheet = self.spreadsheet.add_worksheet(
+                        title="Игроки", 
+                        rows=100, 
+                        cols=10
+                    )
+                    
+                    # Создаем заголовки
+                    headers = [
+                        "Фамилия", "Имя", "Ник", "Telegram ID", "Дата рождения", 
+                        "Статус", "Команда", "Дата добавления", "Примечания"
+                    ]
+                    self.players_sheet.update('A1:I1', [headers])
+                    print("✅ Лист 'Игроки' создан с заголовками")
+                except Exception as e:
+                    print(f"❌ Ошибка создания листа 'Игроки': {e}")
+                    return
             except Exception as e:
                 print(f"❌ Ошибка при работе с листом 'Игроки': {e}")
                 return

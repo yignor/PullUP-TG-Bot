@@ -34,6 +34,38 @@ jobs:
       with:
         python-version: '3.11'
         
+    - name: Restore training polls cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          current_poll_info.json
+          training_data_collection_log.json
+        key: training-polls-${{ github.ref }}
+        restore-keys: |
+          training-polls-
+        
+    - name: Check training polls files
+      run: |
+        echo "🔍 ПРОВЕРКА ФАЙЛОВ ОПРОСОВ ТРЕНИРОВОК"
+        echo "=================================================="
+        echo "📋 Проверяем наличие файлов:"
+        ls -la *.json 2>/dev/null || echo "❌ JSON файлы не найдены"
+        echo ""
+        echo "📄 Содержимое current_poll_info.json (если есть):"
+        if [ -f "current_poll_info.json" ]; then
+          cat current_poll_info.json
+        else
+          echo "❌ Файл current_poll_info.json не найден"
+        fi
+        echo ""
+        echo "📄 Содержимое training_data_collection_log.json (если есть):"
+        if [ -f "training_data_collection_log.json" ]; then
+          cat training_data_collection_log.json
+        else
+          echo "❌ Файл training_data_collection_log.json не найден"
+        fi
+        echo "=================================================="
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -85,6 +117,15 @@ jobs:
         
         echo "=================================================="
         echo "Завершение работы системы"
+        
+    - name: Save training polls cache
+      uses: actions/cache@v3
+      if: always()
+      with:
+        path: |
+          current_poll_info.json
+          training_data_collection_log.json
+        key: training-polls-${{ github.ref }}
         
     - name: Upload logs
       uses: actions/upload-artifact@v4

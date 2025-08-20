@@ -274,6 +274,8 @@ class GameSystemManager:
         
         # Создаем уникальный ключ для игры
         announcement_key = create_announcement_key(game_info)
+        print(f"🔍 Проверяем ключ анонса: {announcement_key}")
+        print(f"📋 История анонсов содержит {len(self.announcements_history)} записей")
         
         # Проверяем, не отправляли ли мы уже анонс для этой игры
         if announcement_key in self.announcements_history:

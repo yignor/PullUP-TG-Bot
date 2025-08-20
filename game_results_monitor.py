@@ -249,14 +249,9 @@ class GameResultsMonitor:
             message = f"🏀 Игра против {opponent} закончилась\n"
             message += f"🏆 Счет: {scoreboard_info['team1_name']} {scoreboard_info['score1']} : {scoreboard_info['score2']} {scoreboard_info['team2_name']}\n"
             
-            # Определяем результат
-            result = self.determine_winner(
-                scoreboard_info['score1'], 
-                scoreboard_info['score2'],
-                scoreboard_info['team1_name'],
-                scoreboard_info['team2_name']
-            )
-            message += f"📊 {result}\n"
+            # Убираем определение победителя - это понятно из счета
+            # result = self.determine_winner(...)
+            # message += f"📊 {result}\n"
             
             # Добавляем ссылку на протокол
             if game_link.startswith('game.html?'):

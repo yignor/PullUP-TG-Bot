@@ -64,6 +64,11 @@ async def run_game_results_monitor():
                             monitor_info['end_time'] = get_moscow_time().isoformat()
                             completed_monitors += 1
                             print(f"   ✅ Уведомление отправлено, мониторинг завершен")
+                            
+                            # Сохраняем историю и завершаем workflow
+                            save_game_monitor_history(monitor_history)
+                            print(f"   🏁 Workflow завершен после отправки уведомления")
+                            return  # Завершаем выполнение
                         else:
                             print(f"   ❌ Ошибка отправки уведомления")
                     else:

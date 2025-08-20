@@ -44,18 +44,53 @@ class PlayersManager:
                 print("⚠️ SPREADSHEET_ID не настроен")
                 return
             
-            # Парсим JSON credentials
-            creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
-            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            print(f"🔍 Отладка: SPREADSHEET_ID = {SPREADSHEET_ID}")
+            print(f"🔍 Отладка: GOOGLE_SHEETS_CREDENTIALS длина = {len(GOOGLE_SHEETS_CREDENTIALS)} символов")
             
+            # Парсим JSON credentials
+            try:
+                creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+                print("✅ JSON credentials успешно распарсен")
+            except json.JSONDecodeError as e:
+                print(f"❌ Ошибка парсинга JSON credentials: {e}")
+                print(f"🔍 Первые 100 символов: {GOOGLE_SHEETS_CREDENTIALS[:100]}...")
+                return
+            
+            # Проверяем обязательные поля
+            required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
+            for field in required_fields:
+                if field not in creds_dict:
+                    print(f"❌ Отсутствует обязательное поле: {field}")
+                    return
+            
+            print(f"✅ Все обязательные поля присутствуют")
+            print(f"📧 Сервисный аккаунт: {creds_dict.get('client_email', 'Не найден')}")
+            
+            # Создаем credentials
+            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            print("✅ Credentials созданы")
+            
+            # Авторизуемся
             self.gc = gspread.authorize(creds)
-            self.spreadsheet = self.gc.open_by_key(SPREADSHEET_ID)
+            print("✅ Авторизация в Google API успешна")
+            
+            # Открываем таблицу
+            try:
+                self.spreadsheet = self.gc.open_by_key(SPREADSHEET_ID)
+                print(f"✅ Таблица найдена: {self.spreadsheet.title}")
+            except gspread.SpreadsheetNotFound:
+                print(f"❌ Таблица с ID {SPREADSHEET_ID} не найдена")
+                return
+            except gspread.APIError as e:
+                print(f"❌ Ошибка API при открытии таблицы: {e}")
+                return
             
             # Получаем или создаем лист "Игроки"
             try:
                 self.players_sheet = self.spreadsheet.worksheet("Игроки")
                 print("✅ Лист 'Игроки' найден")
-            except:
+            except gspread.WorksheetNotFound:
+                print("⚠️ Лист 'Игроки' не найден, создаем новый...")
                 # Создаем новый лист
                 self.players_sheet = self.spreadsheet.add_worksheet(
                     title="Игроки", 
@@ -65,16 +100,22 @@ class PlayersManager:
                 
                 # Создаем заголовки
                 headers = [
-                    "Имя", "Ник", "Telegram ID", "Дата рождения", 
+                    "Фамилия", "Имя", "Ник", "Telegram ID", "Дата рождения", 
                     "Статус", "Команда", "Дата добавления", "Примечания"
                 ]
-                self.players_sheet.update('A1:H1', [headers])
+                self.players_sheet.update('A1:I1', [headers])
                 print("✅ Лист 'Игроки' создан с заголовками")
+            except Exception as e:
+                print(f"❌ Ошибка при работе с листом 'Игроки': {e}")
+                return
             
             print("✅ Google Sheets подключен успешно")
                 
         except Exception as e:
             print(f"❌ Ошибка инициализации Google Sheets: {e}")
+            import traceback
+            print(f"🔍 Подробности ошибки:")
+            traceback.print_exc()
     
     def get_all_players(self) -> List[Dict[str, Any]]:
         """Получает всех игроков из таблицы"""

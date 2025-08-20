@@ -96,6 +96,13 @@ jobs:
         
         echo "Запуск системы уведомлений о днях рождения..."
         echo "=================================================="
+        
+        # Дополнительная диагностика
+        echo "🔍 ДИАГНОСТИКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:"
+        echo "SPREADSHEET_ID длина: ${#SPREADSHEET_ID}"
+        echo "GOOGLE_SHEETS_CREDENTIALS длина: ${#GOOGLE_SHEETS_CREDENTIALS}"
+        echo "Первые 50 символов GOOGLE_SHEETS_CREDENTIALS: ${GOOGLE_SHEETS_CREDENTIALS:0:50}..."
+        
         python run_birthday_notifications.py
         
         echo "=================================================="

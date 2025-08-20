@@ -48,9 +48,14 @@ def load_announcements_history() -> Dict:
     try:
         if os.path.exists(ANNOUNCEMENTS_HISTORY_FILE):
             with open(ANNOUNCEMENTS_HISTORY_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                history = json.load(f)
+                print(f"✅ Загружена история анонсов: {len(history)} записей")
+                return history
+        else:
+            print(f"⚠️ Файл истории анонсов не найден: {ANNOUNCEMENTS_HISTORY_FILE}")
     except Exception as e:
         print(f"⚠️ Ошибка загрузки истории анонсов: {e}")
+    print(f"📋 Возвращаем пустую историю анонсов")
     return {}
 
 def save_announcements_history(history: Dict):
@@ -58,6 +63,7 @@ def save_announcements_history(history: Dict):
     try:
         with open(ANNOUNCEMENTS_HISTORY_FILE, 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
+        print(f"✅ Сохранена история анонсов: {len(history)} записей в {ANNOUNCEMENTS_HISTORY_FILE}")
     except Exception as e:
         print(f"⚠️ Ошибка сохранения истории анонсов: {e}")
 
@@ -98,6 +104,10 @@ class GameSystemManager:
         self.bot = None
         self.polls_history = load_polls_history()
         self.announcements_history = load_announcements_history()
+        
+        print(f"🔍 Инициализация GameSystemManager:")
+        print(f"   📊 История опросов: {len(self.polls_history)} записей")
+        print(f"   📊 История анонсов: {len(self.announcements_history)} записей")
         
         if BOT_TOKEN:
             from telegram import Bot
@@ -673,6 +683,7 @@ class GameSystemManager:
             # Сохраняем в историю
             self.announcements_history[announcement_key] = announcement_info
             save_announcements_history(self.announcements_history)
+            print(f"💾 Анонс добавлен в историю с ключом: {announcement_key}")
             
             print(f"✅ Анонс игры отправлен в основной топик")
             print(f"📊 ID сообщения: {message.message_id}")

@@ -97,6 +97,7 @@ TRAINING_SETUP_GUIDE.md
 # Development utilities (keep locally)
 *_topic_*.py
 *_monitor.py
+!game_results_monitor.py
 github_actions_monitor.py
 clear_notifications.py
 check_updates.py
@@ -133,6 +134,7 @@ test_scheduled_collection.py
 *.json
 !game_polls_history.json
 !game_announcements.json
+!game_monitor_history.json
 *.log
 group_admins.txt
 sent_notifications.json

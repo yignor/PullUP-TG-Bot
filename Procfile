@@ -1,1 +1,0 @@
-worker: python birthday_bot_simple.py

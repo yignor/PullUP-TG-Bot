@@ -68,18 +68,18 @@ class GameResultsMonitor:
             
             now = get_moscow_time()
             
-            # Мониторинг должен начинаться не раньше чем за 15 минут до игры
-            earliest_start = game_time - timedelta(minutes=15)
+            # Мониторинг должен начинаться за 15 минут до игры
+            monitoring_start = game_time - timedelta(minutes=15)
             
-            if now < earliest_start:
-                print(f"⏰ Слишком рано для мониторинга. Игра в {game_time.strftime('%H:%M')}, мониторинг начнется в {earliest_start.strftime('%H:%M')}")
+            # Мониторинг должен заканчиваться через 3 часа после игры
+            monitoring_end = game_time + timedelta(hours=3)
+            
+            if now < monitoring_start:
+                print(f"⏰ Слишком рано для мониторинга. Игра в {game_time.strftime('%H:%M')}, мониторинг начнется в {monitoring_start.strftime('%H:%M')}")
                 return False
             
-            # Мониторинг должен начинаться не позже чем через 3 часа после игры
-            latest_start = game_time + timedelta(hours=3)
-            
-            if now > latest_start:
-                print(f"⏰ Слишком поздно для мониторинга. Игра была в {game_time.strftime('%H:%M')}")
+            if now > monitoring_end:
+                print(f"⏰ Слишком поздно для мониторинга. Игра была в {game_time.strftime('%H:%M')}, мониторинг закончился в {monitoring_end.strftime('%H:%M')}")
                 return False
             
             print(f"🕐 Время подходящее для мониторинга. Игра в {game_time.strftime('%H:%M')}, сейчас {now.strftime('%H:%M')}")

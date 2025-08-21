@@ -55,10 +55,17 @@ class GameResultsMonitor:
     
     def should_monitor_game(self, game_info: Dict) -> bool:
         """Проверяет, нужно ли мониторить игру"""
+        print(f"\n🔍 ПРОВЕРКА ИГРЫ ДЛЯ МОНИТОРИНГА:")
+        print(f"   🏀 {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
+        print(f"   📅 Дата: {game_info.get('date', '')}")
+        print(f"   🕐 Время: {game_info.get('time', '')}")
+        
         # Проверяем, что игра сегодня
         if not is_today(game_info['date']):
-            print(f"📅 Игра {game_info['date']} не сегодня, пропускаем мониторинг")
+            print(f"   ❌ Игра {game_info['date']} не сегодня, пропускаем мониторинг")
             return False
+        
+        print(f"   ✅ Игра сегодня")
         
         # Проверяем время - мониторинг должен начинаться близко ко времени игры
         try:
@@ -74,48 +81,69 @@ class GameResultsMonitor:
             # Мониторинг должен заканчиваться через 3 часа после игры
             monitoring_end = game_time + timedelta(hours=3)
             
+            print(f"   🕐 Время игры: {game_time.strftime('%H:%M')}")
+            print(f"   🚀 Мониторинг с: {monitoring_start.strftime('%H:%M')}")
+            print(f"   🛑 Мониторинг до: {monitoring_end.strftime('%H:%M')}")
+            print(f"   ⏰ Сейчас: {now.strftime('%H:%M')}")
+            
             if now < monitoring_start:
-                print(f"⏰ Слишком рано для мониторинга. Игра в {game_time.strftime('%H:%M')}, мониторинг начнется в {monitoring_start.strftime('%H:%M')}")
+                time_diff = (monitoring_start - now).total_seconds() / 60
+                print(f"   ❌ Слишком рано для мониторинга. Начнется через {time_diff:.1f} минут")
                 return False
             
             if now > monitoring_end:
-                print(f"⏰ Слишком поздно для мониторинга. Игра была в {game_time.strftime('%H:%M')}, мониторинг закончился в {monitoring_end.strftime('%H:%M')}")
+                time_diff = (now - monitoring_end).total_seconds() / 60
+                print(f"   ❌ Слишком поздно для мониторинга. Закончился {time_diff:.1f} минут назад")
                 return False
             
-            print(f"🕐 Время подходящее для мониторинга. Игра в {game_time.strftime('%H:%M')}, сейчас {now.strftime('%H:%M')}")
+            time_diff = (game_time - now).total_seconds() / 60
+            print(f"   ✅ Время подходящее для мониторинга. До игры: {time_diff:.1f} минут")
             
         except Exception as e:
-            print(f"⚠️ Ошибка проверки времени игры: {e}")
+            print(f"   ❌ Ошибка проверки времени игры: {e}")
             return False
         
         # Создаем уникальный ключ для игры
         game_key = create_game_monitor_key(game_info)
+        print(f"   🔑 Ключ игры: {game_key}")
         
         # Проверяем, не мониторим ли мы уже эту игру
         if game_key in self.monitor_history:
             monitor_info = self.monitor_history[game_key]
             status = monitor_info.get('status', 'unknown')
+            start_time = monitor_info.get('start_time', 'неизвестно')
+            
+            print(f"   📋 Найдена в истории мониторинга:")
+            print(f"      Статус: {status}")
+            print(f"      Начало: {start_time}")
             
             if status == 'completed':
-                print(f"✅ Игра {game_key} уже завершена")
+                end_time = monitor_info.get('end_time', 'неизвестно')
+                print(f"   ✅ Игра уже завершена в {end_time}")
                 return False
             elif status == 'timeout':
-                print(f"⏰ Игра {game_key} уже завершена по таймауту")
+                end_time = monitor_info.get('end_time', 'неизвестно')
+                print(f"   ⏰ Игра уже завершена по таймауту в {end_time}")
                 return False
             elif status == 'monitoring':
-                print(f"⏭️ Игра {game_key} уже в мониторинге")
+                print(f"   ⏭️ Игра уже в мониторинге")
                 return False
             else:
-                print(f"⚠️ Игра {game_key} имеет неизвестный статус: {status}")
+                print(f"   ⚠️ Игра имеет неизвестный статус: {status}")
                 return False
+        else:
+            print(f"   📋 Новая игра, не найдена в истории")
         
         # Проверяем, есть ли наши команды в игре
         game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
-        if not self.find_target_teams_in_text(game_text):
-            print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
+        found_teams = self.find_target_teams_in_text(game_text)
+        
+        if not found_teams:
+            print(f"   ❌ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
             return False
         
-        print(f"✅ Игра {game_info['date']} подходит для мониторинга")
+        print(f"   ✅ Найдены наши команды: {', '.join(found_teams)}")
+        print(f"   ✅ Игра подходит для мониторинга")
         return True
     
     def find_target_teams_in_text(self, text: str) -> List[str]:
@@ -332,7 +360,10 @@ class GameResultsMonitor:
         """Мониторит игру до завершения (одна проверка за запуск)"""
         game_key = create_game_monitor_key(game_info)
         
-        print(f"🎮 Проверяем состояние игры: {game_key}")
+        print(f"\n🎮 МОНИТОРИНГ ИГРЫ:")
+        print(f"   🏀 {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
+        print(f"   🔑 Ключ: {game_key}")
+        print(f"   🔗 Ссылка: {game_link}")
         
         # Определяем время игры
         time_str = game_info['time'].replace('.', ':')
@@ -342,59 +373,83 @@ class GameResultsMonitor:
         now = get_moscow_time()
         end_monitoring = game_time + timedelta(hours=3)
         
+        print(f"   🕐 Время игры: {game_time.strftime('%H:%M')}")
+        print(f"   🛑 Конец мониторинга: {end_monitoring.strftime('%H:%M')}")
+        print(f"   ⏰ Сейчас: {now.strftime('%H:%M')}")
+        
         # Проверяем, не истекло ли время мониторинга
         if now > end_monitoring:
-            print(f"⏰ Время мониторинга истекло (3 часа)")
+            time_diff = (now - end_monitoring).total_seconds() / 60
+            print(f"   ❌ Время мониторинга истекло {time_diff:.1f} минут назад")
             
             # Обновляем статус в истории
             if game_key in self.monitor_history:
                 self.monitor_history[game_key]['status'] = 'timeout'
                 self.monitor_history[game_key]['end_time'] = now.isoformat()
                 save_game_monitor_history(self.monitor_history)
+                print(f"   📋 Статус обновлен на 'timeout'")
             
             return False
         
         # Проверяем состояние игры
-        print(f"🔍 Проверяем состояние игры...")
+        print(f"   🔍 Парсим табло игры...")
         
         scoreboard_info = await self.parse_game_scoreboard(game_link)
         
-        if scoreboard_info and scoreboard_info['is_game_finished']:
-            print(f"🏁 Игра завершена! Отправляем уведомление")
+        if scoreboard_info:
+            print(f"   📊 Табло получено:")
+            print(f"      Период: {scoreboard_info.get('period', 'неизвестно')}")
+            print(f"      Время: {scoreboard_info.get('timer', 'неизвестно')}")
+            print(f"      Счет: {scoreboard_info.get('score1', '?')} : {scoreboard_info.get('score2', '?')}")
+            print(f"      Завершена: {'Да' if scoreboard_info.get('is_game_finished') else 'Нет'}")
             
-            # Отправляем уведомление
-            await self.send_game_result_notification(game_info, scoreboard_info, game_link)
+            if scoreboard_info['is_game_finished']:
+                print(f"   🏁 Игра завершена! Отправляем уведомление")
+                
+                # Отправляем уведомление
+                success = await self.send_game_result_notification(game_info, scoreboard_info, game_link)
+                
+                if success:
+                    # Обновляем статус в истории
+                    if game_key in self.monitor_history:
+                        self.monitor_history[game_key]['status'] = 'completed'
+                        self.monitor_history[game_key]['end_time'] = now.isoformat()
+                    else:
+                        # Если записи нет, создаем её
+                        self.monitor_history[game_key] = {
+                            'game_info': game_info,
+                            'game_link': game_link,
+                            'start_time': now.isoformat(),
+                            'status': 'completed',
+                            'end_time': now.isoformat()
+                        }
+                    
+                    save_game_monitor_history(self.monitor_history)
+                    print(f"   📋 Статус обновлен на 'completed'")
+                    return True
+                else:
+                    print(f"   ❌ Ошибка отправки уведомления")
+                    return False
             
-            # Обновляем статус в истории
-            if game_key in self.monitor_history:
-                self.monitor_history[game_key]['status'] = 'completed'
-                self.monitor_history[game_key]['end_time'] = now.isoformat()
             else:
-                # Если записи нет, создаем её
-                self.monitor_history[game_key] = {
-                    'game_info': game_info,
-                    'game_link': game_link,
-                    'start_time': now.isoformat(),
-                    'status': 'completed',
-                    'end_time': now.isoformat()
-                }
-            
-            save_game_monitor_history(self.monitor_history)
-            return True
-        
+                print(f"   ⏳ Игра еще идет, продолжаем мониторинг")
+                
+                # Обновляем или создаем запись в истории
+                if game_key not in self.monitor_history:
+                    self.monitor_history[game_key] = {
+                        'game_info': game_info,
+                        'game_link': game_link,
+                        'start_time': now.isoformat(),
+                        'status': 'monitoring'
+                    }
+                    save_game_monitor_history(self.monitor_history)
+                    print(f"   📋 Создана запись в истории со статусом 'monitoring'")
+                else:
+                    print(f"   📋 Запись уже существует в истории")
+                
+                return False
         else:
-            print(f"⏳ Игра еще идет, продолжаем мониторинг")
-            
-            # Обновляем или создаем запись в истории
-            if game_key not in self.monitor_history:
-                self.monitor_history[game_key] = {
-                    'game_info': game_info,
-                    'game_link': game_link,
-                    'start_time': now.isoformat(),
-                    'status': 'monitoring'
-                }
-                save_game_monitor_history(self.monitor_history)
-            
+            print(f"   ❌ Не удалось получить данные табло")
             return False
     
     async def start_monitoring_for_game(self, game_info: Dict, game_link: str):

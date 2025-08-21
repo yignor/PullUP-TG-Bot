@@ -97,12 +97,13 @@ async def check_games_for_monitoring() -> list:
 
 def has_pull_up_team(game_info: dict) -> bool:
     """Проверяет, есть ли команда Pull Up в игре"""
-    team1 = game_info.get('team1', '').lower()
-    team2 = game_info.get('team2', '').lower()
+    team1 = game_info.get('team1', '')
+    team2 = game_info.get('team2', '')
     
-    pull_up_variants = ['pull up', 'pullup', 'pull up-фарм', 'pull up фарм']
+    # Используем те же варианты команд, что и в game_results_monitor.py
+    target_teams = ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP']
     
-    for variant in pull_up_variants:
+    for variant in target_teams:
         if variant in team1 or variant in team2:
             return True
     

@@ -278,10 +278,21 @@ class GameResultsMonitor:
             
             # Находим нашу команду и соперника
             opponent = None
-            if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+            team_type = "первого состава"  # По умолчанию
+            
+            # Используем те же варианты команд, что и в find_target_teams_in_text
+            target_teams = ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP']
+            
+            if any(target_team in team1 for target_team in target_teams):
                 opponent = team2
-            elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+                # Определяем тип команды
+                if any(farm_team in team1 for farm_team in ['Pull Up-Фарм', 'Pull Up Фарм']):
+                    team_type = "состава развития"
+            elif any(target_team in team2 for target_team in target_teams):
                 opponent = team1
+                # Определяем тип команды
+                if any(farm_team in team2 for farm_team in ['Pull Up-Фарм', 'Pull Up Фарм']):
+                    team_type = "состава развития"
             
             if not opponent:
                 opponent = "соперник"
@@ -289,7 +300,7 @@ class GameResultsMonitor:
             # Формируем сообщение
             # Нормализуем время (заменяем точку на двоеточие для ясности)
             normalized_time = game_info['time'].replace('.', ':')
-            message = f"🏀 Игра против {opponent} закончилась\n"
+            message = f"🏀 Игра {team_type} против {opponent} закончилась\n"
             message += f"🏆 Счет: {scoreboard_info['team1_name']} {scoreboard_info['score1']} : {scoreboard_info['score2']} {scoreboard_info['team2_name']}\n"
             
             # Убираем определение победителя - это понятно из счета

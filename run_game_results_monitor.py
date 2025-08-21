@@ -57,10 +57,10 @@ async def check_games_for_monitoring() -> list:
                 game_time = datetime.strptime(f"{game['date']} {time_str}", '%d.%m.%Y %H:%M')
                 game_time = game_time.replace(tzinfo=timezone(timedelta(hours=3)))  # МСК
                 
-                # Проверяем, начинается ли игра в ближайшие 5 минут
+                # Проверяем, начинается ли игра в ближайшие 15 минут
                 time_diff = (game_time - now).total_seconds()
                 
-                if 0 <= time_diff <= 300:  # От 0 до 5 минут (300 секунд)
+                if 0 <= time_diff <= 900:  # От 0 до 15 минут (900 секунд)
                     # Проверяем, не мониторим ли уже эту игру
                     game_key = f"{game['date']}_{game['time']}_{game['team1']}_{game['team2']}"
                     if game_key not in monitor_history:
@@ -76,7 +76,7 @@ async def check_games_for_monitoring() -> list:
         if games_to_monitor:
             print(f"   ✅ Найдено {len(games_to_monitor)} игр для мониторинга")
         else:
-            print(f"   ℹ️ Нет игр для мониторинга")
+            print(f"   ℹ️ Нет игр для мониторинга в ближайшие 15 минут")
             
         return games_to_monitor
         

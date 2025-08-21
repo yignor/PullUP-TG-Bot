@@ -68,8 +68,8 @@ class GameResultsMonitor:
             
             now = get_moscow_time()
             
-            # Мониторинг должен начинаться не раньше чем за 5 минут до игры
-            earliest_start = game_time - timedelta(minutes=5)
+            # Мониторинг должен начинаться не раньше чем за 15 минут до игры
+            earliest_start = game_time - timedelta(minutes=15)
             
             if now < earliest_start:
                 print(f"⏰ Слишком рано для мониторинга. Игра в {game_time.strftime('%H:%M')}, мониторинг начнется в {earliest_start.strftime('%H:%M')}")
@@ -93,8 +93,21 @@ class GameResultsMonitor:
         
         # Проверяем, не мониторим ли мы уже эту игру
         if game_key in self.monitor_history:
-            print(f"⏭️ Игра {game_key} уже в мониторинге")
-            return False
+            monitor_info = self.monitor_history[game_key]
+            status = monitor_info.get('status', 'unknown')
+            
+            if status == 'completed':
+                print(f"✅ Игра {game_key} уже завершена")
+                return False
+            elif status == 'timeout':
+                print(f"⏰ Игра {game_key} уже завершена по таймауту")
+                return False
+            elif status == 'monitoring':
+                print(f"⏭️ Игра {game_key} уже в мониторинге")
+                return False
+            else:
+                print(f"⚠️ Игра {game_key} имеет неизвестный статус: {status}")
+                return False
         
         # Проверяем, есть ли наши команды в игре
         game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"

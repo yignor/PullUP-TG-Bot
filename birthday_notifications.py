@@ -85,13 +85,14 @@ async def check_birthdays():
         
         # Отправляем уведомления
         if birthday_messages:
-            # Импортируем бота
-            from bot_wrapper import get_bot
-            
-            current_bot = get_bot()
-            if not current_bot:
-                print("❌ Не удалось отправить уведомление - бот не инициализирован")
+            # Инициализируем бота напрямую
+            bot_token = os.getenv("BOT_TOKEN")
+            if not bot_token:
+                print("❌ BOT_TOKEN не настроен")
                 return
+            
+            from telegram import Bot
+            current_bot = Bot(token=bot_token)
             
             chat_id = os.getenv("CHAT_ID")
             if not chat_id:

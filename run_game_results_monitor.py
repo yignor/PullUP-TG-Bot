@@ -12,7 +12,7 @@ from datetime_utils import get_moscow_time, is_today
 from game_system_manager import GameSystemManager
 
 async def check_games_for_monitoring() -> list:
-    """Проверяет игры, которые должны начаться в ближайшие 5 минут"""
+    """Проверяет игры, которые должны начаться в ближайшие 5 минут или уже мониторятся"""
     try:
         print("🔍 Проверяем игры для мониторинга...")
         
@@ -26,10 +26,27 @@ async def check_games_for_monitoring() -> list:
             print("   📅 Расписание не найдено")
             return []
         
+        # Загружаем историю мониторинга
+        monitor_history = load_game_monitor_history()
+        
         # Проверяем игры сегодня
         now = get_moscow_time()
         games_to_monitor = []
         
+        # Сначала проверяем активные мониторинги
+        active_monitors = []
+        for game_key, monitor_info in monitor_history.items():
+            status = monitor_info.get('status', 'unknown')
+            if status == 'monitoring':
+                game_info = monitor_info.get('game_info', {})
+                if game_info and is_today(game_info.get('date', '')):
+                    active_monitors.append(game_info)
+                    print(f"   🎮 Найден активный мониторинг: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
+        
+        # Добавляем активные мониторинги в список для проверки
+        games_to_monitor.extend(active_monitors)
+        
+        # Теперь проверяем новые игры для запуска мониторинга
         for game in schedule:
             if not is_today(game['date']):
                 continue
@@ -44,8 +61,13 @@ async def check_games_for_monitoring() -> list:
                 time_diff = (game_time - now).total_seconds()
                 
                 if 0 <= time_diff <= 300:  # От 0 до 5 минут (300 секунд)
-                    games_to_monitor.append(game)
-                    print(f"   🏀 Игра {game['team1']} vs {game['team2']} начинается через {time_diff/60:.1f} минут")
+                    # Проверяем, не мониторим ли уже эту игру
+                    game_key = f"{game['date']}_{game['time']}_{game['team1']}_{game['team2']}"
+                    if game_key not in monitor_history:
+                        games_to_monitor.append(game)
+                        print(f"   🏀 Новая игра для мониторинга: {game['team1']} vs {game['team2']} начинается через {time_diff/60:.1f} минут")
+                    else:
+                        print(f"   ⏭️ Игра уже в мониторинге: {game['team1']} vs {game['team2']}")
                     
             except Exception as e:
                 print(f"   ⚠️ Ошибка парсинга времени игры: {e}")
@@ -54,7 +76,7 @@ async def check_games_for_monitoring() -> list:
         if games_to_monitor:
             print(f"   ✅ Найдено {len(games_to_monitor)} игр для мониторинга")
         else:
-            print(f"   ℹ️ Нет игр для мониторинга в ближайшие 5 минут")
+            print(f"   ℹ️ Нет игр для мониторинга")
             
         return games_to_monitor
         
@@ -86,81 +108,37 @@ async def run_game_results_monitor():
         # Создаем экземпляр монитора
         monitor = GameResultsMonitor()
         
-        # Запускаем мониторинг для каждой игры
+        # Проверяем и запускаем мониторинг для каждой игры
         for game in games_to_monitor:
-            print(f"\n🎮 Запускаем мониторинг для игры: {game['team1']} vs {game['team2']}")
+            print(f"\n🎮 Проверяем игру: {game['team1']} vs {game['team2']}")
             
-            # Запускаем мониторинг (ссылка будет найдена внутри мониторинга)
-            success = await monitor.start_monitoring_for_game(game, "")
+            # Проверяем, есть ли ссылка на игру в истории
+            game_key = f"{game['date']}_{game['time']}_{game['team1']}_{game['team2']}"
+            game_link = ""
+            
+            if game_key in monitor_history:
+                game_link = monitor_history[game_key].get('game_link', '')
+                print(f"   🔗 Найдена ссылка в истории: {game_link}")
+            
+            # Если ссылки нет, пытаемся найти её
+            if not game_link:
+                print(f"   🔍 Ищем ссылку на игру...")
+                # Здесь можно добавить логику поиска ссылки, если нужно
+            
+            # Запускаем мониторинг
+            success = await monitor.start_monitoring_for_game(game, game_link)
             
             if success:
-                print(f"   ✅ Мониторинг запущен успешно")
+                print(f"   ✅ Игра завершена, уведомление отправлено")
             else:
-                print(f"   ❌ Ошибка запуска мониторинга")
-        
-        # Проверяем активные мониторинги
-        active_monitors = 0
-        completed_monitors = 0
-        
-        for game_key, monitor_info in monitor_history.items():
-            status = monitor_info.get('status', 'unknown')
-            
-            if status == 'monitoring':
-                active_monitors += 1
-                game_info = monitor_info.get('game_info', {})
-                game_link = monitor_info.get('game_link', '')
-                
-                print(f"\n🎮 Проверяем активный мониторинг: {game_key}")
-                print(f"   Дата: {game_info.get('date', 'N/A')}")
-                print(f"   Время: {game_info.get('time', 'N/A')}")
-                print(f"   Команды: {game_info.get('team1', 'N/A')} vs {game_info.get('team2', 'N/A')}")
-                
-                # Проверяем состояние игры
-                scoreboard_info = await monitor.parse_game_scoreboard(game_link)
-                
-                if scoreboard_info:
-                    print(f"   📊 Период: {scoreboard_info['period']}, Время: {scoreboard_info['timer']}")
-                    print(f"   🏀 Счет: {scoreboard_info['score1']} : {scoreboard_info['score2']}")
-                    
-                    if scoreboard_info['is_game_finished']:
-                        print(f"   🏁 Игра завершена! Отправляем уведомление")
-                        
-                        # Отправляем уведомление
-                        success = await monitor.send_game_result_notification(
-                            game_info, scoreboard_info, game_link
-                        )
-                        
-                        if success:
-                            # Обновляем статус в истории
-                            monitor_info['status'] = 'completed'
-                            monitor_info['end_time'] = get_moscow_time().isoformat()
-                            completed_monitors += 1
-                            print(f"   ✅ Уведомление отправлено, мониторинг завершен")
-                            
-                            # Сохраняем историю и завершаем workflow
-                            save_game_monitor_history(monitor_history)
-                            print(f"   🏁 Workflow завершен после отправки уведомления")
-                            return  # Завершаем выполнение
-                        else:
-                            print(f"   ❌ Ошибка отправки уведомления")
-                    else:
-                        print(f"   ⏳ Игра еще идет, продолжаем мониторинг")
-                else:
-                    print(f"   ⚠️ Не удалось получить данные табло")
-            
-            elif status == 'completed':
-                completed_monitors += 1
+                print(f"   ⏳ Игра еще идет или мониторинг не требуется")
         
         # Сохраняем обновленную историю
         save_game_monitor_history(monitor_history)
         
         print(f"\n📋 ИТОГИ МОНИТОРИНГА:")
-        print(f"   Активных мониторингов: {active_monitors}")
-        print(f"   Завершенных мониторингов: {completed_monitors}")
+        print(f"   Обработано игр: {len(games_to_monitor)}")
         print(f"   Всего записей в истории: {len(monitor_history)}")
-        
-        if active_monitors == 0:
-            print(f"   ℹ️ Нет активных мониторингов")
         
         print(f"\n✅ Мониторинг результатов завершен")
         

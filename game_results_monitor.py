@@ -305,78 +305,81 @@ class GameResultsMonitor:
             return False
     
     async def monitor_game(self, game_info: Dict, game_link: str):
-        """Мониторит игру до завершения"""
+        """Мониторит игру до завершения (одна проверка за запуск)"""
         game_key = create_game_monitor_key(game_info)
         
-        print(f"🎮 Начинаем мониторинг игры: {game_key}")
+        print(f"🎮 Проверяем состояние игры: {game_key}")
         
-        # Добавляем в историю мониторинга
-        self.monitor_history[game_key] = {
-            'game_info': game_info,
-            'game_link': game_link,
-            'start_time': get_moscow_time().isoformat(),
-            'status': 'monitoring'
-        }
-        save_game_monitor_history(self.monitor_history)
-        
-        # Определяем время начала мониторинга (близко ко времени игры)
-        # Исправляем формат времени (заменяем точку на двоеточие)
+        # Определяем время игры
         time_str = game_info['time'].replace('.', ':')
         game_time = datetime.strptime(f"{game_info['date']} {time_str}", '%d.%m.%Y %H:%M')
         game_time = game_time.replace(tzinfo=timezone(timedelta(hours=3)))  # МСК
         
-        # Начинаем мониторинг за 5 минут до игры
-        start_monitoring = game_time - timedelta(minutes=5)
+        now = get_moscow_time()
         end_monitoring = game_time + timedelta(hours=3)
         
-        now = get_moscow_time()
-        
-        # Ждем до времени начала мониторинга
-        if now < start_monitoring:
-            wait_seconds = (start_monitoring - now).total_seconds()
-            print(f"⏰ Ждем {wait_seconds:.0f} секунд до начала мониторинга")
-            await asyncio.sleep(wait_seconds)
-        
-        # Мониторим игру каждые 15 минут
-        while now < end_monitoring:
-            print(f"🔍 Проверяем состояние игры (каждые 15 минут)...")
+        # Проверяем, не истекло ли время мониторинга
+        if now > end_monitoring:
+            print(f"⏰ Время мониторинга истекло (3 часа)")
             
-            scoreboard_info = await self.parse_game_scoreboard(game_link)
-            
-            if scoreboard_info and scoreboard_info['is_game_finished']:
-                print(f"🏁 Игра завершена! Отправляем уведомление")
-                
-                # Отправляем уведомление
-                await self.send_game_result_notification(game_info, scoreboard_info, game_link)
-                
-                # Обновляем статус в истории
-                self.monitor_history[game_key]['status'] = 'completed'
-                self.monitor_history[game_key]['end_time'] = get_moscow_time().isoformat()
+            # Обновляем статус в истории
+            if game_key in self.monitor_history:
+                self.monitor_history[game_key]['status'] = 'timeout'
+                self.monitor_history[game_key]['end_time'] = now.isoformat()
                 save_game_monitor_history(self.monitor_history)
-                
-                return True
             
-            # Ждем 15 минут перед следующей проверкой
-            await asyncio.sleep(900)  # 15 минут = 900 секунд
-            now = get_moscow_time()
+            return False
         
-        print(f"⏰ Время мониторинга истекло (3 часа)")
+        # Проверяем состояние игры
+        print(f"🔍 Проверяем состояние игры...")
         
-        # Обновляем статус в истории
-        self.monitor_history[game_key]['status'] = 'timeout'
-        self.monitor_history[game_key]['end_time'] = get_moscow_time().isoformat()
-        save_game_monitor_history(self.monitor_history)
+        scoreboard_info = await self.parse_game_scoreboard(game_link)
         
-        return False
+        if scoreboard_info and scoreboard_info['is_game_finished']:
+            print(f"🏁 Игра завершена! Отправляем уведомление")
+            
+            # Отправляем уведомление
+            await self.send_game_result_notification(game_info, scoreboard_info, game_link)
+            
+            # Обновляем статус в истории
+            if game_key in self.monitor_history:
+                self.monitor_history[game_key]['status'] = 'completed'
+                self.monitor_history[game_key]['end_time'] = now.isoformat()
+            else:
+                # Если записи нет, создаем её
+                self.monitor_history[game_key] = {
+                    'game_info': game_info,
+                    'game_link': game_link,
+                    'start_time': now.isoformat(),
+                    'status': 'completed',
+                    'end_time': now.isoformat()
+                }
+            
+            save_game_monitor_history(self.monitor_history)
+            return True
+        
+        else:
+            print(f"⏳ Игра еще идет, продолжаем мониторинг")
+            
+            # Обновляем или создаем запись в истории
+            if game_key not in self.monitor_history:
+                self.monitor_history[game_key] = {
+                    'game_info': game_info,
+                    'game_link': game_link,
+                    'start_time': now.isoformat(),
+                    'status': 'monitoring'
+                }
+                save_game_monitor_history(self.monitor_history)
+            
+            return False
     
     async def start_monitoring_for_game(self, game_info: Dict, game_link: str):
         """Запускает мониторинг для конкретной игры"""
         if not self.should_monitor_game(game_info):
             return False
         
-        # Запускаем мониторинг в отдельной задаче
-        asyncio.create_task(self.monitor_game(game_info, game_link))
-        return True
+        # Запускаем мониторинг напрямую
+        return await self.monitor_game(game_info, game_link)
 
 # Функция для запуска мониторинга из других модулей
 async def start_game_monitoring(game_info: Dict, game_link: str):

@@ -108,6 +108,7 @@ run_*.py
 !run_scheduled_collection.py
 !run_game_system.py
 !run_game_results_monitor.py
+!run_game_results_monitor_v2.py
 stop_monitor.sh
 start_monitor.sh
 

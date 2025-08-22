@@ -34,6 +34,21 @@ SCOPES = [
 
 
 
+def get_next_week_period():
+    """Возвращает период следующей недели (понедельник-воскресенье)"""
+    now = get_moscow_time()
+    
+    # Находим следующий понедельник
+    days_ahead = 0 - now.weekday()  # 0 = понедельник
+    if days_ahead <= 0:  # Если сегодня понедельник или позже
+        days_ahead += 7
+    next_monday = now + datetime.timedelta(days=days_ahead)
+    
+    # Воскресенье = понедельник + 6 дней
+    next_sunday = next_monday + datetime.timedelta(days=6)
+    
+    return next_monday.date(), next_sunday.date()
+
 def get_next_tuesday_date():
     """Возвращает дату следующего вторника"""
     now = get_moscow_time()
@@ -51,6 +66,25 @@ def get_next_friday_date():
         days_ahead += 7
     next_friday = now + datetime.timedelta(days=days_ahead)
     return next_friday.date()
+
+def get_training_locations(week_start_date):
+    """Определяет места тренировок для недели"""
+    # Определяем, какая это неделя (для чередования мест)
+    # Можно использовать номер недели в году или другую логику
+    
+    # Простая логика: четные недели - СШОР ВО, нечетные - Динамо
+    week_number = week_start_date.isocalendar()[1]  # Номер недели в году
+    
+    if week_number % 2 == 0:  # Четная неделя
+        return {
+            'tuesday': {'time': '19:00', 'location': 'СШОР ВО'},
+            'friday': {'time': '20:30', 'location': 'СШОР ВО'}
+        }
+    else:  # Нечетная неделя
+        return {
+            'tuesday': {'time': '21:30', 'location': 'зал Динамо (м. Крестовский остров)'},
+            'friday': {'time': '20:30', 'location': 'СШОР ВО'}
+        }
 
 class TrainingPollsManager:
     """Управление опросами тренировок"""
@@ -100,15 +134,26 @@ class TrainingPollsManager:
             return False
         
         try:
+            # Получаем период следующей недели
+            week_start, week_end = get_next_week_period()
+            
             # Получаем даты тренировок
             tuesday_date = get_next_tuesday_date()
             friday_date = get_next_friday_date()
             
-            # Формируем вопрос и варианты
-            question = f"🏀 Тренировки на неделе СШОР ВО ({tuesday_date.strftime('%d.%m')} - {friday_date.strftime('%d.%m')})"
+            # Определяем места тренировок для недели
+            locations = get_training_locations(week_start)
+            
+            # Формируем вопрос с периодом недели
+            question = f"🏀 Тренировки на неделе {week_start.strftime('%d.%m')}-{week_end.strftime('%d.%m')}"
+            
+            # Формируем варианты ответов с местами
+            tuesday_info = locations['tuesday']
+            friday_info = locations['friday']
+            
             options = [
-                f"🏀 Вторник {tuesday_date.strftime('%d.%m')} 19:00",
-                f"🏀 Пятница {friday_date.strftime('%d.%m')} 20:30",
+                f"🏀 Вторник {tuesday_date.strftime('%d.%m')} {tuesday_info['time']} {tuesday_info['location']}",
+                f"🏀 Пятница {friday_date.strftime('%d.%m')} {friday_info['time']} {friday_info['location']}",
                 "👨‍🏫 Тренер",
                 "❌ Нет"
             ]
@@ -135,7 +180,11 @@ class TrainingPollsManager:
                 'chat_id': CHAT_ID,
                 'topic_id': ANNOUNCEMENTS_TOPIC_ID,
                 'tuesday_date': tuesday_date.isoformat(),
-                'friday_date': friday_date.isoformat()
+                'friday_date': friday_date.isoformat(),
+                'week_start': week_start.isoformat(),
+                'week_end': week_end.isoformat(),
+                'tuesday_location': tuesday_info,
+                'friday_location': friday_info
             }
             
             # Сохраняем в файл
@@ -144,8 +193,9 @@ class TrainingPollsManager:
             
             print(f"✅ Опрос создан успешно")
             print(f"📊 ID опроса: {self.current_poll_info['poll_id']}")
-            print(f"📅 Вторник: {tuesday_date.strftime('%d.%m.%Y')}")
-            print(f"📅 Пятница: {friday_date.strftime('%d.%m.%Y')}")
+            print(f"📅 Период недели: {week_start.strftime('%d.%m.%Y')} - {week_end.strftime('%d.%m.%Y')}")
+            print(f"📅 Вторник: {tuesday_date.strftime('%d.%m.%Y')} {tuesday_info['time']} {tuesday_info['location']}")
+            print(f"📅 Пятница: {friday_date.strftime('%d.%m.%Y')} {friday_info['time']} {friday_info['location']}")
             
             return True
             

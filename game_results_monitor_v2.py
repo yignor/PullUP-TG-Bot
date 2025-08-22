@@ -115,7 +115,7 @@ class GameResultsMonitorV2:
         return found_teams
     
     async def scan_scoreboard(self) -> List[Dict]:
-        """Сканирует табло и находит активные игры с нашими командами"""
+        """Сканирует табло и находит игры с нашими командами"""
         try:
             print("🔍 Сканируем табло letobasket.ru...")
             
@@ -130,17 +130,25 @@ class GameResultsMonitorV2:
                         # Ищем табло игр
                         games = []
                         
-                        # Ищем все элементы с играми (красные полосы)
-                        game_elements = soup.find_all('div', class_='game-item')  # Примерный селектор
+                        # Получаем весь текст страницы
+                        scoreboard_text = soup.get_text()
                         
-                        # Если не нашли по классу, ищем по структуре
-                        if not game_elements:
-                            # Ищем по тексту "ТАБЛО ИГР"
-                            scoreboard_text = soup.get_text()
-                            if "ТАБЛО ИГР" in scoreboard_text:
-                                print("   ✅ Найдено табло игр")
+                        if "ТАБЛО ИГР" in scoreboard_text:
+                            print("   ✅ Найдено табло игр")
+                            
+                            # Сначала ищем все команды в тексте
+                            all_teams = []
+                            
+                            # Ищем команды по названиям (без учета счета)
+                            for team in ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP']:
+                                if team in scoreboard_text:
+                                    all_teams.append(team)
+                                    print(f"   🎯 Найдена команда в табло: {team}")
+                            
+                            if all_teams:
+                                print(f"   ✅ Найдено {len(all_teams)} наших команд в табло")
                                 
-                                # Ищем команды и счета
+                                # Теперь ищем игры с этими командами
                                 # Паттерн: команда1 - счет1:счет2 - команда2 - период время
                                 game_pattern = r'([^-]+)\s*-\s*(\d+):(\d+)\s*-\s*([^-]+)\s*-\s*(\d+)\s+(\d+:\d+)'
                                 matches = re.findall(game_pattern, scoreboard_text)
@@ -149,7 +157,7 @@ class GameResultsMonitorV2:
                                     team1, score1, score2, team2, period, time = match
                                     game_text = f"{team1.strip()} {team2.strip()}"
                                     
-                                    # Проверяем, есть ли наши команды
+                                    # Проверяем, есть ли наши команды в этой игре
                                     if self.find_target_teams_in_text(game_text):
                                         # Проверяем, завершена ли игра (период 4 и время 0:00)
                                         is_finished = period == '4' and time == '0:00'
@@ -167,11 +175,15 @@ class GameResultsMonitorV2:
                                         })
                                         print(f"   🏀 Найдена игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
                                         print(f"      Период: {period}, Время: {time}, Завершена: {is_finished}")
+                            else:
+                                print(f"   ℹ️ Наших команд не найдено в табло")
+                        else:
+                            print(f"   ℹ️ Табло игр не найдено на странице")
                         
                         if games:
-                            print(f"   ✅ Найдено {len(games)} активных игр с нашими командами")
+                            print(f"   ✅ Найдено {len(games)} игр с нашими командами")
                         else:
-                            print(f"   ℹ️ Активных игр с нашими командами не найдено")
+                            print(f"   ℹ️ Игр с нашими командами не найдено")
                         
                         return games
                     else:
@@ -366,11 +378,11 @@ class GameResultsMonitorV2:
         active_games = await self.scan_scoreboard()
         
         if not active_games:
-            print("📅 Активных игр с нашими командами не найдено")
+            print("📅 Игр с нашими командами не найдено")
             self.mark_no_games_today()
             return
         
-        print(f"🏀 Найдено {len(active_games)} активных игр")
+        print(f"🏀 Найдено {len(active_games)} игр с нашими командами")
         
         # Проверяем каждую игру
         for i, game in enumerate(active_games, 1):
@@ -378,16 +390,17 @@ class GameResultsMonitorV2:
             print(f"   📊 Счет: {game['score1']} : {game['score2']}")
             print(f"   📅 Период: {game['period']}, Время: {game['time']}")
             
+            # Создаем game_info для истории
+            game_info = {
+                'team1': game['team1'],
+                'team2': game['team2'],
+                'date': game['date'],
+                'time': game['current_time']
+            }
+            game_key = create_game_monitor_key(game_info)
+            
             if game['is_finished']:
                 print(f"   🏁 Игра завершена! Отправляем уведомление")
-                
-                # Создаем game_info для уведомления
-                game_info = {
-                    'team1': game['team1'],
-                    'team2': game['team2'],
-                    'date': game['date'],
-                    'time': game['current_time']
-                }
                 
                 # Создаем scoreboard_info для уведомления
                 scoreboard_info = {
@@ -401,26 +414,18 @@ class GameResultsMonitorV2:
                 await self.send_game_result_notification(game_info, scoreboard_info, "")
                 
                 # Обновляем историю
-                game_key = create_game_monitor_key(game_info)
                 self.monitor_history[game_key] = {
                     'game_info': game_info,
                     'status': 'completed',
                     'end_time': get_moscow_time().isoformat()
                 }
                 save_game_monitor_history(self.monitor_history)
+                print(f"   📋 Статус обновлен на 'completed'")
                 
             else:
                 print(f"   ⏳ Игра еще идет, продолжаем мониторинг")
                 
                 # Обновляем или создаем запись в истории
-                game_info = {
-                    'team1': game['team1'],
-                    'team2': game['team2'],
-                    'date': game['date'],
-                    'time': game['current_time']
-                }
-                game_key = create_game_monitor_key(game_info)
-                
                 if game_key not in self.monitor_history:
                     self.monitor_history[game_key] = {
                         'game_info': game_info,
@@ -428,7 +433,9 @@ class GameResultsMonitorV2:
                         'start_time': get_moscow_time().isoformat()
                     }
                     save_game_monitor_history(self.monitor_history)
-                    print(f"   📋 Создана запись в истории")
+                    print(f"   📋 Создана запись в истории со статусом 'monitoring'")
+                else:
+                    print(f"   📋 Запись уже существует в истории")
         
         print(f"\n✅ Мониторинг завершен")
 

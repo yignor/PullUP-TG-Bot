@@ -119,6 +119,36 @@ class GameResultsMonitorV2:
         
         return found_teams
     
+    def generate_game_link(self, team1: str, team2: str) -> str:
+        """Генерирует ссылку на игру"""
+        try:
+            # Формируем ссылку на игру
+            # Используем базовый URL и добавляем параметры команд
+            base_url = "http://letobasket.ru/game.html"
+            
+            # Определяем, какая из команд наша
+            our_team = None
+            opponent = None
+            
+            target_teams = ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP', 'PULL UP ФАРМ']
+            
+            if any(team.upper() in team1.upper() for team in target_teams):
+                our_team = team1
+                opponent = team2
+            elif any(team.upper() in team2.upper() for team in target_teams):
+                our_team = team2
+                opponent = team1
+            else:
+                return ""
+            
+            # Формируем ссылку
+            game_link = f"{base_url}?team1={our_team}&team2={opponent}"
+            return game_link
+            
+        except Exception as e:
+            print(f"   ⚠️ Ошибка генерации ссылки: {e}")
+            return ""
+    
     async def scan_scoreboard(self) -> List[Dict]:
         """Сканирует табло и находит игры с нашими командами"""
         try:
@@ -153,48 +183,10 @@ class GameResultsMonitorV2:
                             if all_teams:
                                 print(f"   ✅ Найдено {len(all_teams)} наших команд в табло")
                                 
-                                # Теперь ищем игры с этими командами
+                                # Теперь ищем только текущие игры в табло
                                 games_found = []
                                 
-                                # Паттерн 1: Результаты игр (ПОСЛЕДНИЕ РЕЗУЛЬТАТЫ)
-                                # Ищем игры с нашими командами по отдельности
-                                results_matches = []
-                                
-                                # Ищем игры с Pull Up-Фарм
-                                farm_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*Pull Up-Фарм\s+(\d+):(\d+)'
-                                farm_matches = re.findall(farm_pattern, scoreboard_text)
-                                for match in farm_matches:
-                                    date, team1, score1, score2 = match
-                                    results_matches.append((date, team1, 'Pull Up-Фарм', score1, score2))
-                                
-                                # Ищем игры с Pull Up
-                                pullup_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*Pull Up\s+(\d+):(\d+)'
-                                pullup_matches = re.findall(pullup_pattern, scoreboard_text)
-                                for match in pullup_matches:
-                                    date, team1, score1, score2 = match
-                                    results_matches.append((date, team1, 'Pull Up', score1, score2))
-                                
-                                for match in results_matches:
-                                    date, team1, team2, score1, score2 = match
-                                    game_text = f"{team1.strip()} {team2.strip()}"
-                                    
-                                    # Проверяем, есть ли наши команды в этой игре
-                                    if self.find_target_teams_in_text(game_text):
-                                        games_found.append({
-                                            'team1': team1.strip(),
-                                            'team2': team2.strip(),
-                                            'score1': score1,
-                                            'score2': score2,
-                                            'period': '4',  # Результат означает завершенную игру
-                                            'time': '0:00',  # Результат означает завершенную игру
-                                            'is_finished': True,
-                                            'date': date,
-                                            'current_time': get_moscow_time().strftime('%H:%M')
-                                        })
-                                        print(f"   🏀 Найдена завершенная игра (результаты): {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
-                                        print(f"      Дата: {date}, Завершена: True")
-                                
-                                # Паттерн 2: Текущие игры (ТАБЛО ИГР)
+                                # Паттерн для текущих игр (ТАБЛО ИГР)
                                 # Формат: Команда1 Счет1 Счет2 Команда2 Период Время
                                 live_pattern = r'(.+?)\s+(\d+)\s+(\d+)\s+(.+?)\s+(\d+)\s+(\d+:\d+)'
                                 live_matches = re.findall(live_pattern, scoreboard_text)
@@ -208,6 +200,9 @@ class GameResultsMonitorV2:
                                         # Проверяем, завершена ли игра (период 4 и время 0:00)
                                         is_finished = period == '4' and time == '0:00'
                                         
+                                        # Генерируем ссылку на игру
+                                        game_link = self.generate_game_link(team1.strip(), team2.strip())
+                                        
                                         games_found.append({
                                             'team1': team1.strip(),
                                             'team2': team2.strip(),
@@ -217,10 +212,13 @@ class GameResultsMonitorV2:
                                             'time': time,
                                             'is_finished': is_finished,
                                             'date': get_moscow_time().strftime('%d.%m.%Y'),
-                                            'current_time': get_moscow_time().strftime('%H:%M')
+                                            'current_time': get_moscow_time().strftime('%H:%M'),
+                                            'game_link': game_link
                                         })
                                         print(f"   🏀 Найдена игра (табло): {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
                                         print(f"      Период: {period}, Время: {time}, Завершена: {is_finished}")
+                                        if game_link:
+                                            print(f"      🔗 Ссылка: {game_link}")
                                 
                                 games = games_found
                             else:
@@ -448,7 +446,16 @@ class GameResultsMonitorV2:
             game_key = create_game_monitor_key(game_info)
             
             if game['is_finished']:
-                print(f"   🏁 Игра завершена! Отправляем уведомление")
+                print(f"   🏁 Игра завершена!")
+                
+                # Проверяем, было ли уже отправлено уведомление для этой игры
+                if game_key in self.monitor_history:
+                    existing_status = self.monitor_history[game_key].get('status', '')
+                    if existing_status == 'completed':
+                        print(f"   📋 Уведомление уже было отправлено ранее, пропускаем")
+                        continue
+                
+                print(f"   📤 Отправляем уведомление...")
                 
                 # Создаем scoreboard_info для уведомления
                 scoreboard_info = {
@@ -458,8 +465,9 @@ class GameResultsMonitorV2:
                     'score2': game['score2']
                 }
                 
-                # Отправляем уведомление
-                await self.send_game_result_notification(game_info, scoreboard_info, "")
+                # Отправляем уведомление с ссылкой на игру
+                game_link = game.get('game_link', '')
+                await self.send_game_result_notification(game_info, scoreboard_info, game_link)
                 
                 # Обновляем историю
                 self.monitor_history[game_key] = {

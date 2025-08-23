@@ -182,14 +182,21 @@ class GameResultsMonitorV2:
                         
                         print(f"   📋 Извлечен раздел табло (длина: {len(scoreboard_text)} символов)")
                         print(f"   🔗 Найдено ссылок на игры: {len(game_links)}")
-                        return scoreboard_text, game_links
+                        
+                        # Дополнительно ищем игры в HTML структуре
+                        html_games = self.extract_games_from_html(soup)
+                        if html_games:
+                            print(f"   🎮 Найдено игр в HTML: {len(html_games)}")
+                            return scoreboard_text, game_links, html_games
+                        
+                        return scoreboard_text, game_links, []
             
             print(f"   ❌ Раздел 'ТАБЛО ИГР' не найден")
-            return "", []
+            return "", [], []
                 
         except Exception as e:
             print(f"   ❌ Ошибка извлечения табло: {e}")
-            return "", []
+            return "", [], []
     
     def extract_game_links(self, soup) -> list:
         """Извлекает ссылки 'СТРАНИЦА ИГРЫ' из раздела табло (адаптировано из Game System Manager)"""
@@ -289,6 +296,81 @@ class GameResultsMonitorV2:
             print(f"   ❌ Ошибка извлечения результатов: {e}")
             return []
     
+    def extract_games_from_html(self, soup) -> List[Dict]:
+        """Извлекает игры из HTML структуры табло"""
+        try:
+            games = []
+            
+            # Ищем все элементы с текстом команд
+            target_teams = ['QUASAR', 'PULL UP', 'HSE', 'TAURUS', 'IT BASKET', 'КУДРОВО']
+            
+            for element in soup.find_all(text=True):
+                text = element.strip()
+                if any(team in text for team in target_teams):
+                    parent = element.parent
+                    if parent:
+                        # Ищем соседние элементы со счетом и статусом
+                        container = parent.parent
+                        if container:
+                            # Ищем счет и статус в соседних элементах
+                            score_elements = container.find_all(text=True)
+                            score_text = ' '.join([el.strip() for el in score_elements if el.strip()])
+                            
+                            # Паттерн для игры: Команда1 Счет1 Счет2 Команда2 Период Время
+                            game_pattern = r'([A-ZА-Я\s]+)\s+(\d+)\s+(\d+)\s+([A-ZА-Я\s]+)\s+(\d+)\s+(\d+:\d+)'
+                            matches = re.findall(game_pattern, score_text)
+                            
+                            for match in matches:
+                                team1, score1, score2, team2, period, time = match
+                                game_text = f"{team1.strip()} {team2.strip()}"
+                                
+                                # Проверяем, есть ли наши команды в этой игре
+                                if self.find_target_teams_in_text(game_text):
+                                    # Проверяем, завершена ли игра (период 4 и время 0:00)
+                                    is_finished = period == '4' and time == '0:00'
+                                    
+                                    # Определяем нашу команду и тип
+                                    our_team = None
+                                    opponent = None
+                                    team_type = None
+                                    
+                                    if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+                                        our_team = team1.strip()
+                                        opponent = team2.strip()
+                                    elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+                                        our_team = team2.strip()
+                                        opponent = team1.strip()
+                                    
+                                    if our_team:
+                                        # Определяем тип команды
+                                        if 'фарм' in our_team.lower():
+                                            team_type = 'состава развития'
+                                        else:
+                                            team_type = 'первого состава'
+                                        
+                                        games.append({
+                                            'team1': team1.strip(),
+                                            'team2': team2.strip(),
+                                            'score1': score1,
+                                            'score2': score2,
+                                            'period': period,
+                                            'time': time,
+                                            'is_finished': is_finished,
+                                            'date': get_moscow_time().strftime('%d.%m.%Y'),
+                                            'current_time': get_moscow_time().strftime('%H:%M'),
+                                            'game_link': '',  # Будет добавлена позже
+                                            'our_team': our_team,
+                                            'team_type': team_type
+                                        })
+                                        print(f"   🏀 Найдена игра в HTML: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
+                                        print(f"      Период: {period}, Время: {time}, Завершена: {is_finished}")
+            
+            return games
+                
+        except Exception as e:
+            print(f"   ❌ Ошибка извлечения игр из HTML: {e}")
+            return []
+    
     async def scan_scoreboard(self) -> List[Dict]:
         """Сканирует табло и находит игры с нашими командами (включая завершенные)"""
         try:
@@ -306,7 +388,7 @@ class GameResultsMonitorV2:
                         games = []
                         
                         # Извлекаем раздел "ТАБЛО ИГР" и ссылки на игры
-                        scoreboard_text, game_links = self.extract_scoreboard_section(soup)
+                        scoreboard_text, game_links, html_games = self.extract_scoreboard_section(soup)
                         
                         # Также проверяем раздел "ПОСЛЕДНИЕ РЕЗУЛЬТАТЫ"
                         recent_results = self.extract_recent_results(soup)
@@ -371,6 +453,13 @@ class GameResultsMonitorV2:
                                 games.extend(games_found)
                             else:
                                 print(f"   ℹ️ Наших команд не найдено в табло")
+                        
+                        # Добавляем игры из HTML структуры
+                        if html_games:
+                            print(f"   ✅ Найдено {len(html_games)} игр в HTML структуре")
+                            games.extend(html_games)
+                        else:
+                            print(f"   ℹ️ Игр в HTML структуре не найдено")
                         
                         # Проверяем завершенные игры в результатах
                         if recent_results:
@@ -607,6 +696,10 @@ class GameResultsMonitorV2:
                     if existing_status == 'completed':
                         print(f"   📋 Уведомление уже было отправлено ранее, пропускаем")
                         continue
+                    else:
+                        print(f"   📋 Найдена запись в истории со статусом: {existing_status}")
+                else:
+                    print(f"   📋 Записи в истории нет, отправляем уведомление")
                 
                 print(f"   📤 Отправляем уведомление...")
                 

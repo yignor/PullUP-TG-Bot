@@ -108,11 +108,12 @@ class GameResultsMonitorV2:
             'Pull Up-Фарм',  # Сначала ищем более специфичные варианты
             'Pull Up Фарм',  # Без дефиса
             'Pull Up',       # Обычный Pull Up
-            'PullUP'         # Без пробела
+            'PullUP',        # Без пробела
+            'PULL UP ФАРМ'   # Верхний регистр
         ]
         
         for team in search_teams:
-            if team in text:
+            if team.upper() in text.upper():
                 found_teams.append(team)
                 print(f"   ✅ Найдена команда: {team}")
         
@@ -144,8 +145,8 @@ class GameResultsMonitorV2:
                             all_teams = []
                             
                             # Ищем команды по названиям (без учета счета)
-                            for team in ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP']:
-                                if team in scoreboard_text:
+                            for team in ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP', 'PULL UP ФАРМ']:
+                                if team.upper() in scoreboard_text.upper():
                                     all_teams.append(team)
                                     print(f"   🎯 Найдена команда в табло: {team}")
                             
@@ -153,32 +154,75 @@ class GameResultsMonitorV2:
                                 print(f"   ✅ Найдено {len(all_teams)} наших команд в табло")
                                 
                                 # Теперь ищем игры с этими командами
-                                # Паттерн для результатов игр: дата- команда1 - команда2 счет1:счет2
-                                game_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*([^-]+)\s+(\d+):(\d+)'
-                                matches = re.findall(game_pattern, scoreboard_text)
+                                games_found = []
                                 
-                                for match in matches:
+                                # Паттерн 1: Результаты игр (ПОСЛЕДНИЕ РЕЗУЛЬТАТЫ)
+                                # Ищем игры с нашими командами по отдельности
+                                results_matches = []
+                                
+                                # Ищем игры с Pull Up-Фарм
+                                farm_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*Pull Up-Фарм\s+(\d+):(\d+)'
+                                farm_matches = re.findall(farm_pattern, scoreboard_text)
+                                for match in farm_matches:
+                                    date, team1, score1, score2 = match
+                                    results_matches.append((date, team1, 'Pull Up-Фарм', score1, score2))
+                                
+                                # Ищем игры с Pull Up
+                                pullup_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*Pull Up\s+(\d+):(\d+)'
+                                pullup_matches = re.findall(pullup_pattern, scoreboard_text)
+                                for match in pullup_matches:
+                                    date, team1, score1, score2 = match
+                                    results_matches.append((date, team1, 'Pull Up', score1, score2))
+                                
+                                for match in results_matches:
                                     date, team1, team2, score1, score2 = match
                                     game_text = f"{team1.strip()} {team2.strip()}"
                                     
                                     # Проверяем, есть ли наши команды в этой игре
                                     if self.find_target_teams_in_text(game_text):
-                                        # Для результатов игр считаем, что игра завершена (есть счет)
-                                        is_finished = True
-                                        
-                                        games.append({
+                                        games_found.append({
                                             'team1': team1.strip(),
                                             'team2': team2.strip(),
                                             'score1': score1,
                                             'score2': score2,
                                             'period': '4',  # Результат означает завершенную игру
                                             'time': '0:00',  # Результат означает завершенную игру
-                                            'is_finished': is_finished,
+                                            'is_finished': True,
                                             'date': date,
                                             'current_time': get_moscow_time().strftime('%H:%M')
                                         })
-                                        print(f"   🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
-                                        print(f"      Дата: {date}, Завершена: {is_finished}")
+                                        print(f"   🏀 Найдена завершенная игра (результаты): {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
+                                        print(f"      Дата: {date}, Завершена: True")
+                                
+                                # Паттерн 2: Текущие игры (ТАБЛО ИГР)
+                                # Формат: Команда1 Счет1 Счет2 Команда2 Период Время
+                                live_pattern = r'(.+?)\s+(\d+)\s+(\d+)\s+(.+?)\s+(\d+)\s+(\d+:\d+)'
+                                live_matches = re.findall(live_pattern, scoreboard_text)
+                                
+                                for match in live_matches:
+                                    team1, score1, score2, team2, period, time = match
+                                    game_text = f"{team1.strip()} {team2.strip()}"
+                                    
+                                    # Проверяем, есть ли наши команды в этой игре
+                                    if self.find_target_teams_in_text(game_text):
+                                        # Проверяем, завершена ли игра (период 4 и время 0:00)
+                                        is_finished = period == '4' and time == '0:00'
+                                        
+                                        games_found.append({
+                                            'team1': team1.strip(),
+                                            'team2': team2.strip(),
+                                            'score1': score1,
+                                            'score2': score2,
+                                            'period': period,
+                                            'time': time,
+                                            'is_finished': is_finished,
+                                            'date': get_moscow_time().strftime('%d.%m.%Y'),
+                                            'current_time': get_moscow_time().strftime('%H:%M')
+                                        })
+                                        print(f"   🏀 Найдена игра (табло): {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
+                                        print(f"      Период: {period}, Время: {time}, Завершена: {is_finished}")
+                                
+                                games = games_found
                             else:
                                 print(f"   ℹ️ Наших команд не найдено в табло")
                         else:

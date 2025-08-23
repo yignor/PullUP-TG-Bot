@@ -13,6 +13,10 @@ import aiohttp
 from bs4 import BeautifulSoup
 import re
 
+# Загружаем переменные окружения
+from dotenv import load_dotenv
+load_dotenv()
+
 # Импортируем централизованные функции
 from datetime_utils import get_moscow_time, is_today
 
@@ -149,32 +153,32 @@ class GameResultsMonitorV2:
                                 print(f"   ✅ Найдено {len(all_teams)} наших команд в табло")
                                 
                                 # Теперь ищем игры с этими командами
-                                # Паттерн: команда1 - счет1:счет2 - команда2 - период время
-                                game_pattern = r'([^-]+)\s*-\s*(\d+):(\d+)\s*-\s*([^-]+)\s*-\s*(\d+)\s+(\d+:\d+)'
+                                # Паттерн для результатов игр: дата- команда1 - команда2 счет1:счет2
+                                game_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*([^-]+)\s+(\d+):(\d+)'
                                 matches = re.findall(game_pattern, scoreboard_text)
                                 
                                 for match in matches:
-                                    team1, score1, score2, team2, period, time = match
+                                    date, team1, team2, score1, score2 = match
                                     game_text = f"{team1.strip()} {team2.strip()}"
                                     
                                     # Проверяем, есть ли наши команды в этой игре
                                     if self.find_target_teams_in_text(game_text):
-                                        # Проверяем, завершена ли игра (период 4 и время 0:00)
-                                        is_finished = period == '4' and time == '0:00'
+                                        # Для результатов игр считаем, что игра завершена (есть счет)
+                                        is_finished = True
                                         
                                         games.append({
                                             'team1': team1.strip(),
                                             'team2': team2.strip(),
                                             'score1': score1,
                                             'score2': score2,
-                                            'period': period,
-                                            'time': time,
+                                            'period': '4',  # Результат означает завершенную игру
+                                            'time': '0:00',  # Результат означает завершенную игру
                                             'is_finished': is_finished,
-                                            'date': get_moscow_time().strftime('%d.%m.%Y'),
+                                            'date': date,
                                             'current_time': get_moscow_time().strftime('%H:%M')
                                         })
-                                        print(f"   🏀 Найдена игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
-                                        print(f"      Период: {period}, Время: {time}, Завершена: {is_finished}")
+                                        print(f"   🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
+                                        print(f"      Дата: {date}, Завершена: {is_finished}")
                             else:
                                 print(f"   ℹ️ Наших команд не найдено в табло")
                         else:

@@ -149,11 +149,12 @@ class GameResultsMonitorV2:
             print(f"   ⚠️ Ошибка генерации ссылки: {e}")
             return ""
     
-    def extract_scoreboard_section(self, soup) -> str:
-        """Извлекает только раздел 'ТАБЛО ИГР' из HTML"""
+    def extract_scoreboard_section(self, soup) -> tuple:
+        """Извлекает раздел 'ТАБЛО ИГР' и ссылки на игры"""
         try:
             # Ищем раздел "ТАБЛО ИГР"
             scoreboard_text = ""
+            game_links = []
             
             # Ищем по тексту "ТАБЛО ИГР"
             for element in soup.find_all(text=True):
@@ -176,15 +177,46 @@ class GameResultsMonitorV2:
                             # Если "ПОСЛЕДНИЕ РЕЗУЛЬТАТЫ" не найдено, берем до конца
                             scoreboard_text = full_text[start_pos:]
                         
+                        # Извлекаем ссылки "СТРАНИЦА ИГРЫ" из всего HTML (как в Game System Manager)
+                        game_links = self.extract_game_links(soup)
+                        
                         print(f"   📋 Извлечен раздел табло (длина: {len(scoreboard_text)} символов)")
-                        return scoreboard_text
+                        print(f"   🔗 Найдено ссылок на игры: {len(game_links)}")
+                        return scoreboard_text, game_links
             
             print(f"   ❌ Раздел 'ТАБЛО ИГР' не найден")
-            return ""
+            return "", []
                 
         except Exception as e:
             print(f"   ❌ Ошибка извлечения табло: {e}")
-            return ""
+            return "", []
+    
+    def extract_game_links(self, soup) -> list:
+        """Извлекает ссылки 'СТРАНИЦА ИГРЫ' из раздела табло (адаптировано из Game System Manager)"""
+        try:
+            game_links = []
+            
+            # Ищем все ссылки с текстом "СТРАНИЦА ИГРЫ" (как в Game System Manager)
+            for link in soup.find_all('a', href=True):
+                if "СТРАНИЦА ИГРЫ" in link.get_text():
+                    href = link.get('href')
+                    if href:
+                        # Формируем полную ссылку
+                        if href.startswith('game.html'):
+                            full_link = f"http://letobasket.ru/{href}"
+                        elif href.startswith('/'):
+                            full_link = f"http://letobasket.ru{href}"
+                        else:
+                            full_link = href
+                        game_links.append(full_link)
+                        print(f"   🔗 Найдена ссылка 'СТРАНИЦА ИГРЫ': {full_link}")
+            
+            print(f"   📊 Всего найдено ссылок 'СТРАНИЦА ИГРЫ': {len(game_links)}")
+            return game_links
+                
+        except Exception as e:
+            print(f"   ❌ Ошибка извлечения ссылок: {e}")
+            return []
     
     async def scan_scoreboard(self) -> List[Dict]:
         """Сканирует табло и находит игры с нашими командами"""
@@ -202,8 +234,8 @@ class GameResultsMonitorV2:
                         # Ищем табло игр
                         games = []
                         
-                        # Извлекаем только раздел "ТАБЛО ИГР"
-                        scoreboard_text = self.extract_scoreboard_section(soup)
+                        # Извлекаем раздел "ТАБЛО ИГР" и ссылки на игры
+                        scoreboard_text, game_links = self.extract_scoreboard_section(soup)
                         
                         if scoreboard_text:
                             print("   ✅ Найдено табло игр")
@@ -228,7 +260,7 @@ class GameResultsMonitorV2:
                                 live_pattern = r'(.+?)\s+(\d+)\s+(\d+)\s+(.+?)\s+(\d+)\s+(\d+:\d+)'
                                 live_matches = re.findall(live_pattern, scoreboard_text)
                                 
-                                for match in live_matches:
+                                for i, match in enumerate(live_matches):
                                     team1, score1, score2, team2, period, time = match
                                     game_text = f"{team1.strip()} {team2.strip()}"
                                     
@@ -237,8 +269,13 @@ class GameResultsMonitorV2:
                                         # Проверяем, завершена ли игра (период 4 и время 0:00)
                                         is_finished = period == '4' and time == '0:00'
                                         
-                                        # Генерируем ссылку на игру
-                                        game_link = self.generate_game_link(team1.strip(), team2.strip())
+                                        # Получаем ссылку на игру по порядковому номеру
+                                        game_link = ""
+                                        if i < len(game_links):
+                                            game_link = game_links[i]
+                                            print(f"   🔗 Используем ссылку #{i+1}: {game_link}")
+                                        else:
+                                            print(f"   ⚠️ Ссылка для игры #{i+1} не найдена")
                                         
                                         games_found.append({
                                             'team1': team1.strip(),

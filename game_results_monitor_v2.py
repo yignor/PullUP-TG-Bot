@@ -273,28 +273,40 @@ class GameResultsMonitorV2:
                             else:
                                 team_type = 'первого состава'
                             
-                            games.append({
-                                'team1': team1.strip(),
-                                'team2': team2.strip(),
-                                'score1': score1,
-                                'score2': score2,
-                                'period': '4',  # Завершенные игры
-                                'time': '0:00',  # Завершенные игры
-                                'is_finished': True,
-                                'date': date,
-                                'current_time': get_moscow_time().strftime('%H:%M'),
-                                'game_link': '',  # Для завершенных игр ссылка не нужна
-                                'our_team': our_team,
-                                'team_type': team_type
-                            })
-                            print(f"   🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
-                            print(f"      Дата: {date}, Тип команды: {team_type}")
+                                    # Проверяем, что игра сегодняшняя
+                                    if self.is_game_today({'date': date}):
+                                        games.append({
+                                            'team1': team1.strip(),
+                                            'team2': team2.strip(),
+                                            'score1': score1,
+                                            'score2': score2,
+                                            'period': '4',  # Завершенные игры
+                                            'time': '0:00',  # Завершенные игры
+                                            'is_finished': True,
+                                            'date': date,
+                                            'current_time': get_moscow_time().strftime('%H:%M'),
+                                            'game_link': '',  # Для завершенных игр ссылка не нужна
+                                            'our_team': our_team,
+                                            'team_type': team_type
+                                        })
+                                        print(f"   🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
+                                        print(f"      Дата: {date}, Тип команды: {team_type}")
+                                    else:
+                                        print(f"   ⏭️ Игра {team1.strip()} vs {team2.strip()} не сегодняшняя ({date}), пропускаем")
             
             return games
                 
         except Exception as e:
             print(f"   ❌ Ошибка извлечения результатов: {e}")
             return []
+    
+    def is_game_today(self, game_info: Dict) -> bool:
+        """Проверяет, происходит ли игра сегодня"""
+        try:
+            return is_today(game_info['date'])
+        except Exception as e:
+            print(f"❌ Ошибка проверки даты игры: {e}")
+            return False
     
     def extract_games_from_html(self, soup) -> List[Dict]:
         """Извлекает игры из HTML структуры табло"""

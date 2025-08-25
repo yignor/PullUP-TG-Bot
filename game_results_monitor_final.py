@@ -66,12 +66,37 @@ class GameResultsMonitorFinal:
         return result_key in self.results_history
     
     def should_check_results(self) -> bool:
-        """Проверяет, нужно ли проверять результаты (ежедневно в 23:00 MSK)"""
+        """Проверяет, нужно ли проверять результаты по новому расписанию"""
         now = get_moscow_time()
-        # Проверяем каждый день в 23:00 MSK (20:00 UTC)
-        if now.hour == 20:  # UTC время
-            return True
-        return False
+        current_hour = now.hour
+        current_minute = now.minute
+        weekday = now.weekday()  # 0=Понедельник, 6=Воскресенье
+        
+        # Проверяем, что минуты кратны 15 (0, 15, 30, 45)
+        if current_minute % 15 != 0:
+            return False
+        
+        # Будни (Понедельник-Пятница, 0-4)
+        if weekday <= 4:  # Понедельник-Пятница
+            # Проверяем время с 19:30 до 00:30 (следующий день)
+            if current_hour == 19 and current_minute >= 30:  # 19:30-19:59
+                return True
+            elif current_hour == 0 and current_minute <= 30:  # 00:00-00:30
+                return True
+            elif current_hour >= 20:  # 20:00-23:59
+                return True
+            return False
+        
+        # Выходные (Суббота-Воскресенье, 5-6)
+        else:  # Суббота-Воскресенье
+            # Проверяем время с 11:30 до 00:30 (следующий день)
+            if current_hour == 11 and current_minute >= 30:  # 11:30-11:59
+                return True
+            elif current_hour == 0 and current_minute <= 30:  # 00:00-00:30
+                return True
+            elif current_hour >= 12:  # 12:00-23:59
+                return True
+            return False
     
     async def fetch_game_results(self) -> List[Dict]:
         """Получает результаты игр с сайта letobasket.ru"""

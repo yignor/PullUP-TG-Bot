@@ -302,16 +302,6 @@ class GameSystemManager:
             print(f"⏭️ Опрос для игры {game_key} уже создан")
             return False
         
-        # Специальная проверка для уже созданных опросов (временное решение)
-        game_text = f"{game_info.get('team1', '')} vs {game_info.get('team2', '')}"
-        if any(existing_game in game_text for existing_game in [
-            "Кирпичный Завод vs Pull Up",
-            "Lion vs Pull Up", 
-            "Quasar vs Pull Up"
-        ]):
-            print(f"⏭️ Опрос для игры {game_text} уже создан ранее (пропускаем)")
-            return False
-        
         # Проверяем, есть ли наши команды в игре
         game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
         target_teams = self.find_target_teams_in_text(game_text)
@@ -319,6 +309,17 @@ class GameSystemManager:
         if not target_teams:
             print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
             return False
+        
+        # Проверяем, что игра в будущем (не создаем опросы для прошедших игр)
+        try:
+            game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
+            today = get_moscow_time().date()
+            
+            if game_date < today:
+                print(f"📅 Игра {game_info['date']} уже прошла, пропускаем")
+                return False
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки даты игры: {e}")
         
         print(f"✅ Игра {game_info['date']} подходит для создания опроса")
         return True
@@ -440,16 +441,38 @@ class GameSystemManager:
                 "👨‍🏫 Тренер"
             ]
             
-            # Отправляем опрос в топик для игр (1282)
-            message_thread_id = int(GAMES_TOPIC_ID) if GAMES_TOPIC_ID else None
-            poll_message = await self.bot.send_poll(
-                chat_id=int(CHAT_ID),
-                question=question,
-                options=options,
-                is_anonymous=False,
-                allows_multiple_answers=False,
-                message_thread_id=message_thread_id
-            )
+            # Отправляем опрос (с проверкой топика)
+            try:
+                if GAMES_TOPIC_ID:
+                    message_thread_id = int(GAMES_TOPIC_ID)
+                    poll_message = await self.bot.send_poll(
+                        chat_id=int(CHAT_ID),
+                        question=question,
+                        options=options,
+                        is_anonymous=False,
+                        allows_multiple_answers=False,
+                        message_thread_id=message_thread_id
+                    )
+                else:
+                    poll_message = await self.bot.send_poll(
+                        chat_id=int(CHAT_ID),
+                        question=question,
+                        options=options,
+                        is_anonymous=False,
+                        allows_multiple_answers=False
+                    )
+            except Exception as e:
+                if "Message thread not found" in str(e):
+                    print(f"⚠️ Топик {GAMES_TOPIC_ID} не найден, отправляем в основной чат")
+                    poll_message = await self.bot.send_poll(
+                        chat_id=int(CHAT_ID),
+                        question=question,
+                        options=options,
+                        is_anonymous=False,
+                        allows_multiple_answers=False
+                    )
+                else:
+                    raise e
             
             # Сохраняем информацию об опросе
             poll_info = {

@@ -93,9 +93,26 @@ def get_day_of_week(date_str: str) -> str:
 def get_team_category(team_name: str) -> str:
     """Определяет категорию команды с правильным склонением"""
     if "Фарм" in team_name or "PULL UP-ФАРМ" in team_name.upper() or "PULL UP ФАРМ" in team_name.upper():
-        return "состав развития"
+        return "Состав Развития"
     else:
-        return "первый состав"
+        return "Первый состав"
+
+def determine_form_color(team1: str, team2: str) -> str:
+    """Определяет цвет формы (светлая или темная)"""
+    # Если Pull Up первая команда - светлая форма, если вторая - темная
+    if "pull up" in team1.lower():
+        return "светлая"
+    else:
+        return "темная"
+
+def format_date_without_year(date_str: str) -> str:
+    """Форматирует дату без года (например, 27.08)"""
+    try:
+        from datetime import datetime
+        date_obj = datetime.strptime(date_str, '%d.%m.%Y')
+        return date_obj.strftime('%d.%m')
+    except:
+        return date_str
 
 class GameSystemManager:
     """Единый класс для управления всей системой игр"""
@@ -371,14 +388,20 @@ class GameSystemManager:
             team_category = get_team_category(our_team)
             day_of_week = get_day_of_week(game_info['date'])
             
-            # Формируем вопрос в правильном формате
-            question = f"Летняя лига, {team_category}, {opponent}: {day_of_week} ({game_info['date']}) {game_info['time']}, {game_info['venue']}"
+            # Определяем цвет формы
+            form_color = determine_form_color(game_info['team1'], game_info['team2'])
             
-            # Правильные варианты ответов
+            # Форматируем дату без года
+            date_short = format_date_without_year(game_info['date'])
+            
+            # Формируем вопрос в новом формате
+            question = f"Летняя лига, {team_category}, {day_of_week}, {date_short}, {game_info['time']}, {form_color} форма, {game_info['venue']}"
+            
+            # Упрощенные варианты ответов
             options = [
-                "✅ Готов",
-                "❌ Нет", 
-                "👨‍🏫 Тренер"
+                "Готов",
+                "Нет", 
+                "Тренер"
             ]
             
             # Отправляем опрос в топик для игр (1282)

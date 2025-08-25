@@ -321,6 +321,30 @@ class GameSystemManager:
         except Exception as e:
             print(f"⚠️ Ошибка проверки даты игры: {e}")
         
+        # Дополнительная проверка: не создаем опросы для игр, которые уже прошли по времени
+        try:
+            game_time = datetime.datetime.strptime(game_info['time'], '%H:%M').time()
+            now = get_moscow_time().time()
+            
+            # Если игра сегодня и время уже прошло, не создаем опрос
+            if game_date == today and game_time < now:
+                print(f"⏰ Игра {game_info['date']} {game_info['time']} уже началась, пропускаем")
+                return False
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки времени игры: {e}")
+        
+        # Дополнительная проверка: не создаем опросы для игр, которые уже прошли
+        try:
+            game_datetime = datetime.datetime.strptime(f"{game_info['date']} {game_info['time']}", '%d.%m.%Y %H:%M')
+            now = get_moscow_time()
+            
+            # Если игра уже прошла (более чем на 2 часа назад), не создаем опрос
+            if game_datetime < now - datetime.timedelta(hours=2):
+                print(f"⏰ Игра {game_info['date']} {game_info['time']} уже прошла, пропускаем")
+                return False
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки времени игры: {e}")
+        
         print(f"✅ Игра {game_info['date']} подходит для создания опроса")
         return True
     

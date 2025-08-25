@@ -155,6 +155,8 @@ class GameSystemManager:
         search_teams = [
             'Pull Up-Фарм',  # Сначала ищем более специфичные варианты
             'Pull Up Фарм',  # Без дефиса
+            'PullUP-Фарм',   # Без пробела с дефисом
+            'PullUP Фарм',   # Без пробела без дефиса
             'Pull Up',       # Обычный Pull Up
             'PullUP'         # Без пробела
         ]

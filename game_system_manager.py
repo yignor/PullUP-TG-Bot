@@ -11,7 +11,7 @@ import json
 import re
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from datetime_utils import get_moscow_time, get_moscow_date, is_today, log_current_time
+from datetime_utils import get_moscow_time, is_today, log_current_time
 
 load_dotenv()
 
@@ -142,7 +142,8 @@ class GameSystemManager:
     """Единый класс для управления всей системой игр"""
     
     def __init__(self):
-        self.bot = None
+        # Type annotation for bot to help linter understand it's a Telegram Bot
+        self.bot: Optional['Bot'] = None
         self.polls_history = load_polls_history()
         self.announcements_history = load_announcements_history()
         
@@ -311,6 +312,8 @@ class GameSystemManager:
             return False
         
         # Проверяем, что игра в будущем (не создаем опросы для прошедших игр)
+        game_date = None
+        today = None
         try:
             game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
             today = get_moscow_time().date()
@@ -320,6 +323,7 @@ class GameSystemManager:
                 return False
         except Exception as e:
             print(f"⚠️ Ошибка проверки даты игры: {e}")
+            return False  # Если не можем определить дату, не создаем опрос
         
         # Дополнительная проверка: не создаем опросы для игр, которые уже прошли по времени
         try:
@@ -327,7 +331,7 @@ class GameSystemManager:
             now = get_moscow_time().time()
             
             # Если игра сегодня и время уже прошло, не создаем опрос
-            if game_date == today and game_time < now:
+            if game_date and today and game_date == today and game_time < now:
                 print(f"⏰ Игра {game_info['date']} {game_info['time']} уже началась, пропускаем")
                 return False
         except Exception as e:
@@ -410,24 +414,24 @@ class GameSystemManager:
         """Проверяет, подходящее ли время для создания опросов"""
         now = get_moscow_time()
         
-        # Создаем опросы в 10:00-18:00 МСК (расширенное окно)
-        if 10 <= now.hour <= 18:
+        # Создаем опросы в 10:00-11:00 МСК
+        if 10 <= now.hour <= 11:
             print(f"🕐 Время подходящее для создания опросов: {now.strftime('%H:%M')}")
             return True
         
-        print(f"⏰ Не время для создания опросов: {now.strftime('%H:%M')} (нужно 10:00-18:00)")
+        print(f"⏰ Не время для создания опросов: {now.strftime('%H:%M')} (нужно 10:00-11:00)")
         return False
     
     def _is_correct_time_for_announcements(self) -> bool:
         """Проверяет, подходящее ли время для отправки анонсов"""
         now = get_moscow_time()
         
-        # Отправляем анонсы в 10:00-18:00 МСК (расширенное окно для надежности)
-        if 10 <= now.hour <= 18:
+        # Отправляем анонсы в 10:00-11:00 МСК
+        if 10 <= now.hour <= 11:
             print(f"🕐 Время подходящее для отправки анонсов: {now.strftime('%H:%M')}")
             return True
         
-        print(f"⏰ Не время для отправки анонсов: {now.strftime('%H:%M')} (нужно 10:00-18:00)")
+        print(f"⏰ Не время для отправки анонсов: {now.strftime('%H:%M')} (нужно 10:00-11:00)")
         return False
     
 

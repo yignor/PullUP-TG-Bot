@@ -90,12 +90,21 @@ def get_day_of_week(date_str: str) -> str:
     except:
         return ""
 
-def get_team_category(team_name: str) -> str:
+def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -> str:
     """Определяет категорию команды с правильным склонением"""
+    # Если в названии команды есть "Фарм" - это состав развития
     if "Фарм" in team_name or "PULL UP-ФАРМ" in team_name.upper() or "PULL UP ФАРМ" in team_name.upper():
         return "Состав Развития"
-    else:
-        return "Первый состав"
+    
+    # Дополнительная логика определения состава по сопернику
+    if opponent:
+        # Список соперников, против которых играет состав развития
+        development_opponents = ['Кудрово', 'Тосно', 'QUASAR', 'TAURUS']
+        if opponent in development_opponents:
+            return "Состав Развития"
+    
+    # По умолчанию - первый состав
+    return "Первый состав"
 
 def determine_form_color(team1: str, team2: str) -> str:
     """Определяет цвет формы (светлая или темная)"""
@@ -385,7 +394,7 @@ class GameSystemManager:
                 return False
             
             # Определяем категорию команды
-            team_category = get_team_category(our_team)
+            team_category = get_team_category(our_team, opponent or "")
             day_of_week = get_day_of_week(game_info['date'])
             
             # Определяем цвет формы

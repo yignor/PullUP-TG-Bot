@@ -107,9 +107,15 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
         "PULLUP ФАРМ"
     ]
     
-    # Проверяем, является ли команда составом развития
+    # Проверяем, является ли команда составом развития по названию
     for variant in development_variants:
         if variant in team_upper:
+            return "Состав Развития"
+    
+    # Дополнительная логика: если команда называется "Pull Up", но соперник из списка развития
+    if "PULLUP" in team_upper and opponent:
+        development_opponents = ['Кудрово', 'Тосно', 'QUASAR', 'TAURUS']
+        if opponent in development_opponents:
             return "Состав Развития"
     
     # Если не найден ни один вариант состава развития, то это первый состав
@@ -386,16 +392,26 @@ class GameSystemManager:
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
             
-            # Находим нашу команду
+            # Находим нашу команду (используем расширенный поиск)
             our_team = None
             opponent = None
             
-            for team in TARGET_TEAMS:
-                if team.strip() in team1:
+            # Список всех возможных названий наших команд
+            our_team_variants = [
+                'Pull Up-Фарм',
+                'Pull Up Фарм', 
+                'PullUP-Фарм',
+                'PullUP Фарм',
+                'Pull Up',
+                'PullUP'
+            ]
+            
+            for variant in our_team_variants:
+                if variant in team1:
                     our_team = team1
                     opponent = team2
                     break
-                elif team.strip() in team2:
+                elif variant in team2:
                     our_team = team2
                     opponent = team1
                     break

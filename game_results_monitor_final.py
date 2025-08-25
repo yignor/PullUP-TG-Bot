@@ -263,14 +263,18 @@ class GameResultsMonitorFinal:
             try:
                 if ANNOUNCEMENTS_TOPIC_ID:
                     message_thread_id = int(ANNOUNCEMENTS_TOPIC_ID)
-                    await self.bot.send_message(
+                    # Используем более явный вызов метода
+                    bot_instance = self.bot
+                    sent_message = await bot_instance.send_message(
                         chat_id=int(CHAT_ID),
                         text=message,
                         parse_mode='HTML',
                         message_thread_id=message_thread_id
                     )
                 else:
-                    await self.bot.send_message(
+                    # Используем более явный вызов метода
+                    bot_instance = self.bot
+                    sent_message = await bot_instance.send_message(
                         chat_id=int(CHAT_ID),
                         text=message,
                         parse_mode='HTML'
@@ -278,7 +282,8 @@ class GameResultsMonitorFinal:
             except Exception as topic_error:
                 print(f"⚠️ Ошибка с topic ID: {topic_error}")
                 # Пробуем без topic ID
-                await self.bot.send_message(
+                bot_instance = self.bot
+                sent_message = await bot_instance.send_message(
                     chat_id=int(CHAT_ID),
                     text=message,
                     parse_mode='HTML'

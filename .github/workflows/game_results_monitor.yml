@@ -31,16 +31,56 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-github.txt
         
+    - name: Check secrets availability
+      run: |
+        echo "Checking secrets availability..."
+        echo "✅ BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' && 'available' || 'not available' }}"
+        echo "✅ CHAT_ID: ${{ secrets.CHAT_ID != '' && 'available' || 'not available' }}"
+        
     - name: Run game results monitor
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
       run: |
+        # Проверяем наличие обязательных переменных
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "❌ ОШИБКА: BOT_TOKEN не установлен в GitHub Secrets"
+          echo "Добавьте BOT_TOKEN в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -z "$CHAT_ID" ]; then
+          echo "❌ ОШИБКА: CHAT_ID не установлен в GitHub Secrets"
+          echo "Добавьте CHAT_ID в Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
         echo "🏀 Запуск мониторинга результатов игр (версия 2)..."
         echo "=================================================="
         python run_game_results_monitor_v2.py
         echo "=================================================="
         echo "Завершение мониторинга"
+        
+    - name: Handle errors
+      if: failure()
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        echo "❌ GitHub Actions завершился с ошибкой"
+        echo "Проверка доступности переменных для отправки уведомления об ошибке..."
+        
+        if [ -z "$BOT_TOKEN" ]; then
+          echo "⚠️ BOT_TOKEN недоступен для отправки уведомления об ошибке"
+          echo "Добавьте BOT_TOKEN в GitHub Secrets для получения уведомлений об ошибках"
+        fi
+        
+        if [ -z "$CHAT_ID" ]; then
+          echo "⚠️ CHAT_ID недоступен для отправки уведомления об ошибке"
+          echo "Добавьте CHAT_ID в GitHub Secrets для получения уведомлений об ошибках"
+        fi
+        
+        echo "Ошибки будут отправлены в основной чат через скрипт"
         
     - name: Upload logs
       uses: actions/upload-artifact@v4
@@ -49,4 +89,5 @@ jobs:
         name: game-results-monitor-logs
         path: |
           game_monitor_history.json
+          daily_games_check.json
           *.log

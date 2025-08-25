@@ -395,13 +395,13 @@ class GameSystemManager:
             date_short = format_date_without_year(game_info['date'])
             
             # Формируем вопрос в новом формате
-            question = f"Летняя лига, {team_category}, {day_of_week}, против {opponent} 🏀, {date_short}, {game_info['time']}, {form_color} форма, {game_info['venue']}"
+            question = f"Летняя лига, {team_category}, {day_of_week}, против {opponent}, {date_short}, {game_info['time']}, {form_color} форма, {game_info['venue']}"
             
-            # Упрощенные варианты ответов
+            # Варианты ответов с эмодзи
             options = [
-                "Готов",
-                "Нет", 
-                "Тренер"
+                "✅ Готов",
+                "❌ Нет", 
+                "👨‍🏫 Тренер"
             ]
             
             # Отправляем опрос в топик для игр (1282)

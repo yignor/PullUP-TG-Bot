@@ -177,9 +177,9 @@ class GameResultsMonitorFinal:
                                     if our_team:
                                         # Определяем тип команды
                                         if 'фарм' in our_team.lower():
-                                            team_type = 'состава развития'
+                                            team_type = 'состав развития'
                                         else:
-                                            team_type = 'первого состава'
+                                            team_type = 'первый состав'
                                         
                                         # Определяем результат
                                         our_score = int(score1) if our_team == team1.strip() else int(score2)

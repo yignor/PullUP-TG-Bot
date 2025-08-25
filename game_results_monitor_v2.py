@@ -8,7 +8,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 import aiohttp
 from bs4 import BeautifulSoup
 import re
@@ -19,6 +19,13 @@ load_dotenv()
 
 # Импортируем централизованные функции
 from datetime_utils import get_moscow_time, is_today
+
+# Импортируем telegram bot
+try:
+    from telegram import Bot
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    TELEGRAM_AVAILABLE = False
 
 # Константы
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -70,13 +77,19 @@ class GameResultsMonitorV2:
     """Класс для мониторинга результатов игр (версия 2)"""
     
     def __init__(self):
-        self.bot = None
+        self.bot: Optional[Bot] = None
         self.monitor_history = load_game_monitor_history()
         self.daily_check = load_daily_check()
         
-        if BOT_TOKEN:
-            from telegram import Bot
-            self.bot = Bot(token=BOT_TOKEN)
+        if BOT_TOKEN and TELEGRAM_AVAILABLE:
+            try:
+                self.bot = Bot(token=BOT_TOKEN)
+                print("✅ Бот инициализирован успешно")
+            except Exception as e:
+                print(f"⚠️ Ошибка инициализации бота: {e}")
+                self.bot = None
+        else:
+            print("⚠️ BOT_TOKEN или TELEGRAM_AVAILABLE недоступны")
     
     def should_continue_today(self) -> bool:
         """Проверяет, нужно ли продолжать проверки сегодня"""
@@ -273,26 +286,26 @@ class GameResultsMonitorV2:
                             else:
                                 team_type = 'первого состава'
                             
-                                    # Проверяем, что игра сегодняшняя
-                                    if self.is_game_today({'date': date}):
-                                        games.append({
-                                            'team1': team1.strip(),
-                                            'team2': team2.strip(),
-                                            'score1': score1,
-                                            'score2': score2,
-                                            'period': '4',  # Завершенные игры
-                                            'time': '0:00',  # Завершенные игры
-                                            'is_finished': True,
-                                            'date': date,
-                                            'current_time': get_moscow_time().strftime('%H:%M'),
-                                            'game_link': '',  # Для завершенных игр ссылка не нужна
-                                            'our_team': our_team,
-                                            'team_type': team_type
-                                        })
-                                        print(f"   🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
-                                        print(f"      Дата: {date}, Тип команды: {team_type}")
-                                    else:
-                                        print(f"   ⏭️ Игра {team1.strip()} vs {team2.strip()} не сегодняшняя ({date}), пропускаем")
+                            # Проверяем, что игра сегодняшняя
+                            if self.is_game_today({'date': date}):
+                                games.append({
+                                    'team1': team1.strip(),
+                                    'team2': team2.strip(),
+                                    'score1': score1,
+                                    'score2': score2,
+                                    'period': '4',  # Завершенные игры
+                                    'time': '0:00',  # Завершенные игры
+                                    'is_finished': True,
+                                    'date': date,
+                                    'current_time': get_moscow_time().strftime('%H:%M'),
+                                    'game_link': '',  # Для завершенных игр ссылка не нужна
+                                    'our_team': our_team,
+                                    'team_type': team_type
+                                })
+                                print(f"   🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
+                                print(f"      Дата: {date}, Тип команды: {team_type}")
+                            else:
+                                print(f"   ⏭️ Игра {team1.strip()} vs {team2.strip()} не сегодняшняя ({date}), пропускаем")
             
             return games
                 
@@ -512,19 +525,25 @@ class GameResultsMonitorV2:
                         soup = BeautifulSoup(content, 'html.parser')
                         
                         # Ищем iframe с игрой
-                        iframe = soup.find('iframe', src=True)
+                        iframes = soup.find_all('iframe')
+                        iframe = None
+                        for iframe_elem in iframes:
+                            if hasattr(iframe_elem, 'get') and iframe_elem.get('src'):
+                                iframe = iframe_elem
+                                break
+                        
                         if not iframe:
-                            print("   ❌ iframe не найден")
+                            print("   ❌ iframe с src атрибутом не найден")
                             return None
                         
                         # Получаем содержимое iframe
-                        iframe_src = iframe['src']
+                        iframe_src = iframe.get('src', '')
                         if not iframe_src.startswith('http'):
                             iframe_src = f"http://ig.russiabasket.ru{iframe_src}"
                         
                         print(f"   🔗 iframe URL: {iframe_src}")
                         
-                        async with session.get(iframe_src) as iframe_response:
+                        async with session.get(str(iframe_src)) as iframe_response:
                             if iframe_response.status == 200:
                                 iframe_content = await iframe_response.text()
                                 
@@ -610,7 +629,7 @@ class GameResultsMonitorV2:
     
     async def send_game_result_notification(self, game_info: Dict, scoreboard_info: Dict, game_link: str):
         """Отправляет уведомление о результате игры"""
-        if not self.bot or not CHAT_ID:
+        if self.bot is None or not CHAT_ID:
             print("❌ Бот или CHAT_ID не настроены")
             return False
         
@@ -652,12 +671,20 @@ class GameResultsMonitorV2:
             message += f"📊 Ссылка на протокол: <a href=\"{full_url}\">тут</a>"
             
             # Отправляем сообщение
-            await self.bot.send_message(
-                chat_id=int(CHAT_ID),
-                text=message,
-                parse_mode='HTML'
-            )
-            
+            try:
+                # At this point, self.bot is guaranteed to be not None due to the check above
+                bot_instance = self.bot
+                if bot_instance is None:
+                    print("❌ Бот не инициализирован")
+                    return False
+                await bot_instance.send_message(
+                    chat_id=int(CHAT_ID),
+                    text=message,
+                    parse_mode='HTML'
+                )
+            except Exception as bot_error:
+                print(f"❌ Ошибка отправки через бота: {bot_error}")
+                return False
             print(f"✅ Уведомление о результате отправлено")
             return True
             

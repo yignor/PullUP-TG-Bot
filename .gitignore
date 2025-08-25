@@ -134,7 +134,6 @@ test_scheduled_collection.py
 
 # Data files (keep locally)
 *.json
-!game_polls_history.json
 !game_announcements.json
 !game_monitor_history.json
 *.log

@@ -282,9 +282,9 @@ class GameResultsMonitorV2:
                         if our_team:
                             # Определяем тип команды
                             if 'фарм' in our_team.lower():
-                                team_type = 'состава развития'
+                                team_type = 'состав развития'
                             else:
-                                team_type = 'первого состава'
+                                team_type = 'первый состав'
                             
                             # Проверяем, что игра сегодняшняя
                             if self.is_game_today({'date': date}):
@@ -369,9 +369,9 @@ class GameResultsMonitorV2:
                                     if our_team:
                                         # Определяем тип команды
                                         if 'фарм' in our_team.lower():
-                                            team_type = 'состава развития'
+                                            team_type = 'состав развития'
                                         else:
-                                            team_type = 'первого состава'
+                                            team_type = 'первый состав'
                                         
                                         games.append({
                                             'team1': team1.strip(),
@@ -640,7 +640,7 @@ class GameResultsMonitorV2:
             
             # Находим нашу команду и соперника
             opponent = None
-            team_type = "первого состава"  # По умолчанию
+            team_type = "первый состав"  # По умолчанию
             
             # Используем те же варианты команд, что и в find_target_teams_in_text
             target_teams = ['Pull Up-Фарм', 'Pull Up Фарм', 'Pull Up', 'PullUP']
@@ -649,12 +649,12 @@ class GameResultsMonitorV2:
                 opponent = team2
                 # Определяем тип команды
                 if any(farm_team in team1 for farm_team in ['Pull Up-Фарм', 'Pull Up Фарм']):
-                    team_type = "состава развития"
+                    team_type = "состав развития"
             elif any(target_team in team2 for target_team in target_teams):
                 opponent = team1
                 # Определяем тип команды
                 if any(farm_team in team2 for farm_team in ['Pull Up-Фарм', 'Pull Up Фарм']):
-                    team_type = "состава развития"
+                    team_type = "состав развития"
             
             if not opponent:
                 opponent = "соперник"

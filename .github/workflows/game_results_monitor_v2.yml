@@ -113,6 +113,43 @@ jobs:
         fi
         
         echo "✅ Все переменные окружения настроены"
+        
+        # Проверяем наличие файлов
+        echo "🔍 ПРОВЕРКА ФАЙЛОВ:"
+        echo "=================================================="
+        echo "📋 Текущая директория: $(pwd)"
+        echo "📋 Содержимое директории:"
+        ls -la
+        
+        echo ""
+        echo "📋 Проверяем наличие Python файлов:"
+        if [ -f "run_game_results_monitor_final.py" ]; then
+          echo "✅ run_game_results_monitor_final.py найден"
+          echo "📄 Содержимое файла:"
+          head -10 run_game_results_monitor_final.py
+        else
+          echo "❌ run_game_results_monitor_final.py НЕ найден"
+        fi
+        
+        if [ -f "game_results_monitor_final.py" ]; then
+          echo "✅ game_results_monitor_final.py найден"
+        else
+          echo "❌ game_results_monitor_final.py НЕ найден"
+        fi
+        
+        if [ -f "game_system_manager.py" ]; then
+          echo "✅ game_system_manager.py найден"
+        else
+          echo "❌ game_system_manager.py НЕ найден"
+        fi
+        
+        if [ -f "datetime_utils.py" ]; then
+          echo "✅ datetime_utils.py найден"
+        else
+          echo "❌ datetime_utils.py НЕ найден"
+        fi
+        
+        echo "=================================================="
         echo "🔄 Запуск системы мониторинга результатов..."
         echo "=================================================="
         

@@ -644,8 +644,44 @@ class GameSystemManager:
                                                 context = iframe_text[start:end]
                                                 print(f"   📄 Контекст Pull Up: {context}")
                                             
+                                            # Проверяем, что найдены ОБЕ команды из искомой игры
                                             if team1_found and team2_found:
                                                 print(f"✅ Найдена игра {team1} vs {team2} в ссылке {i}")
+                                                
+                                                # Дополнительная проверка: убеждаемся, что это именно наша игра
+                                                # Ищем заголовок игры в iframe
+                                                title_match = re.search(r'<TITLE>.*?([^-]+)\s*-\s*([^-]+)', iframe_content, re.IGNORECASE)
+                                                if title_match:
+                                                    iframe_team1 = title_match.group(1).strip()
+                                                    iframe_team2 = title_match.group(2).strip()
+                                                    print(f"   📋 Заголовок iframe: {iframe_team1} - {iframe_team2}")
+                                                    
+                                                    # Проверяем, что команды в заголовке соответствуют искомым
+                                                    iframe_team1_upper = iframe_team1.upper()
+                                                    iframe_team2_upper = iframe_team2.upper()
+                                                    
+                                                    # Нормализуем названия команд для сравнения
+                                                    def normalize_team_name(name):
+                                                        return name.upper().replace(' ', '').replace('-', '').replace('_', '')
+                                                    
+                                                    team1_normalized = normalize_team_name(team1)
+                                                    team2_normalized = normalize_team_name(team2)
+                                                    iframe_team1_normalized = normalize_team_name(iframe_team1)
+                                                    iframe_team2_normalized = normalize_team_name(iframe_team2)
+                                                    
+                                                    # Проверяем соответствие команд
+                                                    teams_match = (
+                                                        (team1_normalized in iframe_team1_normalized and team2_normalized in iframe_team2_normalized) or
+                                                        (team1_normalized in iframe_team2_normalized and team2_normalized in iframe_team1_normalized)
+                                                    )
+                                                    
+                                                    if not teams_match:
+                                                        print(f"   ❌ Команды в заголовке не соответствуют искомым: {team1} vs {team2} != {iframe_team1} vs {iframe_team2}")
+                                                        continue
+                                                    else:
+                                                        print(f"   ✅ Команды в заголовке соответствуют искомым")
+                                                else:
+                                                    print(f"   ⚠️ Заголовок не найден, но команды найдены в тексте")
                                                 
                                                 # Определяем найденную команду Pull Up
                                                 found_pull_up_team = None

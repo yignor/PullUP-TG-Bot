@@ -766,23 +766,24 @@ class GameSystemManager:
         
         return announcement
     
-    async def send_game_announcement(self, game_info: Dict, game_position: int = 1) -> bool:
+    async def send_game_announcement(self, game_info: Dict, game_position: int = 1, game_link: Optional[str] = None, found_team: Optional[str] = None) -> bool:
         """Отправляет анонс игры в основной топик"""
         if not self.bot or not CHAT_ID:
             print("❌ Бот или CHAT_ID не настроены")
             return False
         
         try:
-            # Ищем ссылку на игру по командам
-            team1 = game_info.get('team1', '')
-            team2 = game_info.get('team2', '')
-            result = await self.find_game_link(team1, team2)
-            
-            # Обрабатываем результат (может быть tuple или None)
-            if isinstance(result, tuple):
-                game_link, found_team = result
-            else:
-                game_link, found_team = result, None
+            # Если game_link не передан, ищем ссылку на игру по командам
+            if game_link is None:
+                team1 = game_info.get('team1', '')
+                team2 = game_info.get('team2', '')
+                result = await self.find_game_link(team1, team2)
+                
+                # Обрабатываем результат (может быть tuple или None)
+                if isinstance(result, tuple):
+                    game_link, found_team = result
+                else:
+                    game_link, found_team = result, None
             
             # Формируем сообщение анонса
             announcement_text = self.format_announcement_message(game_info, game_link, found_team)
@@ -882,17 +883,41 @@ class GameSystemManager:
             print(f"\n📢 ШАГ 3: СОЗДАНИЕ АНОНСОВ")
             print("-" * 40)
             sent_announcements = 0
+            current_date = get_moscow_time().strftime('%d.%m.%Y')
+            
             for game in games:
                 print(f"\n🏀 Проверка игры: {game.get('team1', '')} vs {game.get('team2', '')}")
                 
+                # Проверяем, что это сегодняшняя игра
+                if game.get('date') != current_date:
+                    print(f"📅 Игра не сегодня ({game.get('date')}), пропускаем")
+                    continue
+                
                 if self.should_send_announcement(game):
                     print(f"📢 Отправляю анонс для игры...")
-                    if await self.send_game_announcement(game):
+                    
+                    # Проверяем, есть ли игра в табло
+                    team1 = game.get('team1', '')
+                    team2 = game.get('team2', '')
+                    game_link_result = await self.find_game_link(team1, team2)
+                    
+                    if game_link_result and isinstance(game_link_result, tuple):
+                        game_link, found_team = game_link_result
+                        print(f"✅ Игра найдена в табло, отправляем анонс с ссылкой")
+                    else:
+                        game_link = None
+                        found_team = None
+                        print(f"⚠️ Игра не найдена в табло, отправляем анонс без ссылки")
+                    
+                    if await self.send_game_announcement(game, game_link=game_link, found_team=found_team):
                         sent_announcements += 1
-                        print(f"✅ Анонс отправлен успешно, останавливаем обработку")
-                        break  # Останавливаемся после первого отправленного анонса
+                        print(f"✅ Анонс отправлен успешно")
                 else:
                     print(f"⏭️ Анонс для этой игры уже отправлен или не требуется")
+            
+            # Делаем break после обработки всех сегодняшних игр
+            if sent_announcements > 0:
+                print(f"✅ Обработаны все игры на сегодня, завершаем работу")
             
             print(f"✅ Отправлено {sent_announcements} анонсов")
             

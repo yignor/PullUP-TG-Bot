@@ -83,11 +83,52 @@ jobs:
         
     - name: Create .env file
       run: |
-        echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
-        echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
-        echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
-        echo "GOOGLE_SHEETS_CREDENTIALS=${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" >> .env
-        echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
+        echo "🔧 СОЗДАНИЕ ФАЙЛА .ENV"
+        echo "=================================================="
+        
+        # Создаем пустой .env файл
+        touch .env
+        
+        # Добавляем переменные только если они не пустые
+        if [ ! -z "${{ secrets.BOT_TOKEN }}" ]; then
+          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
+          echo "✅ BOT_TOKEN добавлен в .env"
+        else
+          echo "⚠️ BOT_TOKEN пустой, пропускаем"
+        fi
+        
+        if [ ! -z "${{ secrets.CHAT_ID }}" ]; then
+          echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
+          echo "✅ CHAT_ID добавлен в .env"
+        else
+          echo "⚠️ CHAT_ID пустой, пропускаем"
+        fi
+        
+        if [ ! -z "${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" ]; then
+          echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
+          echo "✅ ANNOUNCEMENTS_TOPIC_ID добавлен в .env"
+        else
+          echo "⚠️ ANNOUNCEMENTS_TOPIC_ID пустой, пропускаем"
+        fi
+        
+        if [ ! -z "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" ]; then
+          echo "GOOGLE_SHEETS_CREDENTIALS=${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" >> .env
+          echo "✅ GOOGLE_SHEETS_CREDENTIALS добавлен в .env"
+        else
+          echo "⚠️ GOOGLE_SHEETS_CREDENTIALS пустой, пропускаем"
+        fi
+        
+        if [ ! -z "${{ secrets.SPREADSHEET_ID }}" ]; then
+          echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
+          echo "✅ SPREADSHEET_ID добавлен в .env"
+        else
+          echo "⚠️ SPREADSHEET_ID пустой, пропускаем"
+        fi
+        
+        echo ""
+        echo "📄 Содержимое .env файла:"
+        cat .env
+        echo "=================================================="
         
     - name: Run Game Results Monitor V2
       env:
@@ -151,6 +192,21 @@ jobs:
         
         echo "=================================================="
         echo "🔄 Запуск системы мониторинга результатов..."
+        echo "=================================================="
+        
+        # Проверяем .env файл перед запуском
+        echo "🔍 ПРОВЕРКА .ENV ФАЙЛА:"
+        echo "=================================================="
+        if [ -f ".env" ]; then
+          echo "✅ .env файл найден"
+          echo "📄 Содержимое .env файла:"
+          cat .env
+          echo ""
+          echo "📋 Количество строк в .env:"
+          wc -l .env
+        else
+          echo "❌ .env файл не найден"
+        fi
         echo "=================================================="
         
         # Запускаем финальную систему мониторинга результатов

@@ -16,12 +16,22 @@ from datetime_utils import get_moscow_time
 from game_system_manager import GameSystemManager
 
 # Загружаем переменные окружения
-load_dotenv()
+try:
+    load_dotenv()
+    print("✅ .env файл загружен успешно")
+except Exception as e:
+    print(f"⚠️ Ошибка загрузки .env файла: {e}")
+    print("📋 Продолжаем работу с переменными окружения из системы")
 
 # Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 ANNOUNCEMENTS_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID")
+
+print(f"🔧 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ:")
+print(f"   BOT_TOKEN: {'✅' if BOT_TOKEN else '❌'}")
+print(f"   CHAT_ID: {'✅' if CHAT_ID else '❌'}")
+print(f"   ANNOUNCEMENTS_TOPIC_ID: {'✅' if ANNOUNCEMENTS_TOPIC_ID else '❌'}")
 
 class GameResultsMonitorFinal:
     """Финальная система мониторинга результатов игр"""

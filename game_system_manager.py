@@ -10,12 +10,9 @@ import datetime
 import json
 import re
 from typing import Dict, List, Optional
-from dotenv import load_dotenv
 from datetime_utils import get_moscow_time, is_today, log_current_time
 
-load_dotenv()
-
-# Переменные окружения
+# Переменные окружения (загружаются из системы или .env файла)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм

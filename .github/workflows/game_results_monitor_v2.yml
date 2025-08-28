@@ -199,11 +199,20 @@ jobs:
         echo "=================================================="
         if [ -f ".env" ]; then
           echo "✅ .env файл найден"
-          echo "📄 Содержимое .env файла:"
-          cat .env
-          echo ""
-          echo "📋 Количество строк в .env:"
-          wc -l .env
+                  echo "📄 Содержимое .env файла:"
+        cat .env
+        echo ""
+        echo "📋 Количество строк в .env:"
+        wc -l .env
+        echo ""
+        echo "🔍 Проверка каждой строки .env файла:"
+        if [ -f ".env" ]; then
+          line_number=1
+          while IFS= read -r line; do
+            echo "   Строка $line_number: '$line'"
+            line_number=$((line_number + 1))
+          done < .env
+        fi
         else
           echo "❌ .env файл не найден"
         fi

@@ -324,7 +324,9 @@ class GameSystemManager:
         
         # Дополнительная проверка: не создаем опросы для игр, которые уже прошли по времени
         try:
-            game_time = datetime.datetime.strptime(game_info['time'], '%H:%M').time()
+            # Нормализуем время (заменяем точку на двоеточие)
+            normalized_time = game_info['time'].replace('.', ':')
+            game_time = datetime.datetime.strptime(normalized_time, '%H:%M').time()
             now = get_moscow_time().time()
             
             # Если игра сегодня и время уже прошло, не создаем опрос

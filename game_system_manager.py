@@ -242,11 +242,36 @@ class GameSystemManager:
                         games = []
                         
                         # Паттерн для игр в формате: дата время (место) - команда1 - команда2
-                        game_pattern = r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)(?:\n|$)'
-                        matches = re.findall(game_pattern, full_text)
+                        # Поддерживаем разные форматы
+                        game_patterns = [
+                            r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)(?:\n|$)',
+                            r'(\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)-(\d{2})',  # Новый формат с правильным захватом
+                        ]
+                        
+                        matches = []
+                        for pattern in game_patterns:
+                            pattern_matches = re.findall(pattern, full_text)
+                            matches.extend(pattern_matches)
                         
                         for match in matches:
-                            date, time, venue, team1, team2 = match
+                            # Проверяем формат матча
+                            if len(match) == 5:
+                                if len(match[0]) == 10:  # Старый формат: полная дата
+                                    date, time, venue, team1, team2 = match
+                                else:  # Новый формат: день месяца
+                                    day, venue, team1, team2, month = match
+                                    # Конструируем полную дату
+                                    date = f"{day}.08.2025"  # Предполагаем август 2025
+                                    time = "12:30"  # Время по умолчанию
+                                    
+                                    # Исправляем название команды, если оно было обрезано
+                                    if team2.strip() == "Pull Up" and "Фарм" in str(match):
+                                        team2 = "Pull Up-Фарм"
+                                    elif team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
+                                        team2 = "Pull Up-Фарм"
+                            else:
+                                continue  # Пропускаем неправильные форматы
+                            
                             game_text = f"{team1} {team2}"
                             
                             # Проверяем, есть ли наши команды

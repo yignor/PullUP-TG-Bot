@@ -242,7 +242,7 @@ class GameSystemManager:
                         games = []
                         
                         # Паттерн для игр в формате: дата время (место) - команда1 - команда2
-                        game_pattern = r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+)\s*-\s*([^-]+)'
+                        game_pattern = r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)(?:\n|$)'
                         matches = re.findall(game_pattern, full_text)
                         
                         for match in matches:

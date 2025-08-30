@@ -278,6 +278,12 @@ class GameSystemManager:
                                         team2 = "Pull Up-Фарм"
                                     elif team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
                                         team2 = "Pull Up-Фарм"
+                                    elif team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
+                                        team2 = "Pull Up-Фарм"
+                                    
+                                    # Дополнительная проверка: если в исходном тексте есть "Pull Up-Фарм", но команда обрезана
+                                    if team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
+                                        team2 = "Pull Up-Фарм"
                             else:
                                 continue  # Пропускаем неправильные форматы
                             

@@ -111,7 +111,7 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
     
     # Дополнительная логика: если команда называется "Pull Up", но соперник из списка развития
     if "PULLUP" in team_upper and opponent:
-        development_opponents = ['Кудрово', 'Тосно', 'QUASAR', 'TAURUS']
+        development_opponents = ['Кудрово', 'Тосно', 'QUASAR', 'TAURUS', 'IT Basket']
         if opponent in development_opponents:
             return "Состав Развития"
     

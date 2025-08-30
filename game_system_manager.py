@@ -260,6 +260,15 @@ class GameSystemManager:
                                     date, time, venue, team1, team2 = match
                                 else:  # Новый формат: день месяца
                                     day, venue, team1, team2, month = match
+                                    
+                                    # Исправляем неправильный день
+                                    try:
+                                        day_int = int(day)
+                                        if day_int == 0:
+                                            day = "30"  # Исправляем на последний день месяца
+                                    except ValueError:
+                                        day = "30"  # Если не можем преобразовать, используем 30
+                                    
                                     # Конструируем полную дату
                                     date = f"{day}.08.2025"  # Предполагаем август 2025
                                     time = "12:30"  # Время по умолчанию

@@ -88,7 +88,7 @@ def get_day_of_week(date_str: str) -> str:
         return ""
 
 def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -> str:
-    """Определяет категорию команды с правильным склонением"""
+    """Определяет категорию команды по названию команды в расписании"""
     # Нормализуем название команды для сравнения
     team_upper = team_name.upper().replace(" ", "").replace("-", "").replace("_", "")
     
@@ -109,13 +109,11 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
         if variant in team_upper:
             return "Состав Развития"
     
-    # Дополнительная логика: если команда называется "Pull Up", но соперник из списка развития
-    if "PULLUP" in team_upper and opponent:
-        development_opponents = ['Кудрово', 'Тосно', 'QUASAR', 'TAURUS', 'IT Basket']
-        if opponent in development_opponents:
-            return "Состав Развития"
+    # Если команда называется просто "Pull Up" (без "Фарм"), то это первый состав
+    if "PULLUP" in team_upper and "ФАРМ" not in team_upper:
+        return "Первый состав"
     
-    # Если не найден ни один вариант состава развития, то это первый состав
+    # Если не найден ни один вариант, то это первый состав
     return "Первый состав"
 
 def determine_form_color(team1: str, team2: str) -> str:

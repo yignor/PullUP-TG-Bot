@@ -92,12 +92,10 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
     # Нормализуем название команды для сравнения
     team_upper = team_name.upper().replace(" ", "").replace("-", "").replace("_", "")
     
-    # Варианты написания для состава развития
+    # Варианты написания для состава развития (команды с "Фарм")
     development_variants = [
         "PULLUPФАРМ",
         "PULLUP-ФАРМ", 
-        "PULLUP-ФАРМ",
-        "PULLUPФАРМ",
         "PULL UPФАРМ",
         "PULL UP-ФАРМ",
         "PULL UP ФАРМ",
@@ -109,8 +107,8 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
         if variant in team_upper:
             return "Состав Развития"
     
-    # Если команда называется просто "Pull Up" (без "Фарм"), то это первый состав
-    if "PULLUP" in team_upper and "ФАРМ" not in team_upper:
+    # Если команда называется просто "Pull Up" или "PullUP" (без "Фарм"), то это первый состав
+    if ("PULLUP" in team_upper or "PULL UP" in team_upper) and "ФАРМ" not in team_upper:
         return "Первый состав"
     
     # Если не найден ни один вариант, то это первый состав
@@ -118,11 +116,22 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
 
 def determine_form_color(team1: str, team2: str) -> str:
     """Определяет цвет формы (светлая или темная)"""
-    # Если Pull Up первая команда - светлая форма, если вторая - темная
-    if "pull up" in team1.lower():
-        return "светлая"
-    else:
-        return "темная"
+    # Нормализуем названия команд для сравнения
+    team1_lower = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
+    team2_lower = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
+    
+    # Проверяем, какая из наших команд играет
+    our_team_variants = ['pullup', 'pull up', 'pullupфарм', 'pull upфарм']
+    
+    # Если наша команда первая - светлая форма, если вторая - темная
+    for variant in our_team_variants:
+        if variant in team1_lower:
+            return "светлая"
+        elif variant in team2_lower:
+            return "темная"
+    
+    # По умолчанию - светлая форма
+    return "светлая"
 
 def format_date_without_year(date_str: str) -> str:
     """Форматирует дату без года (например, 27.08)"""
@@ -163,13 +172,18 @@ class GameSystemManager:
             'PullUP'         # Без пробела
         ]
         
+        # Нормализуем текст для поиска
+        text_normalized = text.lower().replace(" ", "").replace("-", "").replace("_", "")
+        
         for team in search_teams:
-            if team in text:
+            team_normalized = team.lower().replace(" ", "").replace("-", "").replace("_", "")
+            if team_normalized in text_normalized:
                 found_teams.append(team)
                 print(f"   ✅ Найдена команда: {team}")
         
         if not found_teams:
             print(f"   ❌ Команды Pull Up не найдены в тексте: {text[:100]}...")
+            print(f"   🔍 Нормализованный текст: {text_normalized[:100]}...")
         
         return found_teams
     
@@ -346,6 +360,8 @@ class GameSystemManager:
             print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
             return False
         
+        print(f"✅ Найдены наши команды в игре: {', '.join(target_teams)}")
+        
         # Проверяем, что игра в будущем (не создаем опросы для прошедших игр)
         game_date = None
         today = None
@@ -394,6 +410,7 @@ class GameSystemManager:
             "27.08.2025_20:30_Кудрово_Pull Up",
             "27.08.2025_21:45_Old Stars_Pull Up", 
             "30.08.2025_12:30_Тосно_Pull Up",
+            "06.09.2025_12:30_MarvelHall_Pull Up-Фарм",
         ]
         
         if game_key in existing_polls_keys:
@@ -444,6 +461,7 @@ class GameSystemManager:
             print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
             return False
         
+        print(f"✅ Найдены наши команды в игре: {', '.join(target_teams)}")
         print(f"✅ Игра {game_info['date']} подходит для анонса (сегодня)")
         return True
     
@@ -498,12 +516,17 @@ class GameSystemManager:
                 'PullUP'
             ]
             
+            # Нормализуем названия команд для сравнения
+            team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
+            team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
+            
             for variant in our_team_variants:
-                if variant in team1:
+                variant_normalized = variant.lower().replace(" ", "").replace("-", "").replace("_", "")
+                if variant_normalized in team1_normalized:
                     our_team = team1
                     opponent = team2
                     break
-                elif variant in team2:
+                elif variant_normalized in team2_normalized:
                     our_team = team2
                     opponent = team1
                     break
@@ -588,11 +611,14 @@ class GameSystemManager:
             
             print(f"✅ Опрос для игры создан в топике {GAMES_TOPIC_ID}")
             print(f"📊 ID опроса: {poll_info['poll_id']}")
+            print(f"📊 ID сообщения: {poll_info['message_id']}")
             print(f"🏀 Формат: {question}")
             print(f"📅 Дата: {game_info['date']}")
             print(f"🕐 Время: {game_info['time']}")
             print(f"📍 Место: {game_info['venue']}")
             print(f"👥 Категория: {team_category}")
+            print(f"👥 Наша команда: {our_team}")
+            print(f"👥 Соперник: {opponent}")
             
             return True
             

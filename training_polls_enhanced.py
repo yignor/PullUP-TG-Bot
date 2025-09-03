@@ -62,42 +62,6 @@ def get_next_week_period():
     
     return next_monday.date(), next_sunday.date()
 
-def get_next_tuesday_date():
-    """Возвращает дату следующего вторника"""
-    now = get_moscow_time()
-    days_ahead = 1 - now.weekday()  # 1 = вторник
-    if days_ahead <= 0:  # Если сегодня вторник или позже
-        days_ahead += 7
-    next_tuesday = now + datetime.timedelta(days=days_ahead)
-    return next_tuesday.date()
-
-def get_next_friday_date():
-    """Возвращает дату следующей пятницы"""
-    now = get_moscow_time()
-    days_ahead = 4 - now.weekday()  # 4 = пятница
-    if days_ahead <= 0:  # Если сегодня пятница или позже
-        days_ahead += 7
-    next_friday = now + datetime.timedelta(days=days_ahead)
-    return next_friday.date()
-
-def get_training_locations(week_start_date):
-    """Определяет места тренировок для недели"""
-    # Определяем, какая это неделя
-    week_number = week_start_date.isocalendar()[1]  # Номер недели в году
-    
-    # Логика: до определенной недели - СШОР ВО, после - новая система с Динамо
-    # Неделя 35 (конец августа) - последняя неделя старой логики
-    if week_number <= 35:  # Старая логика (до конца августа)
-        return {
-            'tuesday': {'time': '19:00', 'location': 'СШОР ВО'},
-            'friday': {'time': '20:30', 'location': 'СШОР ВО'}
-        }
-    else:  # Новая логика (с сентября, неделя 36 и далее)
-        return {
-            'tuesday': {'time': '21:30', 'location': 'зал Динамо (м. Крестовский остров)'},
-            'friday': {'time': '20:30', 'location': 'СШОР ВО'}
-        }
-
 class TrainingPollsManager:
     """Управление опросами тренировок"""
     
@@ -150,11 +114,11 @@ class TrainingPollsManager:
             week_start, week_end = get_current_week_period()
             
             # Получаем даты тренировок
-            tuesday_date = get_next_tuesday_date()
-            friday_date = get_next_friday_date()
+            tuesday_date = self.get_next_tuesday_date()
+            friday_date = self.get_next_friday_date()
             
             # Определяем места тренировок для недели
-            locations = get_training_locations(week_start)
+            locations = self.get_training_locations(week_start)
             
             # Формируем вопрос с периодом недели
             question = f"🏀 Тренировки на неделе {week_start.strftime('%d.%m')}-{week_end.strftime('%d.%m')}"
@@ -188,7 +152,7 @@ class TrainingPollsManager:
                 'poll_id': poll_message.poll.id,
                 'question': question,
                 'options': options,
-                'date': get_moscow_time().isoformat(),
+                'date': self.get_moscow_time().isoformat(),
                 'chat_id': CHAT_ID,
                 'topic_id': ANNOUNCEMENTS_TOPIC_ID,
                 'tuesday_date': tuesday_date.isoformat(),
@@ -202,6 +166,14 @@ class TrainingPollsManager:
             # Сохраняем в файл
             with open('current_poll_info.json', 'w', encoding='utf-8') as f:
                 json.dump(self.current_poll_info, f, ensure_ascii=False, indent=2)
+            
+            # Создаем структуру в Google Sheets
+            try:
+                print(f"📊 Создание структуры в Google Sheets...")
+                self._create_training_structure(tuesday_date, friday_date, str(poll_message.poll.id))
+                print(f"✅ Структура в Google Sheets создана")
+            except Exception as e:
+                print(f"⚠️ Ошибка создания структуры в Google Sheets: {e}")
             
             print(f"✅ Опрос создан успешно")
             print(f"📊 ID опроса: {self.current_poll_info['poll_id']}")
@@ -218,14 +190,15 @@ class TrainingPollsManager:
     
     def should_create_weekly_poll(self):
         """Проверяет, нужно ли создавать еженедельный опрос"""
-        now = get_moscow_time()
+        now = self.get_moscow_time()
         
         # Создаем опрос каждое воскресенье в 10:00-10:59
         if now.weekday() == 6 and now.hour == 10:
             # Проверяем, не был ли уже создан опрос сегодня
-            if self._was_poll_created_today():
-                print("📊 Опрос уже был создан сегодня")
-                return False
+            if hasattr(self, '_was_poll_created_today'):
+                if self._was_poll_created_today():
+                    print("📊 Опрос уже был создан сегодня")
+                    return False
             return True
         
         return False
@@ -251,7 +224,7 @@ class TrainingPollsManager:
             )
             
             # Сравниваем с сегодняшней датой
-            today = get_moscow_time().date()
+            today = self.get_moscow_time().date()
             poll_date_only = poll_date_moscow.date()
             
             if poll_date_only == today:
@@ -266,19 +239,21 @@ class TrainingPollsManager:
     
     def should_collect_tuesday_data(self):
         """Проверяет, нужно ли собирать данные за вторник"""
-        now = get_moscow_time()
+        now = self.get_moscow_time()
         
         # Собираем данные каждую среду в 10:00-10:59
         if now.weekday() == 2 and now.hour == 10:
             # Проверяем, не были ли уже собраны данные сегодня
-            if self._was_data_collected_today("Вторник"):
-                print("📊 Данные за вторник уже были собраны сегодня")
-                return False
+            if hasattr(self, '_was_data_collected_today'):
+                if self._was_data_collected_today("Вторник"):
+                    print("📊 Данные за вторник уже были собраны сегодня")
+                    return False
             
             # Проверяем, существует ли опрос для сбора данных
-            if not self._poll_exists():
-                print("❌ Опрос не найден - невозможно собрать данные")
-                return False
+            if hasattr(self, '_poll_exists'):
+                if not self._poll_exists():
+                    print("❌ Опрос не найден - невозможно собрать данные")
+                    return False
             
             return True
         
@@ -286,19 +261,21 @@ class TrainingPollsManager:
     
     def should_collect_friday_data(self):
         """Проверяет, нужно ли собирать данные за пятницу"""
-        now = get_moscow_time()
+        now = self.get_moscow_time()
         
         # Собираем данные каждую субботу в 10:00-10:59
         if now.weekday() == 5 and now.hour == 10:
             # Проверяем, не были ли уже собраны данные сегодня
-            if self._was_data_collected_today("Пятница"):
-                print("📊 Данные за пятницу уже были собраны сегодня")
-                return False
+            if hasattr(self, '_was_data_collected_today'):
+                if self._was_data_collected_today("Пятница"):
+                    print("📊 Данные за пятницу уже были собраны сегодня")
+                    return False
             
             # Проверяем, существует ли опрос для сбора данных
-            if not self._poll_exists():
-                print("❌ Опрос не найден - невозможно собрать данные")
-                return False
+            if hasattr(self, '_poll_exists'):
+                if not self._poll_exists():
+                    print("❌ Опрос не найден - невозможно собрать данные")
+                    return False
             
             return True
         
@@ -321,7 +298,7 @@ class TrainingPollsManager:
             with open('training_data_collection_log.json', 'r', encoding='utf-8') as f:
                 collection_log = json.load(f)
             
-            today = get_moscow_time().date().isoformat()
+            today = self.get_moscow_time().date().isoformat()
             
             # Проверяем, есть ли запись о сборе данных за сегодня
             for entry in collection_log.get('collections', []):
@@ -347,7 +324,7 @@ class TrainingPollsManager:
                 collection_log = {'collections': []}
             
             # Добавляем новую запись
-            now = get_moscow_time()
+            now = self.get_moscow_time()
             new_entry = {
                 'date': now.date().isoformat(),
                 'time': now.strftime('%H:%M:%S'),
@@ -411,43 +388,37 @@ class TrainingPollsManager:
             print(f"❌ Ошибка поиска игрока: {e}")
             return None
     
-    def get_player_full_name(self, player_data: Dict) -> str:
-        """Получает полное имя игрока"""
+    def get_player_full_name(self, player_data: Dict) -> Tuple[str, str]:
+        """Получает фамилию и имя игрока"""
         if not player_data:
-            return None
+            return "Неизвестный", "игрок"
         
         headers = player_data['headers']
         data = player_data['data']
         
-        # Ищем колонки с именем и фамилией
-        name_col = None
+        # Ищем колонки с фамилией и именем
         surname_col = None
+        name_col = None
         
         for i, header in enumerate(headers):
             header_lower = header.lower()
-            if 'имя' in header_lower or 'name' in header_lower:
-                name_col = i
-            elif 'фамилия' in header_lower or 'surname' in header_lower or 'last' in header_lower:
+            if 'фамилия' in header_lower:
                 surname_col = i
+            elif 'имя' in header_lower:
+                name_col = i
         
-        # Формируем полное имя
-        full_name_parts = []
+        # Получаем фамилию и имя
+        surname = ""
+        name = ""
         
         if surname_col is not None and len(data) > surname_col:
             surname = data[surname_col].strip()
-            if surname:
-                full_name_parts.append(surname)
         
         if name_col is not None and len(data) > name_col:
             name = data[name_col].strip()
-            if name:
-                full_name_parts.append(name)
         
-        if full_name_parts:
-            return ' '.join(full_name_parts)
-        else:
-            return None
-    
+        return surname, name
+
     def format_player_name(self, user_name: str, telegram_id: str) -> str:
         """Форматирует имя игрока с учетом данных из таблицы"""
         # Убираем @ из telegram_id для поиска
@@ -457,17 +428,188 @@ class TrainingPollsManager:
         player_data = self.find_player_by_telegram_id(clean_telegram_id)
         
         if player_data:
-            full_name = self.get_player_full_name(player_data)
-            if full_name:
-                return full_name
+            surname, name = self.get_player_full_name(player_data)
+            if surname and name:
+                return f"{surname} {name}"
         
         # Если не найден, возвращаем имя и telegram_id
         return f"{user_name} ({telegram_id})"
     
-    async def collect_poll_data(self, target_day: str):
-        """Собирает данные опроса для указанного дня"""
-        print(f"🔍 Начинаем сбор данных за {target_day}")
+    def _get_or_create_training_worksheet(self):
+        """Получает или создает лист 'Тренировки'"""
+        if not self.spreadsheet:
+            print("❌ Google Sheets не подключен")
+            return None
+            
+        try:
+            worksheet = self.spreadsheet.worksheet("Тренировки")
+            print("✅ Лист 'Тренировки' найден")
+            return worksheet
+        except gspread.WorksheetNotFound:
+            # Создаем новый лист с заголовками
+            worksheet = self.spreadsheet.add_worksheet(title="Тренировки", rows=1000, cols=10)
+            print("✅ Лист 'Тренировки' создан")
+            
+            # Добавляем заголовки (упрощенная структура)
+            headers = [
+                "Дата", 
+                "ID", 
+                "Фамилия", 
+                "Имя", 
+                "Telegram ID"
+            ]
+            worksheet.append_row(headers)
+            
+            # Форматируем заголовки
+            worksheet.format('A1:E1', {
+                'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.8},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
+            })
+            
+            return worksheet
+
+    def _check_existing_poll(self, tuesday_date: datetime.date, friday_date: datetime.date) -> bool:
+        """Проверяет, существует ли уже опрос для указанных дат тренировок"""
+        try:
+            worksheet = self._get_or_create_training_worksheet()
+            if not worksheet:
+                print("❌ Не удалось получить лист 'Тренировки'")
+                return False
+                
+            all_values = worksheet.get_all_values()
+            
+            if len(all_values) <= 1:  # Только заголовки
+                return False
+            
+            # Ищем существующие опросы с теми же датами тренировок
+            for row in all_values[1:]:
+                if len(row) >= 3:  # Проверяем, что есть достаточно колонок
+                    poll_date_str = row[0]  # Дата опроса
+                    training_date_str = row[2]  # Дата тренировки
+                    
+                    # Пропускаем строки, которые не содержат дату
+                    if not training_date_str or not training_date_str.strip():
+                        continue
+                    
+                    # Проверяем, что это действительно дата (содержит точки или дефисы)
+                    if not ('.' in training_date_str or '-' in training_date_str):
+                        continue
+                    
+                    try:
+                        # Парсим дату тренировки
+                        if '.' in training_date_str:
+                            training_date = datetime.datetime.strptime(training_date_str, '%d.%m.%Y').date()
+                        else:
+                            training_date = datetime.datetime.strptime(training_date_str, '%Y-%m-%d').date()
+                        
+                        # Проверяем, совпадает ли дата с нашими тренировками
+                        if training_date in [tuesday_date, friday_date]:
+                            print(f"✅ Найден существующий опрос для даты {training_date_str}")
+                            return True
+                    except Exception as e:
+                        # Пропускаем строки, которые не являются датами
+                        continue
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Ошибка проверки существующих опросов: {e}")
+            return False
+
+    def get_next_tuesday_date(self):
+        """Возвращает дату следующего вторника"""
+        now = self.get_moscow_time()
+        days_ahead = 1 - now.weekday()  # 1 = вторник
+        if days_ahead <= 0:  # Если сегодня вторник или позже
+            days_ahead += 7
+        next_tuesday = now + datetime.timedelta(days=days_ahead)
+        return next_tuesday.date()
+    
+    def get_next_friday_date(self):
+        """Возвращает дату следующей пятницы"""
+        now = self.get_moscow_time()
+        days_ahead = 4 - now.weekday()  # 4 = пятница
+        if days_ahead <= 0:  # Если сегодня пятница или позже
+            days_ahead += 7
+        next_friday = now + datetime.timedelta(days=days_ahead)
+        return next_friday.date()
+    
+    def get_training_locations(self, week_start_date):
+        """Определяет места тренировок для недели"""
+        # Определяем, какая это неделя
+        week_number = week_start_date.isocalendar()[1]  # Номер недели в году
         
+        # Логика: до определенной недели - СШОР ВО, после - новая система с Динамо
+        # Неделя 35 (конец августа) - последняя неделя старой логики
+        if week_number <= 35:  # Старая логика (до конца августа)
+            return {
+                'tuesday': {'time': '19:00', 'location': 'СШОР ВО'},
+                'friday': {'time': '20:30', 'location': 'СШОР ВО'}
+            }
+        else:  # Новая логика (с сентября, неделя 36 и далее)
+            return {
+                'tuesday': {'time': '21:30', 'location': 'зал Динамо (м. Крестовский остров)'},
+                'friday': {'time': '20:30', 'location': 'СШОР ВО'}
+            }
+    
+    def get_moscow_time(self):
+        """Получает текущее время в московском часовом поясе"""
+        return get_moscow_time()
+
+    def _create_training_structure(self, tuesday_date: datetime.date, friday_date: datetime.date, poll_id: str):
+        """Создает структуру данных в листе 'Тренировки'"""
+        try:
+            worksheet = self._get_or_create_training_worksheet()
+            if not worksheet:
+                print("❌ Не удалось получить лист 'Тренировки'")
+                return
+            
+            # Получаем текущую дату создания опроса
+            now = self.get_moscow_time()
+            poll_creation_date = now.strftime('%d.%m.%Y')
+            
+            # Создаем основную строку опроса
+            main_row_data = [
+                poll_creation_date,  # Дата создания опроса
+                poll_id,             # ID опроса
+                "",                  # Фамилия (пустая)
+                "",                  # Имя (пустая)
+                ""                   # Telegram ID (пустой)
+            ]
+            worksheet.append_row(main_row_data)
+            
+            # Создаем строку для вторника
+            tuesday_header = [
+                tuesday_date.strftime('%d.%m'),  # Дата вторника (только день.месяц)
+                "Вторник",                       # ID содержит день недели
+                "",                              # Фамилия (пустая)
+                "",                              # Имя (пустая)
+                ""                               # Telegram ID (пустой)
+            ]
+            worksheet.append_row(tuesday_header)
+            
+            # Создаем строку для пятницы
+            friday_header = [
+                friday_date.strftime('%d.%m'),   # Дата пятницы (только день.месяц)
+                "Пятница",                       # ID содержит день недели
+                "",                              # Фамилия (пустая)
+                "",                              # Имя (пустая)
+                ""                               # Telegram ID (пустой)
+            ]
+            worksheet.append_row(friday_header)
+            
+            print(f"✅ Структура данных создана в листе 'Тренировки'")
+            
+        except Exception as e:
+            print(f"❌ Ошибка создания структуры данных: {e}")
+
+    async def collect_poll_data(self, target_day: str):
+        """Собирает данные опроса за указанный день"""
+        if not self.bot:
+            print("❌ Бот не инициализирован")
+            return False
+        
+        # Проверяем, что файл с информацией об опросе существует
         if not os.path.exists('current_poll_info.json'):
             print("❌ Файл current_poll_info.json не найден")
             return False
@@ -494,6 +636,11 @@ class TrainingPollsManager:
             print(f"📊 Сбор данных за {target_day}")
             print(f"📊 ID опроса: {poll_info['poll_id']}")
             
+            # Проверяем, что бот инициализирован
+            if not self.bot:
+                print("❌ Бот не инициализирован")
+                return False
+            
             # Получаем обновления от бота
             updates = await self.bot.get_updates(limit=50)
             
@@ -506,8 +653,9 @@ class TrainingPollsManager:
             for update in updates:
                 if update.poll_answer:
                     poll_answer = update.poll_answer
+                    user = update.effective_user
+                    
                     if poll_answer.poll_id == poll_info['poll_id']:
-                        user = poll_answer.user
                         option_ids = poll_answer.option_ids
                         
                         user_name = f"{user.first_name} {user.last_name or ''}".strip()
@@ -535,7 +683,7 @@ class TrainingPollsManager:
                 'friday_voters': friday_voters,
                 'trainer_voters': trainer_voters,
                 'no_voters': no_voters,
-                'timestamp': get_moscow_time().isoformat()
+                'timestamp': self.get_moscow_time().isoformat()
             }
             
             with open('poll_results.json', 'w', encoding='utf-8') as f:
@@ -548,13 +696,332 @@ class TrainingPollsManager:
             print(f"   Нет: {len(no_voters)} участников")
             
             # Логируем сбор данных
-            self._log_data_collection(target_day)
+            try:
+                if hasattr(self, '_log_data_collection'):
+                    self._log_data_collection(target_day)
+                else:
+                    print("⚠️ Метод _log_data_collection не найден")
+            except Exception as e:
+                print(f"⚠️ Ошибка логирования сбора данных: {e}")
+            
+            # Сохраняем данные в Google Sheets
+            try:
+                if target_day.upper() == "ВТОРНИК" and tuesday_voters:
+                    print(f"💾 Сохранение данных за вторник в Google Sheets...")
+                    # Преобразуем данные для сохранения
+                    voters_for_sheet = []
+                    for voter_name in tuesday_voters:
+                        # Парсим имя из строки "Имя Фамилия" (без username)
+                        name_parts = voter_name.split()
+                        if len(name_parts) >= 2:
+                            surname = name_parts[-1]  # Последняя часть - фамилия
+                            name = ' '.join(name_parts[:-1])  # Остальное - имя
+                        else:
+                            surname = name_parts[0] if name_parts else "Неизвестный"
+                            name = "Неизвестный"
+                        
+                        # Для реальных данных используем имя как telegram_id
+                        telegram_id = voter_name
+                        
+                        voters_for_sheet.append({
+                            'surname': surname,
+                            'name': name,
+                            'telegram_id': telegram_id
+                        })
+                    
+                    if voters_for_sheet:
+                        self._save_voters_to_sheet("ВТОРНИК", voters_for_sheet, poll_info['poll_id'])
+                    else:
+                        print("⚠️ Нет данных для сохранения за вторник")
+                
+                elif target_day.upper() == "ПЯТНИЦА" and friday_voters:
+                    print(f"💾 Сохранение данных за пятницу в Google Sheets...")
+                    # Аналогичная логика для пятницы
+                    voters_for_sheet = []
+                    for voter_name in friday_voters:
+                        # Парсим имя из строки "Имя Фамилия" (без username)
+                        name_parts = voter_name.split()
+                        if len(name_parts) >= 2:
+                            surname = name_parts[-1]
+                            name = ' '.join(name_parts[:-1])
+                        else:
+                            surname = name_parts[0] if name_parts else "Неизвестный"
+                            name = "Неизвестный"
+                        
+                        # Для реальных данных используем имя как telegram_id
+                        telegram_id = voter_name
+                        
+                        voters_for_sheet.append({
+                            'surname': surname,
+                            'name': name,
+                            'telegram_id': telegram_id
+                        })
+                    
+                    if voters_for_sheet:
+                        self._save_voters_to_sheet("ПЯТНИЦА", voters_for_sheet, poll_info['poll_id'])
+                    else:
+                        print("⚠️ Нет данных для сохранения за пятницу")
+                
+            except Exception as e:
+                print(f"⚠️ Ошибка сохранения данных в Google Sheets: {e}")
             
             return True
             
         except Exception as e:
             print(f"❌ Ошибка сбора данных: {e}")
             return False
+
+    def _save_voters_to_sheet(self, target_day: str, voters: List[Dict], poll_id: str) -> bool:
+        """Сохраняет данные участников в Google Sheet с автоматической группировкой"""
+        try:
+            worksheet = self._get_or_create_training_worksheet()
+            if not worksheet:
+                print("❌ Не удалось получить лист 'Тренировки'")
+                return False
+            
+            print(f"💾 Сохранение данных для {target_day}...")
+            print(f"🔍 Тип voters: {type(voters)}")
+            print(f"🔍 Содержимое voters: {voters}")
+            
+            if not isinstance(voters, list):
+                print(f"❌ voters не является списком: {type(voters)}")
+                return False
+            
+            print(f"💾 Сохранение {len(voters)} участников для {target_day}...")
+            
+            # Находим строки для соответствующего дня
+            all_values = worksheet.get_all_values()
+            target_day_upper = target_day.upper()
+            
+            # Ищем заголовок дня (Вторник или Пятница) в контексте опроса
+            day_header_row = None
+            poll_id = str(poll_id)
+            
+            # Сначала ищем строку с ID опроса
+            poll_row = None
+            for i, row in enumerate(all_values):
+                if len(row) > 1 and row[1] == poll_id:
+                    poll_row = i + 1
+                    break
+            
+            if poll_row is None:
+                print(f"❌ Не найден опрос с ID {poll_id}")
+                return False
+            
+            print(f"✅ Найден опрос в строке {poll_row}")
+            
+            # Теперь ищем заголовок дня после строки опроса
+            print(f"🔍 Поиск заголовка {target_day_upper} после строки {poll_row}...")
+            for i in range(poll_row, len(all_values)):
+                row_data = all_values[i]
+                print(f"   Строка {i+1}: {row_data}")
+                if len(row_data) > 1 and row_data[1].upper() == target_day_upper:
+                    day_header_row = i + 1  # +1 потому что индексация в Google Sheets начинается с 1
+                    print(f"✅ Найден заголовок {target_day_upper} в строке {day_header_row}")
+                    break
+            
+            if day_header_row is None:
+                print(f"❌ Не найден заголовок для дня {target_day_upper} после опроса {poll_id}")
+                return False
+            
+            # Находим следующую строку после заголовка дня
+            next_day_row = None
+            for i in range(day_header_row, len(all_values)):
+                if len(all_values[i]) > 1 and all_values[i][1] in ["Вторник", "Пятница"]:
+                    next_day_row = i + 1
+                    break
+            
+            if next_day_row is None:
+                # Если это последний день, берем последнюю строку
+                next_day_row = len(all_values) + 1
+            
+            # Вставляем участников после заголовка дня
+            insert_row = day_header_row + 1
+            
+            # Подготавливаем данные для вставки
+            rows_to_insert = []
+            for voter in voters:
+                # Получаем данные из словаря
+                surname = voter.get('surname', 'Неизвестный')
+                name = voter.get('name', 'игрок')
+                telegram_id = voter.get('telegram_id', 'без_username')
+                
+                # Формат: ["", "", "Фамилия", "Имя", "Telegram ID"]
+                row_data = ["", "", surname, name, telegram_id]
+                rows_to_insert.append(row_data)
+            
+            # Вставляем все строки сразу
+            if rows_to_insert:
+                try:
+                    print(f"🔧 Вставка {len(rows_to_insert)} строк начиная с позиции {insert_row}")
+                    
+                    # Вставляем строки по одной
+                    for i, row_data in enumerate(rows_to_insert):
+                        worksheet.insert_row(row_data, insert_row + i)
+                    
+                    print(f"✅ Сохранено {len(rows_to_insert)} участников для {target_day}")
+                    
+                    # Создаем автоматическую группировку
+                    self._create_auto_grouping()
+                    
+                    return True
+                except Exception as e:
+                    print(f"❌ Ошибка при вставке строк: {e}")
+                    return False
+            else:
+                print(f"⚠️ Нет участников для сохранения для {target_day}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Ошибка сохранения участников для {target_day}: {e}")
+            return False
+
+    def _create_auto_grouping(self) -> None:
+        """Создает автоматическую группировку строк в Google Sheet"""
+        try:
+            if not self.spreadsheet:
+                print("⚠️ Google Sheets не подключен, группировка не создана")
+                return
+            
+            print("🔄 Создание автоматической группировки...")
+            
+            # Получаем лист "Тренировки"
+            worksheet = self._get_or_create_training_worksheet()
+            if not worksheet:
+                print("❌ Не удалось получить лист для группировки")
+                return
+            
+            # Получаем все данные
+            all_values = worksheet.get_all_values()
+            if len(all_values) < 7:
+                print("⚠️ Недостаточно данных для группировки")
+                return
+            
+            # Анализируем структуру и создаем группировку
+            self._analyze_and_group_rows(worksheet, all_values)
+            
+            print("✅ Автоматическая группировка создана")
+            
+        except Exception as e:
+            print(f"❌ Ошибка создания группировки: {e}")
+
+    def _analyze_and_group_rows(self, worksheet, all_values: List[List[str]]) -> None:
+        """Анализирует структуру данных и создает группировку строк"""
+        try:
+            # Находим ключевые строки
+            poll_header_row = None
+            tuesday_header_row = None
+            friday_header_row = None
+            tuesday_end_row = None
+            friday_end_row = None
+            
+            for i, row in enumerate(all_values):
+                if len(row) > 1:
+                    if row[1] == "Вторник":
+                        tuesday_header_row = i + 1
+                    elif row[1] == "Пятница":
+                        friday_header_row = i + 1
+                    elif row[1] and row[1] != "Вторник" and row[1] != "Пятница" and row[2] and row[3]:
+                        # Это участник
+                        if tuesday_header_row and not tuesday_end_row:
+                            tuesday_end_row = i + 1
+                        elif friday_header_row and not friday_end_row:
+                            friday_end_row = i + 1
+            
+            # Устанавливаем конец для последнего дня
+            if tuesday_header_row and not tuesday_end_row:
+                tuesday_end_row = len(all_values)
+            if friday_header_row and not friday_end_row:
+                friday_end_row = len(all_values)
+            
+            print(f"📋 Анализ структуры:")
+            print(f"   Вторник: строки {tuesday_header_row}-{tuesday_end_row}")
+            print(f"   Пятница: строки {friday_header_row}-{friday_end_row}")
+            
+            # Создаем группировку через Google Sheets API
+            if tuesday_header_row and tuesday_end_row and friday_header_row and friday_end_row:
+                self._create_row_grouping_via_api(worksheet, tuesday_header_row, tuesday_end_row, friday_header_row, friday_end_row)
+            
+        except Exception as e:
+            print(f"❌ Ошибка анализа структуры: {e}")
+
+    def _create_row_grouping_via_api(self, worksheet, tuesday_start: int, tuesday_end: int, friday_start: int, friday_end: int) -> None:
+        """Создает группировку строк через Google Sheets API"""
+        try:
+            # Используем batch_update для создания группировки
+            requests = []
+            
+            # 1. Группировка участников вторника
+            if tuesday_start and tuesday_end and tuesday_end > tuesday_start:
+                participants_range = f"{tuesday_start + 1}:{tuesday_end}"
+                requests.append({
+                    "autoResizeDimensions": {
+                        "dimensions": {
+                            "sheetId": worksheet.id,
+                            "dimension": "ROWS",
+                            "startIndex": tuesday_start,
+                            "endIndex": tuesday_end
+                        }
+                    }
+                })
+            
+            # 2. Группировка участников пятницы
+            if friday_start and friday_end and friday_end > friday_start:
+                participants_range = f"{friday_start + 1}:{friday_end}"
+                requests.append({
+                    "autoResizeDimensions": {
+                        "dimensions": {
+                            "sheetId": worksheet.id,
+                            "dimension": "ROWS",
+                            "startIndex": friday_start,
+                            "endIndex": friday_end
+                        }
+                    }
+                })
+            
+            # Применяем группировку
+            if requests:
+                self.spreadsheet.batch_update({"requests": requests})
+                print("✅ Группировка применена через API")
+            
+        except Exception as e:
+            print(f"❌ Ошибка создания группировки через API: {e}")
+            # Fallback: создаем простую группировку
+            self._create_simple_grouping(worksheet, tuesday_start, tuesday_end, friday_start, friday_end)
+
+    def _create_simple_grouping(self, worksheet, tuesday_start: int, tuesday_end: int, friday_start: int, friday_end: int) -> None:
+        """Создает простую группировку через прямое управление строками"""
+        try:
+            # Создаем группировку для вторника
+            if tuesday_start and tuesday_end and tuesday_end > tuesday_start:
+                # Группируем участников под заголовком вторника
+                for row_num in range(tuesday_start + 1, tuesday_end + 1):
+                    try:
+                        # Создаем группировку на уровне 1
+                        worksheet.batch_update([{
+                            "range": f"A{row_num}",
+                            "values": [["", "", "", "", ""]]  # Пустая строка для группировки
+                        }])
+                    except Exception as e:
+                        print(f"⚠️ Не удалось сгруппировать строку {row_num}: {e}")
+            
+            # Создаем группировку для пятницы
+            if friday_start and friday_end and friday_end > friday_start:
+                # Группируем участников под заголовком пятницы
+                for row_num in range(friday_start + 1, friday_end + 1):
+                    try:
+                        # Создаем группировку на уровне 1
+                        worksheet.batch_update([{
+                            "range": f"A{row_num}",
+                            "values": [["", "", "", "", ""]]  # Пустая строка для группировки
+                        }])
+                    except Exception as e:
+                        print(f"⚠️ Не удалось сгруппировать строку {row_num}: {e}")
+            
+            print("✅ Простая группировка создана")
+            
+        except Exception as e:
+            print(f"❌ Ошибка создания простой группировки: {e}")
     
     def _poll_exists(self) -> bool:
         """Проверяет, существует ли активный опрос для сбора данных"""
@@ -679,6 +1146,262 @@ class TrainingPollsManager:
 # Глобальный экземпляр
 training_manager = TrainingPollsManager()
 
+class TableIntegrityGuard:
+    """Страж целостности таблицы - защита от дублирования"""
+    
+    def __init__(self, manager: TrainingPollsManager):
+        self.manager = manager
+        self.worksheet = None
+        self.all_values = []
+        self.structure_index = {}
+    
+    def load_table_data(self):
+        """Загружает данные таблицы"""
+        try:
+            self.worksheet = self.manager._get_or_create_training_worksheet()
+            if not self.worksheet:
+                print("❌ Не удалось получить лист 'Тренировки'")
+                return False
+            
+            self.all_values = self.worksheet.get_all_values()
+            print(f"✅ Данные таблицы загружены: {len(self.all_values)} строк")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка загрузки данных: {e}")
+            return False
+    
+    def build_structure_index(self):
+        """Строит индекс структуры таблицы"""
+        if not self.all_values:
+            print("❌ Данные таблицы не загружены")
+            return False
+        
+        print("🔍 ПОСТРОЕНИЕ ИНДЕКСА СТРУКТУРЫ:")
+        print("=" * 40)
+        
+        # Создаем индексы
+        self.structure_index = {
+            'polls': {},           # poll_id -> {row, date}
+            'tuesday_sections': {}, # date -> {row, poll_id}
+            'friday_sections': {},  # date -> {row, poll_id}
+            'participants': {}      # day_date_surname_name -> row
+        }
+        
+        current_poll_id = None
+        
+        for i, row in enumerate(self.all_values):
+            if len(row) > 1:
+                # Ищем опросы
+                if row[1] and row[1] != "Вторник" and row[1] != "Пятница" and len(row[1]) > 10:
+                    poll_id = row[1]
+                    date = row[0]
+                    self.structure_index['polls'][poll_id] = {'row': i + 1, 'date': date}
+                    current_poll_id = poll_id
+                    print(f"   📊 Опрос: {poll_id} (строка {i+1}, дата {date})")
+                
+                # Ищем заголовки дней
+                elif row[1] == "Вторник":
+                    date = row[0]
+                    self.structure_index['tuesday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
+                    print(f"   🏀 Вторник: {date} (строка {i+1}, опрос {current_poll_id})")
+                
+                elif row[1] == "Пятница":
+                    date = row[0]
+                    self.structure_index['friday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
+                    print(f"   🏀 Пятница: {date} (строка {i+1}, опрос {current_poll_id})")
+        
+        print(f"✅ Индекс построен:")
+        print(f"   📊 Опросов: {len(self.structure_index['polls'])}")
+        print(f"   🏀 Секций вторника: {len(self.structure_index['tuesday_sections'])}")
+        print(f"   🏀 Секций пятницы: {len(self.structure_index['friday_sections'])}")
+        
+        return True
+    
+    def check_poll_exists(self, poll_id: str) -> bool:
+        """Проверяет существование опроса"""
+        if poll_id in self.structure_index['polls']:
+            info = self.structure_index['polls'][poll_id]
+            print(f"⚠️ Опрос {poll_id} уже существует в строке {info['row']} (дата {info['date']})")
+            return True
+        return False
+    
+    def check_section_exists(self, target_day: str, date: str) -> bool:
+        """Проверяет существование секции"""
+        if target_day == "Вторник" and date in self.structure_index['tuesday_sections']:
+            info = self.structure_index['tuesday_sections'][date]
+            print(f"⚠️ Секция вторника для {date} уже существует в строке {info['row']}")
+            return True
+        elif target_day == "Пятница" and date in self.structure_index['friday_sections']:
+            info = self.structure_index['friday_sections'][date]
+            print(f"⚠️ Секция пятницы для {date} уже существует в строке {info['row']}")
+            return True
+        return False
+    
+    def check_participant_exists(self, target_day: str, date: str, surname: str, name: str) -> bool:
+        """Проверяет существование участника"""
+        # Ищем секцию
+        section_info = None
+        if target_day == "Вторник":
+            section_info = self.structure_index['tuesday_sections'].get(date)
+        elif target_day == "Пятница":
+            section_info = self.structure_index['friday_sections'].get(date)
+        
+        if not section_info:
+            return False
+        
+        section_row = section_info['row']
+        
+        # Проверяем участников под заголовком
+        for i in range(section_row, len(self.all_values)):
+            row = self.all_values[i]
+            if len(row) >= 5 and row[2] and row[3]:
+                if row[2] == surname and row[3] == name:
+                    print(f"⚠️ Участник {surname} {name} уже существует в {target_day} {date} (строка {i+1})")
+                    return True
+            elif len(row) > 1 and row[1] in ["Вторник", "Пятница"]:
+                # Достигли следующего заголовка
+                break
+        
+        return False
+    
+    def safe_add_poll(self, poll_id: str, date: str) -> dict:
+        """Безопасно добавляет опрос"""
+        print(f"\n🔧 БЕЗОПАСНОЕ ДОБАВЛЕНИЕ ОПРОСА:")
+        print("=" * 40)
+        
+        result = {
+            'success': False,
+            'reason': '',
+            'action': 'none'
+        }
+        
+        # Проверяем дублирование
+        if self.check_poll_exists(poll_id):
+            result['reason'] = f"Опрос {poll_id} уже существует"
+            result['action'] = 'skip'
+            print(f"❌ Опрос {poll_id} не добавлен - дубликат")
+            return result
+        
+        # Проверяем дублирование даты
+        for poll_info in self.structure_index['polls'].values():
+            if poll_info['date'] == date:
+                result['reason'] = f"Опрос для {date} уже существует"
+                result['action'] = 'skip'
+                print(f"❌ Опрос для {date} не добавлен - дата уже существует")
+                return result
+        
+        result['success'] = True
+        result['action'] = 'add'
+        print(f"✅ Опрос {poll_id} для {date} готов к добавлению")
+        return result
+    
+    def safe_add_section(self, target_day: str, date: str, poll_id: str) -> dict:
+        """Безопасно добавляет секцию"""
+        print(f"\n🔧 БЕЗОПАСНОЕ ДОБАВЛЕНИЕ СЕКЦИИ {target_day.upper()}:")
+        print("=" * 40)
+        
+        result = {
+            'success': False,
+            'reason': '',
+            'action': 'none'
+        }
+        
+        # Проверяем дублирование секции
+        if self.check_section_exists(target_day, date):
+            result['reason'] = f"Секция {target_day} для {date} уже существует"
+            result['action'] = 'skip'
+            print(f"❌ Секция {target_day} для {date} не добавлена - дубликат")
+            return result
+        
+        # Проверяем существование опроса
+        if poll_id not in self.structure_index['polls']:
+            result['reason'] = f"Опрос {poll_id} не найден"
+            result['action'] = 'error'
+            print(f"❌ Секция {target_day} для {date} не добавлена - опрос {poll_id} не найден")
+            return result
+        
+        result['success'] = True
+        result['action'] = 'add'
+        print(f"✅ Секция {target_day} для {date} (опрос {poll_id}) готова к добавлению")
+        return result
+    
+    def safe_add_participant(self, target_day: str, date: str, surname: str, name: str, telegram_id: str) -> dict:
+        """Безопасно добавляет участника"""
+        print(f"\n🔧 БЕЗОПАСНОЕ ДОБАВЛЕНИЕ УЧАСТНИКА:")
+        print("=" * 40)
+        
+        result = {
+            'success': False,
+            'reason': '',
+            'action': 'none'
+        }
+        
+        # Проверяем дублирование участника
+        if self.check_participant_exists(target_day, date, surname, name):
+            result['reason'] = f"Участник {surname} {name} уже существует в {target_day} {date}"
+            result['action'] = 'skip'
+            print(f"❌ Участник {surname} {name} не добавлен - дубликат")
+            return result
+        
+        # Проверяем существование секции
+        section_exists = False
+        if target_day == "Вторник":
+            section_exists = date in self.structure_index['tuesday_sections']
+        elif target_day == "Пятница":
+            section_exists = date in self.structure_index['friday_sections']
+        
+        if not section_exists:
+            result['reason'] = f"Секция {target_day} для {date} не найдена"
+            result['action'] = 'error'
+            print(f"❌ Участник {surname} {name} не добавлен - секция {target_day} для {date} не найдена")
+            return result
+        
+        result['success'] = True
+        result['action'] = 'add'
+        print(f"✅ Участник {surname} {name} ({telegram_id}) готов к добавлению в {target_day} {date}")
+        return result
+    
+    def get_integrity_report(self):
+        """Генерирует отчет о целостности"""
+        print(f"\n📊 ОТЧЕТ О ЦЕЛОСТНОСТИ ТАБЛИЦЫ:")
+        print("=" * 50)
+        
+        issues = []
+        
+        # Проверяем опросы
+        print(f"📊 ОПРОСЫ:")
+        for poll_id, info in self.structure_index['polls'].items():
+            print(f"   ✅ {poll_id} (строка {info['row']}, дата {info['date']})")
+        
+        # Проверяем секции вторника
+        print(f"\n🏀 СЕКЦИИ ВТОРНИКА:")
+        for date, info in self.structure_index['tuesday_sections'].items():
+            poll_id = info['poll_id'] or "без опроса"
+            print(f"   ✅ {date} (строка {info['row']}, опрос {poll_id})")
+            if not info['poll_id']:
+                issues.append(f"Секция вторника {date} не связана с опросом")
+        
+        # Проверяем секции пятницы
+        print(f"\n🏀 СЕКЦИИ ПЯТНИЦЫ:")
+        for date, info in self.structure_index['friday_sections'].items():
+            poll_id = info['poll_id'] or "без опроса"
+            print(f"   ✅ {date} (строка {info['row']}, опрос {poll_id})")
+            if not info['poll_id']:
+                issues.append(f"Секция пятницы {date} не связана с опросом")
+        
+        if not issues:
+            print(f"\n🎉 ЦЕЛОСТНОСТЬ ТАБЛИЦЫ: ОТЛИЧНО!")
+        else:
+            print(f"\n⚠️ ЦЕЛОСТНОСТЬ ТАБЛИЦЫ: {len(issues)} ПРОБЛЕМ!")
+            for issue in issues:
+                print(f"   • {issue}")
+        
+        return len(issues) == 0
+
+# Глобальный экземпляр стража целостности
+integrity_guard = TableIntegrityGuard(training_manager)
+
 async def main():
     """Основная функция"""
     print("🏀 СИСТЕМА УПРАВЛЕНИЯ ОПРОСАМИ ТРЕНИРОВОК")
@@ -695,7 +1418,7 @@ async def main():
     google_credentials = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
     spreadsheet_id = os.getenv("SPREADSHEET_ID")
     
-    print("🔧 ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:")
+    print("�� ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:")
     print(f"BOT_TOKEN: {'✅' if bot_token else '❌'}")
     print(f"CHAT_ID: {'✅' if chat_id else '❌'}")
     print(f"GOOGLE_SHEETS_CREDENTIALS: {'✅' if google_credentials else '❌'}")

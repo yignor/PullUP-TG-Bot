@@ -15,6 +15,7 @@ from telegram.ext import Application, MessageHandler, filters
 import gspread
 from datetime_utils import get_moscow_time, log_current_time
 from google.oauth2.service_account import Credentials
+from enhanced_duplicate_protection import duplicate_protection
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -160,9 +161,18 @@ class TrainingPollsManager:
                 'friday_location': {'time': '20:30', 'location': 'зал СШОР ВО'}
             }
             
-            # Сохраняем в файл
+            # Сохраняем в файл (для обратной совместимости)
             with open('current_poll_info.json', 'w', encoding='utf-8') as f:
                 json.dump(self.current_poll_info, f, ensure_ascii=False, indent=2)
+            
+            # Добавляем запись в сервисный лист для защиты от дублирования
+            additional_info = f"Вторник {tuesday_date.strftime('%d.%m')}, Пятница {friday_date.strftime('%d.%m')}"
+            duplicate_protection.add_record(
+                "ОПРОС_ТРЕНИРОВКА",
+                str(poll_message.poll.id),
+                "АКТИВЕН",
+                additional_info
+            )
             
             # Создаем структуру в Google Sheets
             try:
@@ -201,32 +211,38 @@ class TrainingPollsManager:
         return False
     
     def _was_poll_created_today(self) -> bool:
-        """Проверяет, был ли уже создан опрос сегодня"""
+        """Проверяет, был ли уже создан опрос сегодня (усиленная защита)"""
         try:
-            if not os.path.exists('current_poll_info.json'):
-                return False
-            
-            with open('current_poll_info.json', 'r', encoding='utf-8') as f:
-                poll_info = json.load(f)
-            
-            # Получаем дату создания опроса
-            poll_date_str = poll_info.get('date', '')
-            if not poll_date_str:
-                return False
-            
-            # Парсим дату создания опроса
-            poll_date = datetime.datetime.fromisoformat(poll_date_str.replace('Z', '+00:00'))
-            poll_date_moscow = poll_date.replace(tzinfo=datetime.timezone.utc).astimezone(
-                datetime.timezone(datetime.timedelta(hours=3))
-            )
-            
-            # Сравниваем с сегодняшней датой
+            # Используем новую систему защиты от дублирования
             today = self.get_moscow_time().date()
-            poll_date_only = poll_date_moscow.date()
+            today_str = today.strftime('%d.%m.%Y')
             
-            if poll_date_only == today:
-                print(f"📊 Опрос уже создан сегодня: {poll_date_moscow.strftime('%Y-%m-%d %H:%M')}")
-                return True
+            # Получаем активные опросы тренировок за сегодня
+            training_polls = duplicate_protection.get_records_by_type("ОПРОС_ТРЕНИРОВКА")
+            
+            for poll in training_polls:
+                if poll.get('date', '').startswith(today_str) and poll.get('status') == 'АКТИВЕН':
+                    print(f"📊 Опрос уже создан сегодня: {poll.get('date')}")
+                    return True
+            
+            # Для обратной совместимости проверяем старый файл
+            if os.path.exists('current_poll_info.json'):
+                try:
+                    with open('current_poll_info.json', 'r', encoding='utf-8') as f:
+                        poll_info = json.load(f)
+                    
+                    poll_date_str = poll_info.get('date', '')
+                    if poll_date_str:
+                        poll_date = datetime.datetime.fromisoformat(poll_date_str.replace('Z', '+00:00'))
+                        poll_date_moscow = poll_date.replace(tzinfo=datetime.timezone.utc).astimezone(
+                            datetime.timezone(datetime.timedelta(hours=3))
+                        )
+                        
+                        if poll_date_moscow.date() == today:
+                            print(f"📊 Опрос уже создан сегодня (старый файл): {poll_date_moscow.strftime('%Y-%m-%d %H:%M')}")
+                            return True
+                except Exception as e:
+                    print(f"⚠️ Ошибка чтения старого файла: {e}")
             
             return False
             

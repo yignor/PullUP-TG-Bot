@@ -8,7 +8,9 @@ import os
 import asyncio
 import datetime
 from dotenv import load_dotenv
-from datetime_utils import get_moscow_time, log_current_time
+from datetime_utils import get_moscow_time
+from enhanced_duplicate_protection import duplicate_protection
+from datetime_utils import log_current_time
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -104,6 +106,21 @@ async def check_birthdays():
                 try:
                     await current_bot.send_message(chat_id=chat_id, text=message)
                     print(f"✅ Отправлено уведомление {i}: {message[:50]}...")
+                    
+                    # Добавляем запись в сервисный лист для защиты от дублирования
+                    player = birthday_players[i-1]
+                    surname = player.get('surname', '')
+                    first_name = player.get('name', '')
+                    today = get_moscow_time().strftime('%d.%m.%Y')
+                    
+                    additional_info = f"{surname} {first_name} ({age} {get_years_word(age)})"
+                    duplicate_protection.add_record(
+                        "ДЕНЬ_РОЖДЕНИЯ",
+                        f"birthday_{today}_{surname}_{first_name}",
+                        "ОТПРАВЛЕНО",
+                        additional_info
+                    )
+                    
                 except Exception as e:
                     print(f"❌ Ошибка отправки уведомления {i}: {e}")
         

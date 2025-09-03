@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from telegram import Bot
 from datetime_utils import get_moscow_time
 from game_system_manager import GameSystemManager
+from enhanced_duplicate_protection import duplicate_protection
 
 # Централизованная загрузка переменных окружения
 def load_environment():
@@ -304,7 +305,7 @@ class GameResultsMonitorFinal:
                     parse_mode='HTML'
                 )
             
-            # Сохраняем в историю
+            # Сохраняем в историю (для обратной совместимости)
             result_key = self.create_result_key(game_info)
             self.results_history[result_key] = {
                 'date': get_moscow_time().isoformat(),
@@ -312,6 +313,15 @@ class GameResultsMonitorFinal:
                 'message': message
             }
             self.save_results_history()
+            
+            # Добавляем запись в сервисный лист для защиты от дублирования
+            additional_info = f"{game_info['date']} {game_info['our_team']} vs {game_info['opponent']} ({game_info['our_score']}:{game_info['opponent_score']}) - {game_info['result']}"
+            duplicate_protection.add_record(
+                "РЕЗУЛЬТАТ_ИГРА",
+                result_key,
+                "ОБРАБОТАН",
+                additional_info
+            )
             
             print(f"✅ Результат игры отправлен: {game_info['our_team']} vs {game_info['opponent']}")
             return True

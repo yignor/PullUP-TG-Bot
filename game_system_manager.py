@@ -11,6 +11,7 @@ import json
 import re
 from typing import Dict, List, Optional
 from datetime_utils import get_moscow_time, is_today, log_current_time
+from enhanced_duplicate_protection import duplicate_protection
 
 # Переменные окружения (загружаются из системы или .env файла)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -604,10 +605,19 @@ class GameSystemManager:
                 'topic_id': GAMES_TOPIC_ID
             }
             
-            # Сохраняем в историю
+            # Сохраняем в историю (для обратной совместимости)
             game_key = create_game_key(game_info)
             self.polls_history[game_key] = poll_info
             save_polls_history(self.polls_history)
+            
+            # Добавляем запись в сервисный лист для защиты от дублирования
+            additional_info = f"{game_info['date']} {game_info['time']} vs {opponent} в {game_info['venue']}"
+            duplicate_protection.add_record(
+                "ОПРОС_ИГРА",
+                game_key,
+                "АКТИВЕН",
+                additional_info
+            )
             
             print(f"✅ Опрос для игры создан в топике {GAMES_TOPIC_ID}")
             print(f"📊 ID опроса: {poll_info['poll_id']}")
@@ -911,10 +921,19 @@ class GameSystemManager:
                 'topic_id': 'main'  # Основной топик
             }
             
-            # Сохраняем в историю
+            # Сохраняем в историю (для обратной совместимости)
             self.announcements_history[announcement_key] = announcement_info
             save_announcements_history(self.announcements_history)
             print(f"💾 Анонс добавлен в историю с ключом: {announcement_key}")
+            
+            # Добавляем запись в сервисный лист для защиты от дублирования
+            additional_info = f"{game_info['date']} {game_info['time']} vs {game_info.get('team2', 'соперник')} в {game_info['venue']}"
+            duplicate_protection.add_record(
+                "АНОНС_ИГРА",
+                announcement_key,
+                "ОТПРАВЛЕН",
+                additional_info
+            )
             
             print(f"✅ Анонс игры отправлен в основной топик")
             print(f"📊 ID сообщения: {message.message_id}")

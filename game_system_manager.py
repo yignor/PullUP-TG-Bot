@@ -615,8 +615,8 @@ class GameSystemManager:
             # Форматируем дату без года
             date_short = format_date_without_year(game_info['date'])
             
-            # Формируем вопрос в новом формате
-            question = f"Летняя лига, {team_category}, {day_of_week}, против {opponent}, {date_short}, {game_info['time']}, {form_color} форма, {game_info['venue']}"
+            # Формируем вопрос в новом многострочном формате
+            question = f"🏀 Летняя лига: {team_category} против {opponent}\n📅 {date_short}, {day_of_week}, {game_info['time']}\n👕 {form_color} форма\n📍 {game_info['venue']}"
             
             # Варианты ответов с эмодзи
             options = [

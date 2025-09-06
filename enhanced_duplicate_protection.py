@@ -66,6 +66,10 @@ class EnhancedDuplicateProtection:
     
     def _get_service_worksheet(self):
         """Получает лист 'Сервисный'"""
+        if not self.spreadsheet:
+            print("❌ Google Sheets не инициализирован")
+            return None
+            
         if not self.service_worksheet:
             try:
                 self.service_worksheet = self.spreadsheet.worksheet("Сервисный")

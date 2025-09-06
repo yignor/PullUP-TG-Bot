@@ -17,7 +17,8 @@ from enhanced_duplicate_protection import duplicate_protection
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
-TARGET_TEAMS = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм").split(",")
+TARGET_TEAMS_STR = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм")
+TARGET_TEAMS = [team.strip() for team in TARGET_TEAMS_STR.split(",") if team.strip()]
 
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
@@ -387,6 +388,17 @@ class GameSystemManager:
                                 })
                         
                         if games:
+                            # Исправляем год для всех игр (универсальное исправление)
+                            current_year = get_moscow_time().year
+                            for game in games:
+                                date_parts = game['date'].split('.')
+                                if len(date_parts) == 3:
+                                    day, month, year = date_parts
+                                    # Если год неправильный (например, 2022 вместо 2025), исправляем
+                                    if int(year) != current_year:
+                                        game['date'] = f"{day}.{month}.{current_year}"
+                                        print(f"🔧 Исправлен год для игры: {day}.{month}.{year} → {game['date']}")
+                            
                             print(f"✅ Найдено {len(games)} игр с нашими командами")
                             return games
                         else:

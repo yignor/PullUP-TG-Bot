@@ -330,7 +330,8 @@ class GameResultsMonitorFinal:
                         'time': game_info.get('time', ''),
                         'venue': game_info.get('venue', ''),
                         'quarters': game_info.get('quarters', []),
-                        'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития'
+                        'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития',
+                        'game_link': game_link  # Сохраняем исходную ссылку на игру
                     }
                 return None
         except Exception as e:
@@ -429,12 +430,19 @@ class GameResultsMonitorFinal:
             if quarters and quarters != ['Данные недоступны']:
                 message += f"📈 Четверти: {quarters}"
             
-            # Ищем ссылку на игру
-            game_link = await self.find_game_link(game_info['team1'], game_info['team2'], game_info.get('date'))
+            # Используем ссылку из game_info, если она есть, иначе ищем заново
+            game_link = game_info.get('game_link')
+            if not game_link:
+                print(f"🔍 Ссылка не найдена в game_info, ищем заново...")
+                game_link = await self.find_game_link(game_info['team1'], game_info['team2'], game_info.get('date'))
+            
             if game_link:
                 # Добавляем #protocol в конец ссылки
                 protocol_link = f"{game_link}#protocol"
                 message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
+                print(f"🔗 Используется ссылка: {game_link}")
+            else:
+                print(f"❌ Ссылка на игру не найдена")
             
             # Сначала добавляем запись в Google Sheets для защиты от дублирования
             additional_info = f"{game_info['date']} {game_info['our_team']} vs {game_info['opponent']} ({game_info['our_score']}:{game_info['opponent_score']}) - {game_info['result']}"

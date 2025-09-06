@@ -214,18 +214,34 @@ class EnhancedDuplicateProtection:
                     today in row[1] and  # Дата в колонке B
                     row[5]):  # Ссылка в колонке F
                     
-                    # Более гибкий поиск команд
+                    # Более точный поиск команд
                     unique_key = row[2].lower()
                     team1_lower = team1.lower()
                     team2_lower = team2.lower()
                     
-                    # Проверяем различные варианты совпадений
-                    if (team1_lower in unique_key or team2_lower in unique_key or
-                        'pull' in unique_key or 'фарм' in unique_key):
-                        
+                    # Нормализуем названия команд для сравнения
+                    def normalize_team_name(name):
+                        return name.lower().replace(' ', '_').replace('pull_up', 'pullup').replace('pullup', 'pull_up')
+                    
+                    team1_normalized = normalize_team_name(team1)
+                    team2_normalized = normalize_team_name(team2)
+                    unique_key_normalized = normalize_team_name(unique_key)
+                    
+                    # Проверяем точное соответствие команд
+                    # Ищем комбинации: team1 vs team2 или team2 vs team1
+                    team1_found = any(part in unique_key_normalized for part in team1_normalized.split('_') if len(part) > 2)
+                    team2_found = any(part in unique_key_normalized for part in team2_normalized.split('_') if len(part) > 2)
+                    
+                    # Дополнительная проверка для наших команд
+                    our_team_found = any(keyword in unique_key_normalized for keyword in ['pull_up', 'pullup', 'фарм'])
+                    opponent_found = any(part in unique_key_normalized for part in team2_normalized.split('_') if len(part) > 2)
+                    
+                    # Если найдены обе команды или наша команда + соперник
+                    if (team1_found and team2_found) or (our_team_found and opponent_found):
                         game_link = row[5]
-                        print(f"✅ Найдена ссылка в сервисном листе: {game_link}")
+                        print(f"✅ Найдена точная ссылка в сервисном листе: {game_link}")
                         print(f"   По ключу: {row[2]}")
+                        print(f"   Для команд: {team1} vs {team2}")
                         return game_link
             
             print(f"❌ Ссылка на игру не найдена в сервисном листе")

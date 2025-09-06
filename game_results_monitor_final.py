@@ -424,35 +424,19 @@ class GameResultsMonitorFinal:
                 protocol_link = f"{game_link}#protocol"
                 message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
             
-            # Отправляем сообщение
+            # Отправляем сообщение в основной топик (без message_thread_id)
             try:
-                if ANNOUNCEMENTS_TOPIC_ID:
-                    message_thread_id = int(ANNOUNCEMENTS_TOPIC_ID)
-                    # Используем более явный вызов метода
-                    bot_instance = self.bot
-                    sent_message = await bot_instance.send_message(
-                        chat_id=int(CHAT_ID),
-                        text=message,
-                        parse_mode='HTML',
-                        message_thread_id=message_thread_id
-                    )
-                else:
-                    # Используем более явный вызов метода
-                    bot_instance = self.bot
-                    sent_message = await bot_instance.send_message(
-                        chat_id=int(CHAT_ID),
-                        text=message,
-                        parse_mode='HTML'
-                    )
-            except Exception as topic_error:
-                print(f"⚠️ Ошибка с topic ID: {topic_error}")
-                # Пробуем без topic ID
+                # Результаты игр отправляем в основной топик
                 bot_instance = self.bot
                 sent_message = await bot_instance.send_message(
                     chat_id=int(CHAT_ID),
                     text=message,
                     parse_mode='HTML'
                 )
+                print(f"✅ Результат отправлен в основной топик")
+            except Exception as send_error:
+                print(f"❌ Ошибка отправки: {send_error}")
+                return False
             
             # Сохраняем в историю (для обратной совместимости)
             result_key = self.create_result_key(game_info)

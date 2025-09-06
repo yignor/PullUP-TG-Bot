@@ -389,8 +389,8 @@ class GameSystemManager:
         print(f"📋 История опросов содержит {len(self.polls_history)} записей")
         
         # Проверяем защиту от дублирования через Google Sheets
-        is_duplicate = duplicate_protection.check_duplicate("ОПРОС_ИГРА", game_key)
-        if is_duplicate:
+        duplicate_result = duplicate_protection.check_duplicate("ОПРОС_ИГРА", game_key)
+        if duplicate_result.get('exists', False):
             print(f"⏭️ Опрос для игры {game_key} уже создан (защита через Google Sheets)")
             return False
         
@@ -491,8 +491,8 @@ class GameSystemManager:
         print(f"📋 История анонсов содержит {len(self.announcements_history)} записей")
         
         # Проверяем защиту от дублирования через Google Sheets
-        is_duplicate = duplicate_protection.check_duplicate("АНОНС_ИГРА", announcement_key)
-        if is_duplicate:
+        duplicate_result = duplicate_protection.check_duplicate("АНОНС_ИГРА", announcement_key)
+        if duplicate_result.get('exists', False):
             print(f"⏭️ Анонс для игры {announcement_key} уже отправлен (защита через Google Sheets)")
             return False
         
@@ -522,13 +522,9 @@ class GameSystemManager:
         """Проверяет, подходящее ли время для создания опросов"""
         now = get_moscow_time()
         
-        # Создаем опросы в 10:00-11:00 МСК (до 11:00 включительно)
-        if now.hour == 10 or (now.hour == 11 and now.minute == 0):
-            print(f"🕐 Время подходящее для создания опросов: {now.strftime('%H:%M')}")
-            return True
-        
-        print(f"⏰ Не время для создания опросов: {now.strftime('%H:%M')} (нужно 10:00-11:00)")
-        return False
+        # Создаем опросы в течение всего дня (защита от дублирования через Google Sheets)
+        print(f"🕐 Время подходящее для создания опросов: {now.strftime('%H:%M')} (весь день)")
+        return True
     
     def _is_correct_time_for_announcements(self) -> bool:
         """Проверяет, подходящее ли время для отправки анонсов"""

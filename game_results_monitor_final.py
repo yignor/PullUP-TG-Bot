@@ -330,7 +330,7 @@ class GameResultsMonitorFinal:
                         'time': game_info.get('time', ''),
                         'venue': game_info.get('venue', ''),
                         'quarters': game_info.get('quarters', []),
-                        'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития'
+                        'team_type': 'первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'состав развития'
                     }
                 return None
         except Exception as e:

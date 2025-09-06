@@ -398,10 +398,22 @@ class GameResultsMonitorFinal:
             return False
         
         try:
-            # Проверяем, не отправляли ли мы уже этот результат
-            print(f"🔍 Проверяем историю для игры: {game_info['team1']} vs {game_info['team2']}")
+            # Создаем ключ для проверки дублирования
+            result_key = self.create_result_key(game_info)
+            
+            # Проверяем дублирование в Google Sheets (основная защита)
+            print(f"🔍 Проверяем дублирование в Google Sheets для игры: {game_info['team1']} vs {game_info['team2']}")
+            duplicate_check = duplicate_protection.check_duplicate("РЕЗУЛЬТАТ_ИГРА", result_key)
+            
+            if duplicate_check.get('exists'):
+                print(f"⏭️ Результат для игры {game_info['team1']} vs {game_info['team2']} уже отправлен (найдено в Google Sheets)")
+                print(f"   📅 Время отправки: {duplicate_check.get('data', ['', '', '', '', ''])[1]}")
+                return False
+            
+            # Дополнительная проверка по локальному файлу (для обратной совместимости)
+            print(f"🔍 Проверяем локальную историю для игры: {game_info['team1']} vs {game_info['team2']}")
             if self.was_result_sent(game_info):
-                print(f"⏭️ Результат для игры {game_info['team1']} vs {game_info['team2']} уже отправлен")
+                print(f"⏭️ Результат для игры {game_info['team1']} vs {game_info['team2']} уже отправлен (найдено в локальной истории)")
                 return False
             
             # Формируем сообщение о результате
@@ -424,6 +436,19 @@ class GameResultsMonitorFinal:
                 protocol_link = f"{game_link}#protocol"
                 message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
             
+            # Сначала добавляем запись в Google Sheets для защиты от дублирования
+            additional_info = f"{game_info['date']} {game_info['our_team']} vs {game_info['opponent']} ({game_info['our_score']}:{game_info['opponent_score']}) - {game_info['result']}"
+            protection_result = duplicate_protection.add_record(
+                "РЕЗУЛЬТАТ_ИГРА",
+                result_key,
+                "ОТПРАВЛЯЕТСЯ",  # Временный статус
+                additional_info
+            )
+            
+            if not protection_result.get('success'):
+                print(f"❌ Ошибка добавления записи в Google Sheets: {protection_result.get('error')}")
+                # Продолжаем отправку, но логируем ошибку
+            
             # Отправляем сообщение в основной топик (без message_thread_id)
             try:
                 # Результаты игр отправляем в основной топик
@@ -434,27 +459,26 @@ class GameResultsMonitorFinal:
                     parse_mode='HTML'
                 )
                 print(f"✅ Результат отправлен в основной топик")
+                
+                # Обновляем статус в Google Sheets на "ОТПРАВЛЕНО"
+                if protection_result.get('success') and protection_result.get('unique_key'):
+                    duplicate_protection.update_record_status(protection_result['unique_key'], "ОТПРАВЛЕНО")
+                    print(f"✅ Статус обновлен в Google Sheets: ОТПРАВЛЕНО")
+                
             except Exception as send_error:
                 print(f"❌ Ошибка отправки: {send_error}")
+                # Обновляем статус на "ОШИБКА" если отправка не удалась
+                if protection_result.get('success') and protection_result.get('unique_key'):
+                    duplicate_protection.update_record_status(protection_result['unique_key'], "ОШИБКА")
                 return False
             
-            # Сохраняем в историю (для обратной совместимости)
-            result_key = self.create_result_key(game_info)
+            # Сохраняем в локальную историю (для обратной совместимости)
             self.results_history[result_key] = {
                 'date': get_moscow_time().isoformat(),
                 'game_info': game_info,
                 'message': message
             }
             self.save_results_history()
-            
-            # Добавляем запись в сервисный лист для защиты от дублирования
-            additional_info = f"{game_info['date']} {game_info['our_team']} vs {game_info['opponent']} ({game_info['our_score']}:{game_info['opponent_score']}) - {game_info['result']}"
-            duplicate_protection.add_record(
-                "РЕЗУЛЬТАТ_ИГРА",
-                result_key,
-                "ОБРАБОТАН",
-                additional_info
-            )
             
             print(f"✅ Результат игры отправлен: {game_info['our_team']} vs {game_info['opponent']}")
             return True
@@ -476,12 +500,27 @@ class GameResultsMonitorFinal:
         print(f"ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
         
         # Показываем информацию о истории
-        print(f"📋 История результатов: {len(self.results_history)} записей")
+        print(f"📋 Локальная история результатов: {len(self.results_history)} записей")
         if self.results_history:
             print("   Последние записи:")
             for i, (key, value) in enumerate(list(self.results_history.items())[-3:], 1):
                 sent_time = value.get('date', 'неизвестно')
                 print(f"   {i}. {key} - {sent_time}")
+        
+        # Показываем статистику из Google Sheets
+        print(f"\n📊 Статистика из Google Sheets:")
+        try:
+            from enhanced_duplicate_protection import duplicate_protection
+            stats = duplicate_protection.get_statistics()
+            if 'РЕЗУЛЬТАТ_ИГРА' in stats:
+                result_stats = stats['РЕЗУЛЬТАТ_ИГРА']
+                print(f"   📈 Всего результатов: {result_stats.get('total', 0)}")
+                print(f"   ✅ Отправлено: {result_stats.get('completed', 0)}")
+                print(f"   🔄 В процессе: {result_stats.get('active', 0)}")
+            else:
+                print("   📈 Результатов игр в Google Sheets не найдено")
+        except Exception as e:
+            print(f"   ❌ Ошибка получения статистики: {e}")
         
         if not BOT_TOKEN or not CHAT_ID:
             print("❌ Не все переменные окружения настроены")

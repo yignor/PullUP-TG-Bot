@@ -19,6 +19,7 @@ CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
 TARGET_TEAMS_STR = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм")
 TARGET_TEAMS = [team.strip() for team in TARGET_TEAMS_STR.split(",") if team.strip()]
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
 
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
@@ -1048,6 +1049,7 @@ class GameSystemManager:
             print(f"   CHAT_ID: {CHAT_ID}")
             print(f"   GAMES_TOPIC_ID: {GAMES_TOPIC_ID}")
             print(f"   TARGET_TEAMS: {TARGET_TEAMS}")
+            print(f"   ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
             print(f"   История опросов: {len(self.polls_history)} записей")
             print(f"   История анонсов: {len(self.announcements_history)} записей")
             

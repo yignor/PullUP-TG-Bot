@@ -1,13 +1,10 @@
-name: Game System Manager
+name: Game System Manager - Test Mode
 
 on:
-  schedule:
-    # Запускаем каждый день в 10:00 по московскому времени (7:00 UTC)
-    - cron: '0 7 * * *'  # 10:00 MSK
-  workflow_dispatch: # Позволяет запускать вручную
+  workflow_dispatch: # Только ручной запуск для тестирования
 
 jobs:
-  run-game-system:
+  run-game-system-test:
     runs-on: ubuntu-latest
     
     steps:
@@ -25,26 +22,19 @@ jobs:
         path: |
           game_announcements.json
           game_polls_history.json
-        key: game-history-${{ github.ref }}
+        key: game-history-test-${{ github.ref }}
         restore-keys: |
-          game-history-
+          game-history-test-
       
     - name: Check restored history
       run: |
-        echo "🔍 ПРОВЕРКА ВОССТАНОВЛЕННОЙ ИСТОРИИ"
+        echo "🔍 ПРОВЕРКА ВОССТАНОВЛЕННОЙ ИСТОРИИ (ТЕСТ)"
         echo "=================================================="
         echo "📋 Содержимое рабочей директории:"
         ls -la
         echo ""
         echo "📋 Содержимое всех JSON файлов:"
         find . -name "*.json" -type f
-        echo ""
-        echo "📄 Содержимое game_announcements.json (если есть):"
-        if [ -f "game_announcements.json" ]; then
-          cat game_announcements.json
-        else
-          echo "❌ Файл game_announcements.json не найден"
-        fi
         echo "=================================================="
         
     - name: Install dependencies
@@ -52,31 +42,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-github.txt
         
-    - name: Debug history files
-      run: |
-        echo "🔍 ДИАГНОСТИКА ФАЙЛОВ ИСТОРИИ"
-        echo "=================================================="
-        echo "📋 Проверяем наличие файлов истории:"
-        ls -la *.json 2>/dev/null || echo "❌ JSON файлы не найдены"
-        echo ""
-        echo "📄 Содержимое game_announcements.json:"
-        if [ -f "game_announcements.json" ]; then
-          cat game_announcements.json
-        else
-          echo "❌ Файл game_announcements.json не найден"
-        fi
-        echo ""
-        echo "📄 Содержимое game_polls_history.json:"
-        if [ -f "game_polls_history.json" ]; then
-          cat game_polls_history.json
-        else
-          echo "❌ Файл game_polls_history.json не найден"
-        fi
-        echo "=================================================="
-        
     - name: Initialize history files
       run: |
-        echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ ИСТОРИИ"
+        echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ ИСТОРИИ (ТЕСТ)"
         echo "=================================================="
         # Создаем пустые файлы истории, если они не существуют
         if [ ! -f "game_announcements.json" ]; then
@@ -90,7 +58,7 @@ jobs:
         echo "✅ Файлы истории инициализированы"
         echo "=================================================="
         
-    - name: Run complete game system
+    - name: Run complete game system (TEST MODE)
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -98,13 +66,13 @@ jobs:
         TARGET_TEAMS: ${{ secrets.TARGET_TEAMS }}
         GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-        TEST_MODE: "false"  # Продакшн режим
+        TEST_MODE: "true"  # ТЕСТОВЫЙ РЕЖИМ
       run: |
-        echo "🏀 Запуск системы управления играми (ежедневно в 10:00 MSK)..."
+        echo "🧪 Запуск системы управления играми (ТЕСТОВЫЙ РЕЖИМ)..."
         echo "=================================================="
         python run_game_system.py
         echo "=================================================="
-        echo "Завершение работы системы"
+        echo "Завершение работы системы (ТЕСТ)"
         
     - name: Save history to cache
       uses: actions/cache@v3
@@ -113,13 +81,13 @@ jobs:
         path: |
           game_announcements.json
           game_polls_history.json
-        key: game-history-${{ github.ref }}
+        key: game-history-test-${{ github.ref }}
         
     - name: Upload logs
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: game-system-logs
+        name: game-system-test-logs
         path: |
           game_polls_history.json
           game_announcements.json

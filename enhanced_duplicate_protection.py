@@ -19,6 +19,7 @@ load_dotenv()
 # Переменные окружения
 GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
 
 # Настройки Google Sheets
 SCOPES = [
@@ -82,6 +83,10 @@ class EnhancedDuplicateProtection:
         """Создает уникальный ключ для записи"""
         # Базовый ключ
         base_key = f"{data_type}_{identifier}"
+        
+        # Добавляем префикс TEST_ в тестовом режиме
+        if TEST_MODE:
+            base_key = f"TEST_{base_key}"
         
         # Добавляем дополнительные параметры для уникальности
         if kwargs:

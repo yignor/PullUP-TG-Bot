@@ -193,9 +193,9 @@ class GameResultsMonitorFinal:
                                     if our_team:
                                         # Определяем тип команды
                                         if 'фарм' in our_team.lower():
-                                            team_type = 'состав развития'
+                                            team_type = 'Состав Развития'
                                         else:
-                                            team_type = 'первый состав'
+                                            team_type = 'Первый состав'
                                         
                                         # Определяем результат
                                         our_score = int(score1) if our_team == team1.strip() else int(score2)
@@ -330,7 +330,7 @@ class GameResultsMonitorFinal:
                         'time': game_info.get('time', ''),
                         'venue': game_info.get('venue', ''),
                         'quarters': game_info.get('quarters', []),
-                        'team_type': 'первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'состав развития'
+                        'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития'
                     }
                 return None
         except Exception as e:

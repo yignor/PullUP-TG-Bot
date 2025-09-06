@@ -130,7 +130,7 @@ class NotificationManager:
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления о начале игры: {e}")
     
-    async def send_game_result_notification(self, game_info: Dict[str, Any], poll_results: Optional[Dict[str, Any]] = None):
+    async def send_game_result_notification(self, game_info: Dict[str, Any], poll_results: Optional[Dict[str, Any]] = None, game_link: Optional[str] = None):
         """Отправляет уведомление о результате игры с количеством участников"""
         # Создаем уникальный ID для уведомления
         notification_id = f"game_result_{game_info.get('pullup_team', game_info.get('team1', ''))}_{game_info.get('opponent_team', game_info.get('team2', ''))}_{game_info.get('date', '')}"
@@ -159,8 +159,12 @@ class NotificationManager:
             else:
                 score = pullup_score
             
-            message = f"🏀 Игра против {opponent_team} закончилась\n\n"
-            message += f"🏆 Счет: {score}\n"
+            # Определяем тип состава
+            team_type = "первый состав" if "фарм" not in pullup_team.lower() else "состав развития"
+            
+            message = f"🏆 <b>РЕЗУЛЬТАТ ИГРЫ</b>\n\n"
+            message += f"🏀 {team_type} vs {opponent_team}\n"
+            message += f"📊 Счет: <b>{score}</b>\n"
             
             if poll_results:
                 votes = poll_results.get('votes', {})
@@ -187,7 +191,13 @@ class NotificationManager:
             else:
                 message += f"\n📊 Статистика голосования: Недоступна"
             
-            await self.bot.send_message(chat_id=self.chat_id, text=message)
+            # Добавляем ссылку на протокол если она есть
+            if game_link:
+                # Добавляем #protocol в конец ссылки
+                protocol_link = f"{game_link}#protocol"
+                message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
+            
+            await self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
             self.sent_game_result_notifications.add(notification_id)
             self._save_sent_notifications()
             logger.info(f"✅ Отправлено уведомление о результате игры: {score}")

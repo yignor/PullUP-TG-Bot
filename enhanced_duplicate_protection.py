@@ -144,7 +144,7 @@ class EnhancedDuplicateProtection:
             return {'exists': False, 'error': str(e)}
     
     def add_record(self, data_type: str, identifier: str, status: str = "АКТИВЕН", 
-                   additional_data: str = "", **kwargs) -> Dict[str, Any]:
+                   additional_data: str = "", game_link: str = "", **kwargs) -> Dict[str, Any]:
         """Добавляет новую запись в сервисный лист"""
         worksheet = self._get_service_worksheet()
         if not worksheet:
@@ -173,7 +173,8 @@ class EnhancedDuplicateProtection:
                 current_datetime,
                 unique_key,
                 status,
-                additional_data
+                additional_data,
+                game_link
             ]
             
             # Добавляем запись в конец
@@ -189,6 +190,50 @@ class EnhancedDuplicateProtection:
             
         except Exception as e:
             return {'success': False, 'error': str(e)}
+    
+    def find_game_link_for_today(self, team1: str, team2: str) -> Optional[str]:
+        """Ищет ссылку на игру для сегодняшней даты"""
+        worksheet = self._get_service_worksheet()
+        if not worksheet:
+            print("❌ Лист 'Сервисный' не найден")
+            return None
+        
+        try:
+            from datetime_utils import get_moscow_time
+            today = get_moscow_time().strftime('%d.%m.%Y')
+            
+            # Получаем все данные
+            all_data = worksheet.get_all_values()
+            
+            print(f"🔍 Ищем ссылку на игру для {today}: {team1} vs {team2}")
+            
+            # Ищем записи типа АНОНС_ИГРА за сегодня
+            for row in all_data:
+                if (len(row) >= 6 and 
+                    row[0] == "АНОНС_ИГРА" and 
+                    today in row[1] and  # Дата в колонке B
+                    row[5]):  # Ссылка в колонке F
+                    
+                    # Более гибкий поиск команд
+                    unique_key = row[2].lower()
+                    team1_lower = team1.lower()
+                    team2_lower = team2.lower()
+                    
+                    # Проверяем различные варианты совпадений
+                    if (team1_lower in unique_key or team2_lower in unique_key or
+                        'pull' in unique_key or 'фарм' in unique_key):
+                        
+                        game_link = row[5]
+                        print(f"✅ Найдена ссылка в сервисном листе: {game_link}")
+                        print(f"   По ключу: {row[2]}")
+                        return game_link
+            
+            print(f"❌ Ссылка на игру не найдена в сервисном листе")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Ошибка поиска ссылки в сервисном листе: {e}")
+            return None
     
     def update_record_status(self, unique_key: str, new_status: str) -> Dict[str, Any]:
         """Обновляет статус существующей записи"""

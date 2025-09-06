@@ -234,16 +234,161 @@ class GameResultsMonitorFinal:
             print(f"❌ Ошибка получения результатов: {e}")
             return []
     
-    async def find_game_link(self, team1: str, team2: str) -> Optional[str]:
-        """Ищет ссылку на игру по командам (использует логику из game_system_manager)"""
+    async def fetch_game_results_from_links(self) -> List[Dict]:
+        """Получает результаты игр используя ссылки из сервисного листа"""
         try:
+            from enhanced_duplicate_protection import duplicate_protection
+            from datetime_utils import get_moscow_time
+            
+            today = get_moscow_time().strftime('%d.%m.%Y')
+            games = []
+            
+            # Получаем все данные из сервисного листа
+            worksheet = duplicate_protection._get_service_worksheet()
+            if not worksheet:
+                print("❌ Сервисный лист недоступен")
+                return []
+            
+            all_data = worksheet.get_all_values()
+            
+            # Ищем записи типа АНОНС_ИГРА за сегодня с ссылками
+            for row in all_data:
+                if (len(row) >= 6 and 
+                    row[0] == "АНОНС_ИГРА" and 
+                    today in row[1] and 
+                    row[5]):  # Есть ссылка
+                    
+                    game_link = row[5]
+                    if not game_link.startswith('http'):
+                        game_link = f"http://letobasket.ru/{game_link}"
+                    
+                    print(f"🔍 Парсим игру по ссылке: {game_link}")
+                    
+                    # Парсим игру используя улучшенный парсер
+                    game_info = await self.parse_game_from_link(game_link)
+                    if game_info:
+                        games.append(game_info)
+                        print(f"✅ Игра добавлена: {game_info['our_team']} vs {game_info['opponent']} - {game_info['result']}")
+                    else:
+                        print(f"❌ Не удалось распарсить игру")
+            
+            return games
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения результатов по ссылкам: {e}")
+            return []
+    
+    async def find_game_link(self, team1: str, team2: str, game_date: str = None) -> Optional[str]:
+        """Ищет ссылку на игру по командам (сначала в сервисном листе, потом в анонсах, потом в табло)"""
+        try:
+            # 1. Сначала ищем в сервисном листе Google Sheets (самый надежный способ)
+            from enhanced_duplicate_protection import duplicate_protection
+            link_from_service_sheet = duplicate_protection.find_game_link_for_today(team1, team2)
+            if link_from_service_sheet:
+                print(f"🔗 Найдена ссылка в сервисном листе: {link_from_service_sheet}")
+                return link_from_service_sheet
+            
+            # 2. Если не найдено в сервисном листе, ищем в анонсах игр
+            print(f"🔍 Ссылка не найдена в сервисном листе, ищем в анонсах...")
+            link_from_announcements = self.find_link_in_announcements(team1, team2, game_date)
+            if link_from_announcements:
+                print(f"🔗 Найдена ссылка в анонсах: {link_from_announcements}")
+                return link_from_announcements
+            
+            # 3. Если не найдено в анонсах, ищем в табло
+            print(f"🔍 Ссылка не найдена в анонсах, ищем в табло...")
             result = await self.game_manager.find_game_link(team1, team2)
             if result:
                 game_link, found_team = result
+                print(f"🔗 Найдена ссылка в табло: {game_link}")
                 return game_link
+            
+            print(f"❌ Ссылка на игру не найдена ни в одном источнике")
             return None
         except Exception as e:
             print(f"❌ Ошибка поиска ссылки на игру: {e}")
+            return None
+    
+    async def parse_game_from_link(self, game_link: str) -> Optional[Dict]:
+        """Парсит игру по ссылке используя улучшенный парсер"""
+        try:
+            from enhanced_game_parser import EnhancedGameParser
+            
+            async with EnhancedGameParser() as parser:
+                game_info = await parser.parse_game_from_url(game_link)
+                if game_info and game_info.get('result'):
+                    # Преобразуем в формат, ожидаемый системой
+                    return {
+                        'team1': game_info.get('our_team', ''),
+                        'team2': game_info.get('opponent', ''),
+                        'our_team': game_info.get('our_team', ''),
+                        'opponent': game_info.get('opponent', ''),
+                        'our_score': game_info.get('our_score', 0),
+                        'opponent_score': game_info.get('opponent_score', 0),
+                        'result': game_info.get('result', ''),
+                        'date': game_info.get('date', ''),
+                        'time': game_info.get('time', ''),
+                        'venue': game_info.get('venue', ''),
+                        'quarters': game_info.get('quarters', []),
+                        'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития'
+                    }
+                return None
+        except Exception as e:
+            print(f"❌ Ошибка парсинга игры по ссылке: {e}")
+            return None
+    
+    def find_link_in_announcements(self, team1: str, team2: str, game_date: str = None) -> Optional[str]:
+        """Ищет ссылку на игру в сохраненных анонсах"""
+        try:
+            import json
+            import os
+            
+            announcements_file = "game_announcements.json"
+            if not os.path.exists(announcements_file):
+                print(f"📄 Файл анонсов не найден: {announcements_file}")
+                return None
+            
+            with open(announcements_file, 'r', encoding='utf-8') as f:
+                announcements = json.load(f)
+            
+            print(f"📋 Загружено {len(announcements)} анонсов для поиска ссылки")
+            
+            # Ищем по разным вариантам ключей
+            search_keys = []
+            
+            # Если есть дата, используем её
+            if game_date:
+                # Нормализуем время (заменяем точку на двоеточие)
+                time_variants = ["12:00", "12.00", "14:00", "14.00", "16:00", "16.00", "18:00", "18.00", "20:00", "20.00"]
+                for time_var in time_variants:
+                    search_keys.append(f"{game_date}_{time_var}_{team1}_{team2}")
+                    search_keys.append(f"{game_date}_{time_var}_{team2}_{team1}")
+            else:
+                # Ищем по всем возможным комбинациям
+                for key in announcements.keys():
+                    if team1 in key and team2 in key:
+                        search_keys.append(key)
+            
+            print(f"🔍 Ищем по ключам: {search_keys[:3]}...")  # Показываем первые 3
+            
+            for key in search_keys:
+                if key in announcements:
+                    announcement = announcements[key]
+                    game_link = announcement.get('game_link')
+                    if game_link:
+                        # Формируем полную ссылку
+                        if game_link.startswith('http'):
+                            full_link = game_link
+                        else:
+                            full_link = f"http://letobasket.ru/{game_link}"
+                        print(f"✅ Найдена ссылка в анонсе {key}: {full_link}")
+                        return full_link
+            
+            print(f"❌ Ссылка не найдена в анонсах")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Ошибка поиска в анонсах: {e}")
             return None
     
     async def send_game_result(self, game_info: Dict) -> bool:
@@ -263,17 +408,21 @@ class GameResultsMonitorFinal:
             result_emoji = "🏆" if game_info['result'] == "победа" else "😔" if game_info['result'] == "поражение" else "🤝"
             
             message = f"{result_emoji} <b>РЕЗУЛЬТАТ ИГРЫ</b>\n\n"
-            message += f"🏀 <b>{game_info['team_type'].title()}</b>\n"
-            message += f"📅 {game_info['date']}\n"
-            message += f"⚔️ {game_info['our_team']} vs {game_info['opponent']}\n"
+            message += f"🏀 {game_info['team_type']} vs {game_info['opponent']}\n"
             message += f"📊 Счет: <b>{game_info['our_score']}:{game_info['opponent_score']}</b>\n"
             message += f"🎯 Результат: <b>{game_info['result'].upper()}</b>\n"
-            message += f"📈 Четверти: {game_info['quarters']}"
+            
+            # Добавляем четверти только если есть реальные данные
+            quarters = game_info.get('quarters', [])
+            if quarters and quarters != ['Данные недоступны']:
+                message += f"📈 Четверти: {quarters}"
             
             # Ищем ссылку на игру
-            game_link = await self.find_game_link(game_info['team1'], game_info['team2'])
+            game_link = await self.find_game_link(game_info['team1'], game_info['team2'], game_info.get('date'))
             if game_link:
-                message += f"\n\n🔗 <a href='{game_link}'>Страница игры</a>"
+                # Добавляем #protocol в конец ссылки
+                protocol_link = f"{game_link}#protocol"
+                message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
             
             # Отправляем сообщение
             try:
@@ -356,6 +505,7 @@ class GameResultsMonitorFinal:
         
         # Проверяем время выполнения (для production, но не при ручном запуске)
         if not force_run and not self.should_check_results():
+            from datetime_utils import get_moscow_time
             now = get_moscow_time()
             print(f"⏰ Не время для проверки результатов: {now.strftime('%H:%M')} MSK")
             print("📅 Расписание проверки:")
@@ -364,9 +514,46 @@ class GameResultsMonitorFinal:
             print("💡 Для принудительного запуска используйте force_run=True")
             return
         
-        # Получаем результаты игр
+        # Проверяем наличие ссылок на игры для сегодня
+        print("\n🔍 Проверка наличия ссылок на игры для сегодня...")
+        from enhanced_duplicate_protection import duplicate_protection
+        
+        # Ищем ссылки на игры в сервисном листе
+        today_games_found = False
+        try:
+            from datetime_utils import get_moscow_time
+            today = get_moscow_time().strftime('%d.%m.%Y')
+            
+            # Получаем все данные из сервисного листа
+            worksheet = duplicate_protection._get_service_worksheet()
+            if worksheet:
+                all_data = worksheet.get_all_values()
+                
+                # Ищем записи типа АНОНС_ИГРА за сегодня
+                for row in all_data:
+                    if (len(row) >= 6 and 
+                        row[0] == "АНОНС_ИГРА" and 
+                        today in row[1] and  # Дата в колонке B
+                        row[5]):  # Ссылка в колонке F
+                        today_games_found = True
+                        print(f"✅ Найдена игра на сегодня: {row[2]} (ссылка: {row[5]})")
+                        break
+                
+                if not today_games_found:
+                    print(f"❌ Игры на сегодня ({today}) не найдены в сервисном листе")
+                    print("💡 Убедитесь, что анонсы игр были созданы и содержат ссылки")
+                    return
+            else:
+                print("❌ Сервисный лист недоступен")
+                return
+                
+        except Exception as e:
+            print(f"❌ Ошибка проверки ссылок на игры: {e}")
+            return
+        
+        # Получаем результаты игр используя ссылки из сервисного листа
         print("\n🔄 Получение результатов игр...")
-        games = await self.fetch_game_results()
+        games = await self.fetch_game_results_from_links()
         
         if not games:
             print("⚠️ Завершенных игр не найдено")

@@ -1014,7 +1014,8 @@ class GameSystemManager:
                 "АНОНС_ИГРА",
                 announcement_key,
                 "ОТПРАВЛЕН",
-                additional_info
+                additional_info,
+                game_link or ""  # Передаем ссылку на игру
             )
             
             print(f"✅ Анонс игры отправлен в основной топик")

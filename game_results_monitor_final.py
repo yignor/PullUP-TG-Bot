@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from telegram import Bot
 from datetime_utils import get_moscow_time
 from game_system_manager import GameSystemManager
-from enhanced_duplicate_protection import duplicate_protection
+from enhanced_duplicate_protection import duplicate_protection, TEST_MODE
 
 # Централизованная загрузка переменных окружения
 def load_environment():
@@ -340,6 +340,7 @@ class GameResultsMonitorFinal:
         print(f"BOT_TOKEN: {'✅' if BOT_TOKEN else '❌'}")
         print(f"CHAT_ID: {'✅' if CHAT_ID else '❌'}")
         print(f"ANNOUNCEMENTS_TOPIC_ID: {'✅' if ANNOUNCEMENTS_TOPIC_ID else '❌'}")
+        print(f"ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
         
         # Показываем информацию о истории
         print(f"📋 История результатов: {len(self.results_history)} записей")

@@ -1,1 +1,36 @@
-{}
+{
+  "06.09.2025_12:30_IT Basket_Pull Up": {
+    "message_id": 206,
+    "text": "🏀 Сегодня игра Состав Развития против IT Basket в MarvelHall.\n🕐 Время игры: 12:30.\n🔗 Ссылка на игру: <a href=\"http://letobasket.ru/game.html?gameId=934356&apiUrl=https://reg.infobasket.su&lang=ru\">тут</a>",
+    "game_info": {
+      "date": "06.09.2025",
+      "time": "12:30",
+      "team1": "IT Basket",
+      "team2": "Pull Up",
+      "venue": "MarvelHall",
+      "full_text": "06.09.2025 12:30 (MarvelHall) - IT Basket - Pull Up"
+    },
+    "game_link": "game.html?gameId=934356&apiUrl=https://reg.infobasket.su&lang=ru",
+    "game_position": 1,
+    "date": "2025-09-06T12:42:57.602180+03:00",
+    "chat_id": "-15573582",
+    "topic_id": "main"
+  },
+  "06.09.2025_14:00_Атомпроект_Pull Up": {
+    "message_id": 207,
+    "text": "🏀 Сегодня игра Первый состав против Атомпроект в MarvelHall.\n🕐 Время игры: 14:00.\n🔗 Ссылка на игру: <a href=\"http://letobasket.ru/game.html?gameId=934344&apiUrl=https://reg.infobasket.su&lang=ru\">тут</a>",
+    "game_info": {
+      "date": "06.09.2025",
+      "time": "14:00",
+      "team1": "Атомпроект",
+      "team2": "Pull Up",
+      "venue": "MarvelHall",
+      "full_text": "06.09.2025 14:00 (MarvelHall) - Атомпроект - Pull Up"
+    },
+    "game_link": "game.html?gameId=934344&apiUrl=https://reg.infobasket.su&lang=ru",
+    "game_position": 1,
+    "date": "2025-09-06T12:43:02.407991+03:00",
+    "chat_id": "-15573582",
+    "topic_id": "main"
+  }
+}

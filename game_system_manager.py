@@ -115,6 +115,18 @@ def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -
     # Если не найден ни один вариант, то это первый состав
     return "Первый состав"
 
+def get_team_category_with_declension(team_name: str, opponent: str = "", game_time: str = "") -> str:
+    """Определяет категорию команды с правильным склонением для анонсов"""
+    category = get_team_category(team_name, opponent, game_time)
+    
+    # Правильные склонения для анонсов
+    if category == "Первый состав":
+        return "Первого состава"
+    elif category == "Состав Развития":
+        return "состава Развития"
+    else:
+        return category
+
 def determine_form_color(team1: str, team2: str) -> str:
     """Определяет цвет формы (светлая или темная)"""
     # Нормализуем названия команд для сравнения
@@ -877,17 +889,18 @@ class GameSystemManager:
         # Определяем категорию команды с правильным склонением
         # Используем найденную команду из iframe, если она передана, но всегда учитываем соперника
         if found_team:
-            team_category = get_team_category(found_team, opponent)
+            team_category = get_team_category_with_declension(found_team, opponent)
             print(f"🏷️ Используем найденную команду для категории: {found_team} vs {opponent} -> {team_category}")
         else:
-            team_category = get_team_category(our_team, opponent)
+            team_category = get_team_category_with_declension(our_team, opponent)
             print(f"🏷️ Используем команду из расписания для категории: {our_team} vs {opponent} -> {team_category}")
         
-        # Формируем анонс
+        # Формируем анонс с правильными склонениями и отдельной строкой для места
         # Нормализуем время (заменяем точку на двоеточие для ясности)
         normalized_time = game_info['time'].replace('.', ':')
-        announcement = f"🏀 Сегодня игра {team_category} против {opponent} в {game_info['venue']}.\n"
-        announcement += f"🕐 Время игры: {normalized_time}."
+        announcement = f"🏀 Сегодня игра {team_category} против {opponent}.\n"
+        announcement += f"📍 Место проведения: {game_info['venue']}\n"
+        announcement += f"🕐 Время игры: {normalized_time}"
         
         if game_link:
             if game_link.startswith('game.html?'):

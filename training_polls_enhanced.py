@@ -718,6 +718,47 @@ class TrainingPollsManager:
             print(f"⚠️ Ошибка получения обновлений: {e}")
             updates = []
         
+        # Получаем список уже существующих участников из Google таблицы
+        existing_tuesday_voters = set()
+        existing_friday_voters = set()
+        
+        try:
+            worksheet = self.spreadsheet.worksheet("Тренировки")
+            all_values = worksheet.get_all_values()
+            
+            # Ищем заголовки и собираем существующих участников
+            for i, row in enumerate(all_values):
+                if len(row) > 0 and row[0]:  # Если есть дата
+                    # Проверяем, это заголовок вторника или пятницы
+                    if len(row) > 1 and row[1] == "Вторник":
+                        # Собираем участников вторника после этого заголовка
+                        j = i + 1
+                        while j < len(all_values) and all_values[j][1] != "Пятница" and all_values[j][1] != "Вторник":
+                            if len(all_values[j]) > 3 and all_values[j][2] and all_values[j][3]:  # Есть имя и фамилия
+                                name = all_values[j][3]  # Имя
+                                surname = all_values[j][2]  # Фамилия
+                                existing_tuesday_voters.add(f"{name} {surname}")
+                            j += 1
+                    elif len(row) > 1 and row[1] == "Пятница":
+                        # Собираем участников пятницы после этого заголовка
+                        j = i + 1
+                        while j < len(all_values) and all_values[j][1] != "Вторник" and all_values[j][1] != "Пятница":
+                            if len(all_values[j]) > 3 and all_values[j][2] and all_values[j][3]:  # Есть имя и фамилия
+                                name = all_values[j][3]  # Имя
+                                surname = all_values[j][2]  # Фамилия
+                                existing_friday_voters.add(f"{name} {surname}")
+                            j += 1
+            
+            print(f"📊 Найдено существующих участников вторника: {len(existing_tuesday_voters)}")
+            print(f"📊 Найдено существующих участников пятницы: {len(existing_friday_voters)}")
+            if existing_tuesday_voters:
+                print(f"📊 Участники вторника: {', '.join(list(existing_tuesday_voters)[:5])}{'...' if len(existing_tuesday_voters) > 5 else ''}")
+            if existing_friday_voters:
+                print(f"📊 Участники пятницы: {', '.join(list(existing_friday_voters)[:5])}{'...' if len(existing_friday_voters) > 5 else ''}")
+                
+        except Exception as e:
+            print(f"⚠️ Ошибка получения существующих участников: {e}")
+        
         # Анализируем голоса
         tuesday_voters = []
         friday_voters = []
@@ -726,7 +767,7 @@ class TrainingPollsManager:
         
         poll_answers_found = 0
         total_poll_answers = 0
-        processed_users = set()  # Для дедупликации
+        processed_users = set()  # Для дедупликации по обновлениям
         
         print(f"🔍 Анализ {len(updates)} обновлений...")
         
@@ -757,17 +798,45 @@ class TrainingPollsManager:
                         
                         print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
                         
-                        # Распределяем по дням
+                        # Проверяем дубликаты по Google таблице
+                        # Распределяем по дням с проверкой дубликатов
                         if 0 in option_ids:  # Вторник
-                            tuesday_voters.append(formatted_name)
+                            # Проверяем, есть ли уже этот участник в таблице для вторника
+                            name_parts = formatted_name.split()
+                            if len(name_parts) >= 2:
+                                table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
+                                if table_name not in existing_tuesday_voters:
+                                    tuesday_voters.append(formatted_name)
+                                    print(f"✅ Добавлен участник вторника: {formatted_name}")
+                                else:
+                                    print(f"⚠️ Пропускаем дубликат вторника: {formatted_name} (уже есть в таблице)")
+                            else:
+                                tuesday_voters.append(formatted_name)
+                                print(f"✅ Добавлен участник вторника: {formatted_name}")
+                        
                         if 1 in option_ids:  # Пятница
-                            friday_voters.append(formatted_name)
+                            # Проверяем, есть ли уже этот участник в таблице для пятницы
+                            name_parts = formatted_name.split()
+                            if len(name_parts) >= 2:
+                                table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
+                                if table_name not in existing_friday_voters:
+                                    friday_voters.append(formatted_name)
+                                    print(f"✅ Добавлен участник пятницы: {formatted_name}")
+                                else:
+                                    print(f"⚠️ Пропускаем дубликат пятницы: {formatted_name} (уже есть в таблице)")
+                            else:
+                                friday_voters.append(formatted_name)
+                                print(f"✅ Добавлен участник пятницы: {formatted_name}")
+                        
                         if 2 in option_ids:  # Тренер
                             trainer_voters.append(formatted_name)
+                            print(f"✅ Добавлен тренер: {formatted_name}")
+                        
                         if 3 in option_ids:  # Нет
                             no_voters.append(formatted_name)
+                            print(f"✅ Добавлен 'Нет': {formatted_name}")
                     else:
-                        print(f"🔍 Пропускаем дублированный голос от пользователя {user.id}")
+                        print(f"🔍 Пропускаем дублированный голос от пользователя {user.id} (дубликат в обновлениях)")
         
         print(f"📊 Всего голосов в обновлениях: {total_poll_answers}")
         print(f"📊 Голосов для нужного опроса: {poll_answers_found}")

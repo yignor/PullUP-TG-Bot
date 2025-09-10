@@ -8,10 +8,10 @@
 
 ## Что нужно сделать на продакшене:
 
-### 1. Запустить скрипт полного исправления:
+### 1. Запустить безопасный скрипт исправления:
 ```bash
 cd /path/to/telegram-birthday-bot
-python3 fix_env_completely.py
+python3 fix_env_secure.py
 ```
 
 ### 2. Проверить результат:
@@ -46,9 +46,15 @@ python-dotenv could not parse statement starting at line 6
 
 ## Файлы для продакшена:
 
-- `fix_env_completely.py` - скрипт исправления
+- `fix_env_secure.py` - безопасный скрипт исправления (БЕЗ ТОКЕНОВ)
 - `google_credentials.json` - файл с Google credentials
 - `training_polls_enhanced.py` - обновленный основной скрипт
 - `PRODUCTION_FIX.md` - эта инструкция
+
+## ⚠️ ВАЖНО: Безопасность
+
+- `fix_env_secure.py` НЕ содержит токенов или секретных данных
+- Все токены остаются в вашем локальном .env файле
+- Скрипт только удаляет проблемную переменную GOOGLE_SHEETS_CREDENTIALS
 
 После применения исправлений система будет работать корректно!

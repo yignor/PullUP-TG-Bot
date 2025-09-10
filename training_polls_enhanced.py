@@ -135,6 +135,10 @@ class TrainingPollsManager:
             # Отправляем опрос
             message_thread_id = int(ANNOUNCEMENTS_TOPIC_ID) if ANNOUNCEMENTS_TOPIC_ID else None
             
+            if not CHAT_ID:
+                print("❌ CHAT_ID не настроен")
+                return False
+                
             poll_message = await self.bot.send_poll(
                 chat_id=int(CHAT_ID),
                 question=question,
@@ -639,8 +643,20 @@ class TrainingPollsManager:
                 print("❌ Бот не инициализирован")
                 return False
             
-            # Получаем обновления от бота
-            updates = await self.bot.get_updates(limit=50)
+            # Получаем результаты опроса через API
+            try:
+                # Получаем информацию об опросе
+                if CHAT_ID:
+                    poll_info_api = await self.bot.get_chat(chat_id=int(CHAT_ID))
+                    print(f"📊 Получена информация о чате: {poll_info_api.id}")
+                
+                # Получаем обновления от бота (увеличиваем лимит)
+                updates = await self.bot.get_updates(limit=100, timeout=10)
+                print(f"📊 Получено {len(updates)} обновлений")
+                
+            except Exception as e:
+                print(f"⚠️ Ошибка получения обновлений: {e}")
+                updates = []
             
             # Анализируем голоса
             tuesday_voters = []
@@ -648,12 +664,15 @@ class TrainingPollsManager:
             trainer_voters = []
             no_voters = []
             
+            poll_answers_found = 0
+            
             for update in updates:
                 if update.poll_answer:
                     poll_answer = update.poll_answer
                     user = update.effective_user
                     
                     if poll_answer.poll_id == poll_info['poll_id']:
+                        poll_answers_found += 1
                         option_ids = poll_answer.option_ids
                         
                         user_name = f"{user.first_name} {user.last_name or ''}".strip()
@@ -664,6 +683,8 @@ class TrainingPollsManager:
                         # Форматируем имя игрока
                         formatted_name = self.format_player_name(user_name, telegram_id)
                         
+                        print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
+                        
                         # Распределяем по дням
                         if 0 in option_ids:  # Вторник
                             tuesday_voters.append(formatted_name)
@@ -673,6 +694,8 @@ class TrainingPollsManager:
                             trainer_voters.append(formatted_name)
                         if 3 in option_ids:  # Нет
                             no_voters.append(formatted_name)
+            
+            print(f"📊 Найдено {poll_answers_found} голосов для опроса {poll_info['poll_id']}")
             
             # Сохраняем результаты
             self.poll_results = {
@@ -978,7 +1001,7 @@ class TrainingPollsManager:
                 })
             
             # Применяем группировку
-            if requests:
+            if requests and self.spreadsheet:
                 self.spreadsheet.batch_update({"requests": requests})
                 print("✅ Группировка применена через API")
             
@@ -1030,7 +1053,7 @@ class TrainingPollsManager:
             
             # Проверяем размер файла
             file_size = os.path.getsize('current_poll_info.json')
-            if file_size <= 3:  # Файл пустой или содержит только {}
+            if file_size <= 10:  # Файл пустой или содержит только {}
                 print("📄 Файл current_poll_info.json пустой")
                 return False
             
@@ -1447,12 +1470,7 @@ async def main():
         print("\n🔄 Сбор данных за вторник...")
         success = await training_manager.collect_poll_data("Вторник")
         if success:
-            print("✅ Данные за вторник собраны")
-            save_success = training_manager.save_to_training_sheet("Вторник")
-            if save_success:
-                print("✅ Данные за вторник сохранены в таблицу")
-            else:
-                print("❌ Ошибка сохранения данных за вторник")
+            print("✅ Данные за вторник собраны и сохранены")
         else:
             print("❌ Ошибка сбора данных за вторник")
     
@@ -1460,12 +1478,7 @@ async def main():
         print("\n🔄 Сбор данных за пятницу...")
         success = await training_manager.collect_poll_data("Пятница")
         if success:
-            print("✅ Данные за пятницу собраны")
-            save_success = training_manager.save_to_training_sheet("Пятница")
-            if save_success:
-                print("✅ Данные за пятницу сохранены в таблицу")
-            else:
-                print("❌ Ошибка сохранения данных за пятницу")
+            print("✅ Данные за пятницу собраны и сохранены")
         else:
             print("❌ Ошибка сбора данных за пятницу")
     

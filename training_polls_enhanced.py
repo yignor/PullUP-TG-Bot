@@ -145,7 +145,7 @@ class TrainingPollsManager:
             if not CHAT_ID:
                 print("❌ CHAT_ID не настроен")
                 return False
-                
+            
             poll_message = await self.bot.send_poll(
                 chat_id=int(CHAT_ID),
                 question=question,
@@ -648,7 +648,7 @@ class TrainingPollsManager:
         if not active_polls:
             print("❌ Активные опросы не найдены в Google Sheets")
             return False
-        
+            
         # Берем последний опрос
         latest_poll = active_polls[-1]
         poll_info = {
@@ -664,7 +664,7 @@ class TrainingPollsManager:
         if not self.bot:
             print("❌ Бот не инициализирован")
             return False
-        
+            
         # Получаем результаты опроса через API
         try:
             # Получаем информацию об опросе
@@ -767,10 +767,11 @@ class TrainingPollsManager:
         
         poll_answers_found = 0
         total_poll_answers = 0
-        processed_users = set()  # Для дедупликации по обновлениям
+        user_votes = {}  # Для хранения последних голосов пользователей
         
         print(f"🔍 Анализ {len(updates)} обновлений...")
         
+        # Сначала собираем все голоса пользователей
         for update in updates:
             if update.poll_answer:
                 total_poll_answers += 1
@@ -780,63 +781,69 @@ class TrainingPollsManager:
                 print(f"🔍 Найден голос в опросе {poll_answer.poll_id} (ищем {poll_info['poll_id']})")
                 
                 if poll_answer.poll_id == poll_info['poll_id']:
-                    # Создаем уникальный ключ для пользователя
-                    user_key = f"{user.id}_{poll_answer.option_ids}"
-                    
-                    if user_key not in processed_users:
-                        processed_users.add(user_key)
-                        poll_answers_found += 1
-                        option_ids = poll_answer.option_ids
-                        
-                        user_name = f"{user.first_name} {user.last_name or ''}".strip()
-                        telegram_id = user.username or "без_username"
-                        if telegram_id != "без_username":
-                            telegram_id = f"@{telegram_id}"
-                        
-                        # Форматируем имя игрока
-                        formatted_name = self.format_player_name(user_name, telegram_id)
-                        
-                        print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
-                        
-                        # Проверяем дубликаты по Google таблице
-                        # Распределяем по дням с проверкой дубликатов
-                        if 0 in option_ids:  # Вторник
-                            # Проверяем, есть ли уже этот участник в таблице для вторника
-                            name_parts = formatted_name.split()
-                            if len(name_parts) >= 2:
-                                table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
-                                if table_name not in existing_tuesday_voters:
-                                    tuesday_voters.append(formatted_name)
-                                    print(f"✅ Добавлен участник вторника: {formatted_name}")
-                                else:
-                                    print(f"⚠️ Пропускаем дубликат вторника: {formatted_name} (уже есть в таблице)")
-                            else:
-                                tuesday_voters.append(formatted_name)
-                                print(f"✅ Добавлен участник вторника: {formatted_name}")
-                        
-                        if 1 in option_ids:  # Пятница
-                            # Проверяем, есть ли уже этот участник в таблице для пятницы
-                            name_parts = formatted_name.split()
-                            if len(name_parts) >= 2:
-                                table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
-                                if table_name not in existing_friday_voters:
-                                    friday_voters.append(formatted_name)
-                                    print(f"✅ Добавлен участник пятницы: {formatted_name}")
-                                else:
-                                    print(f"⚠️ Пропускаем дубликат пятницы: {formatted_name} (уже есть в таблице)")
-                            else:
-                                friday_voters.append(formatted_name)
-                                print(f"✅ Добавлен участник пятницы: {formatted_name}")
-                        
-                        if 2 in option_ids:  # Тренер
-                            trainer_voters.append(formatted_name)
-                            print(f"✅ Добавлен тренер: {formatted_name}")
-                        
-                        if 3 in option_ids:  # Нет
-                            no_voters.append(formatted_name)
-                            print(f"✅ Добавлен 'Нет': {formatted_name}")
+                    # Сохраняем последний голос пользователя (перезаписываем предыдущий)
+                    user_votes[user.id] = {
+                        'user': user,
+                        'option_ids': poll_answer.option_ids,
+                        'update_id': update.update_id
+                    }
+                    print(f"📊 Голос пользователя {user.id}: варианты {poll_answer.option_ids}")
+        
+        print(f"📊 Найдено {len(user_votes)} уникальных пользователей с голосами")
+        
+        # Теперь обрабатываем последние голоса каждого пользователя
+        for user_id, vote_data in user_votes.items():
+            poll_answers_found += 1
+            user = vote_data['user']
+            option_ids = vote_data['option_ids']
+            
+            user_name = f"{user.first_name} {user.last_name or ''}".strip()
+            telegram_id = user.username or "без_username"
+            if telegram_id != "без_username":
+                telegram_id = f"@{telegram_id}"
+            
+            # Форматируем имя игрока
+            formatted_name = self.format_player_name(user_name, telegram_id)
+            
+            print(f"📊 Обрабатываем голос: {formatted_name} -> варианты {option_ids}")
+            
+            # Проверяем дубликаты по Google таблице
+            # Распределяем по дням с проверкой дубликатов
+            if 0 in option_ids:  # Вторник
+                # Проверяем, есть ли уже этот участник в таблице для вторника
+                name_parts = formatted_name.split()
+                if len(name_parts) >= 2:
+                    table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
+                    if table_name not in existing_tuesday_voters:
+                        tuesday_voters.append(formatted_name)
+                        print(f"✅ Добавлен участник вторника: {formatted_name}")
                     else:
-                        print(f"🔍 Пропускаем дублированный голос от пользователя {user.id} (дубликат в обновлениях)")
+                        print(f"⚠️ Пропускаем дубликат вторника: {formatted_name} (уже есть в таблице)")
+                else:
+                    tuesday_voters.append(formatted_name)
+                    print(f"✅ Добавлен участник вторника: {formatted_name}")
+            
+            if 1 in option_ids:  # Пятница
+                # Проверяем, есть ли уже этот участник в таблице для пятницы
+                name_parts = formatted_name.split()
+                if len(name_parts) >= 2:
+                    table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
+                    if table_name not in existing_friday_voters:
+                        friday_voters.append(formatted_name)
+                        print(f"✅ Добавлен участник пятницы: {formatted_name}")
+                    else:
+                        print(f"⚠️ Пропускаем дубликат пятницы: {formatted_name} (уже есть в таблице)")
+                else:
+                    friday_voters.append(formatted_name)
+                    print(f"✅ Добавлен участник пятницы: {formatted_name}")
+            
+            if 2 in option_ids:  # Тренер
+                trainer_voters.append(formatted_name)
+                print(f"✅ Добавлен тренер: {formatted_name}")
+            
+            if 3 in option_ids:  # Нет
+                no_voters.append(formatted_name)
+                print(f"✅ Добавлен 'Нет': {formatted_name}")
         
         print(f"📊 Всего голосов в обновлениях: {total_poll_answers}")
         print(f"📊 Голосов для нужного опроса: {poll_answers_found}")

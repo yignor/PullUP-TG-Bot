@@ -672,9 +672,47 @@ class TrainingPollsManager:
                 poll_info_api = await self.bot.get_chat(chat_id=int(CHAT_ID))
                 print(f"📊 Получена информация о чате: {poll_info_api.id}")
             
-            # Получаем обновления от бота (увеличиваем лимит)
-            updates = await self.bot.get_updates(limit=100, timeout=10)
-            print(f"📊 Получено {len(updates)} обновлений")
+            # Получаем обновления от бота с большим лимитом и offset
+            all_updates = []
+            offset = 0
+            limit = 100
+            
+            # Получаем обновления порциями
+            for attempt in range(10):  # Увеличиваем до 10 попыток
+                try:
+                    updates_batch = await self.bot.get_updates(limit=limit, offset=offset, timeout=10)
+                    if not updates_batch:
+                        break
+                    
+                    all_updates.extend(updates_batch)
+                    offset = updates_batch[-1].update_id + 1
+                    print(f"📊 Получено {len(updates_batch)} обновлений (попытка {attempt + 1})")
+                    
+                    # Если получили меньше чем лимит, значит это последняя порция
+                    if len(updates_batch) < limit:
+                        break
+                        
+                except Exception as e:
+                    print(f"⚠️ Ошибка получения обновлений (попытка {attempt + 1}): {e}")
+                    break
+            
+            # Если нашли мало голосов, попробуем получить обновления с отрицательным offset
+            if len(all_updates) < 100:
+                print("⚠️ Получено мало обновлений, пытаемся получить более старые...")
+                try:
+                    # Получаем обновления с отрицательным offset (более старые)
+                    for offset_val in [-200, -400, -600, -800, -1000]:
+                        older_updates = await self.bot.get_updates(limit=200, offset=offset_val, timeout=10)
+                        if older_updates:
+                            all_updates.extend(older_updates)
+                            print(f"📊 Получено дополнительно {len(older_updates)} старых обновлений (offset {offset_val})")
+                        else:
+                            break
+                except Exception as e:
+                    print(f"⚠️ Не удалось получить старые обновления: {e}")
+            
+            updates = all_updates
+            print(f"📊 Всего получено {len(updates)} обновлений")
             
         except Exception as e:
             print(f"⚠️ Ошибка получения обновлений: {e}")
@@ -687,35 +725,60 @@ class TrainingPollsManager:
         no_voters = []
         
         poll_answers_found = 0
+        total_poll_answers = 0
+        processed_users = set()  # Для дедупликации
+        
+        print(f"🔍 Анализ {len(updates)} обновлений...")
         
         for update in updates:
             if update.poll_answer:
+                total_poll_answers += 1
                 poll_answer = update.poll_answer
                 user = update.effective_user
                 
+                print(f"🔍 Найден голос в опросе {poll_answer.poll_id} (ищем {poll_info['poll_id']})")
+                
                 if poll_answer.poll_id == poll_info['poll_id']:
-                    poll_answers_found += 1
-                    option_ids = poll_answer.option_ids
+                    # Создаем уникальный ключ для пользователя
+                    user_key = f"{user.id}_{poll_answer.option_ids}"
                     
-                    user_name = f"{user.first_name} {user.last_name or ''}".strip()
-                    telegram_id = user.username or "без_username"
-                    if telegram_id != "без_username":
-                        telegram_id = f"@{telegram_id}"
-                    
-                    # Форматируем имя игрока
-                    formatted_name = self.format_player_name(user_name, telegram_id)
-                    
-                    print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
-                    
-                    # Распределяем по дням
-                    if 0 in option_ids:  # Вторник
-                        tuesday_voters.append(formatted_name)
-                    if 1 in option_ids:  # Пятница
-                        friday_voters.append(formatted_name)
-                    if 2 in option_ids:  # Тренер
-                        trainer_voters.append(formatted_name)
-                    if 3 in option_ids:  # Нет
-                        no_voters.append(formatted_name)
+                    if user_key not in processed_users:
+                        processed_users.add(user_key)
+                        poll_answers_found += 1
+                        option_ids = poll_answer.option_ids
+                        
+                        user_name = f"{user.first_name} {user.last_name or ''}".strip()
+                        telegram_id = user.username or "без_username"
+                        if telegram_id != "без_username":
+                            telegram_id = f"@{telegram_id}"
+                        
+                        # Форматируем имя игрока
+                        formatted_name = self.format_player_name(user_name, telegram_id)
+                        
+                        print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
+                        
+                        # Распределяем по дням
+                        if 0 in option_ids:  # Вторник
+                            tuesday_voters.append(formatted_name)
+                        if 1 in option_ids:  # Пятница
+                            friday_voters.append(formatted_name)
+                        if 2 in option_ids:  # Тренер
+                            trainer_voters.append(formatted_name)
+                        if 3 in option_ids:  # Нет
+                            no_voters.append(formatted_name)
+                    else:
+                        print(f"🔍 Пропускаем дублированный голос от пользователя {user.id}")
+        
+        print(f"📊 Всего голосов в обновлениях: {total_poll_answers}")
+        print(f"📊 Голосов для нужного опроса: {poll_answers_found}")
+        
+        # Если нашли мало голосов, выводим предупреждение
+        if poll_answers_found < 5:  # Если нашли меньше 5 голосов
+            print("⚠️ Найдено мало голосов, возможно проблема с get_updates")
+            print("⚠️ РЕШЕНИЕ: Увеличили лимит get_updates до 1000 обновлений")
+            print("⚠️ Если проблема сохраняется, возможно голоса были сделаны давно")
+            print("⚠️ ВАЖНО: Telegram API ограничивает количество обновлений, которые можно получить")
+            print("⚠️ РЕКОМЕНДАЦИЯ: Собирайте данные опроса сразу после его создания")
         
         print(f"📊 Найдено {poll_answers_found} голосов для опроса {poll_info['poll_id']}")
         

@@ -86,11 +86,18 @@ class TrainingPollsManager:
     def _init_google_sheets(self):
         """Инициализация Google Sheets"""
         try:
-            if not GOOGLE_SHEETS_CREDENTIALS:
+            # Сначала пробуем загрузить из отдельного JSON файла
+            if os.path.exists('google_credentials.json'):
+                with open('google_credentials.json', 'r', encoding='utf-8') as f:
+                    creds_dict = json.load(f)
+                print("✅ Google credentials загружены из google_credentials.json")
+            elif GOOGLE_SHEETS_CREDENTIALS:
+                creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
+                print("✅ Google credentials загружены из переменной окружения")
+            else:
                 print("⚠️ GOOGLE_SHEETS_CREDENTIALS не настроен")
                 return
             
-            creds_dict = json.loads(GOOGLE_SHEETS_CREDENTIALS)
             creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
             
             self.gc = gspread.authorize(creds)
@@ -611,186 +618,197 @@ class TrainingPollsManager:
             print("❌ Бот не инициализирован")
             return False
         
-        # Проверяем, что файл с информацией об опросе существует
-        if not os.path.exists('current_poll_info.json'):
-            print("❌ Файл current_poll_info.json не найден")
-            return False
-        
-        # Проверяем размер файла
-        file_size = os.path.getsize('current_poll_info.json')
-        print(f"📄 Размер файла current_poll_info.json: {file_size} байт")
-        
-        if file_size == 0:
-            print("❌ Файл current_poll_info.json пустой")
+        # Получаем информацию об опросе из Google Sheets
+        if not self.spreadsheet:
+            print("❌ Google Sheets не подключен")
             return False
         
         try:
-            # Загружаем информацию об опросе
-            with open('current_poll_info.json', 'r', encoding='utf-8') as f:
-                poll_info = json.load(f)
+            worksheet = self.spreadsheet.worksheet("Тренировки")
+        except gspread.WorksheetNotFound:
+            print("❌ Лист 'Тренировки' не найден")
+            return False
+        
+        all_values = worksheet.get_all_values()
+        
+        if len(all_values) <= 1:
+            print("📄 Лист 'Тренировки' пустой")
+            return False
+        
+        # Ищем активные опросы
+        active_polls = []
+        for i, row in enumerate(all_values):
+            if len(row) > 1 and row[1] and len(row[1]) > 10 and row[1] not in ["Вторник", "Пятница"]:
+                active_polls.append({
+                    'poll_id': row[1],
+                    'date': row[0],
+                    'row': i + 1
+                })
+        
+        if not active_polls:
+            print("❌ Активные опросы не найдены в Google Sheets")
+            return False
+        
+        # Берем последний опрос
+        latest_poll = active_polls[-1]
+        poll_info = {
+            'poll_id': latest_poll['poll_id'],
+            'date': latest_poll['date']
+        }
+        
+        print(f"📊 Сбор данных за {target_day}")
+        print(f"📊 ID опроса: {poll_info['poll_id']}")
+        print(f"📊 Дата опроса: {poll_info['date']}")
+        
+        # Проверяем, что бот инициализирован
+        if not self.bot:
+            print("❌ Бот не инициализирован")
+            return False
+        
+        # Получаем результаты опроса через API
+        try:
+            # Получаем информацию об опросе
+            if CHAT_ID:
+                poll_info_api = await self.bot.get_chat(chat_id=int(CHAT_ID))
+                print(f"📊 Получена информация о чате: {poll_info_api.id}")
             
-            # Проверяем, есть ли poll_id в файле
-            if not poll_info or 'poll_id' not in poll_info:
-                print(f"❌ Файл current_poll_info.json не содержит poll_id")
-                print(f"📄 Содержимое файла: {poll_info}")
-                return False
-            
-            print(f"📊 Сбор данных за {target_day}")
-            print(f"📊 ID опроса: {poll_info['poll_id']}")
-            
-            # Проверяем, что бот инициализирован
-            if not self.bot:
-                print("❌ Бот не инициализирован")
-                return False
-            
-            # Получаем результаты опроса через API
-            try:
-                # Получаем информацию об опросе
-                if CHAT_ID:
-                    poll_info_api = await self.bot.get_chat(chat_id=int(CHAT_ID))
-                    print(f"📊 Получена информация о чате: {poll_info_api.id}")
-                
-                # Получаем обновления от бота (увеличиваем лимит)
-                updates = await self.bot.get_updates(limit=100, timeout=10)
-                print(f"📊 Получено {len(updates)} обновлений")
-                
-            except Exception as e:
-                print(f"⚠️ Ошибка получения обновлений: {e}")
-                updates = []
-            
-            # Анализируем голоса
-            tuesday_voters = []
-            friday_voters = []
-            trainer_voters = []
-            no_voters = []
-            
-            poll_answers_found = 0
-            
-            for update in updates:
-                if update.poll_answer:
-                    poll_answer = update.poll_answer
-                    user = update.effective_user
-                    
-                    if poll_answer.poll_id == poll_info['poll_id']:
-                        poll_answers_found += 1
-                        option_ids = poll_answer.option_ids
-                        
-                        user_name = f"{user.first_name} {user.last_name or ''}".strip()
-                        telegram_id = user.username or "без_username"
-                        if telegram_id != "без_username":
-                            telegram_id = f"@{telegram_id}"
-                        
-                        # Форматируем имя игрока
-                        formatted_name = self.format_player_name(user_name, telegram_id)
-                        
-                        print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
-                        
-                        # Распределяем по дням
-                        if 0 in option_ids:  # Вторник
-                            tuesday_voters.append(formatted_name)
-                        if 1 in option_ids:  # Пятница
-                            friday_voters.append(formatted_name)
-                        if 2 in option_ids:  # Тренер
-                            trainer_voters.append(formatted_name)
-                        if 3 in option_ids:  # Нет
-                            no_voters.append(formatted_name)
-            
-            print(f"📊 Найдено {poll_answers_found} голосов для опроса {poll_info['poll_id']}")
-            
-            # Сохраняем результаты
-            self.poll_results = {
-                'poll_id': poll_info['poll_id'],
-                'tuesday_voters': tuesday_voters,
-                'friday_voters': friday_voters,
-                'trainer_voters': trainer_voters,
-                'no_voters': no_voters,
-                'timestamp': self.get_moscow_time().isoformat()
-            }
-            
-            with open('poll_results.json', 'w', encoding='utf-8') as f:
-                json.dump(self.poll_results, f, ensure_ascii=False, indent=2)
-            
-            print(f"✅ Данные собраны:")
-            print(f"   Вторник: {len(tuesday_voters)} участников")
-            print(f"   Пятница: {len(friday_voters)} участников")
-            print(f"   Тренер: {len(trainer_voters)} участников")
-            print(f"   Нет: {len(no_voters)} участников")
-            
-            # Логируем сбор данных
-            try:
-                if hasattr(self, '_log_data_collection'):
-                    self._log_data_collection(target_day)
-                else:
-                    print("⚠️ Метод _log_data_collection не найден")
-            except Exception as e:
-                print(f"⚠️ Ошибка логирования сбора данных: {e}")
-            
-            # Сохраняем данные в Google Sheets
-            try:
-                if target_day.upper() == "ВТОРНИК" and tuesday_voters:
-                    print(f"💾 Сохранение данных за вторник в Google Sheets...")
-                    # Преобразуем данные для сохранения
-                    voters_for_sheet = []
-                    for voter_name in tuesday_voters:
-                        # Парсим имя из строки "Имя Фамилия" (без username)
-                        name_parts = voter_name.split()
-                        if len(name_parts) >= 2:
-                            surname = name_parts[-1]  # Последняя часть - фамилия
-                            name = ' '.join(name_parts[:-1])  # Остальное - имя
-                        else:
-                            surname = name_parts[0] if name_parts else "Неизвестный"
-                            name = "Неизвестный"
-                        
-                        # Для реальных данных используем имя как telegram_id
-                        telegram_id = voter_name
-                        
-                        voters_for_sheet.append({
-                            'surname': surname,
-                            'name': name,
-                            'telegram_id': telegram_id
-                        })
-                    
-                    if voters_for_sheet:
-                        self._save_voters_to_sheet("ВТОРНИК", voters_for_sheet, poll_info['poll_id'])
-                    else:
-                        print("⚠️ Нет данных для сохранения за вторник")
-                
-                elif target_day.upper() == "ПЯТНИЦА" and friday_voters:
-                    print(f"💾 Сохранение данных за пятницу в Google Sheets...")
-                    # Аналогичная логика для пятницы
-                    voters_for_sheet = []
-                    for voter_name in friday_voters:
-                        # Парсим имя из строки "Имя Фамилия" (без username)
-                        name_parts = voter_name.split()
-                        if len(name_parts) >= 2:
-                            surname = name_parts[-1]
-                            name = ' '.join(name_parts[:-1])
-                        else:
-                            surname = name_parts[0] if name_parts else "Неизвестный"
-                            name = "Неизвестный"
-                        
-                        # Для реальных данных используем имя как telegram_id
-                        telegram_id = voter_name
-                        
-                        voters_for_sheet.append({
-                            'surname': surname,
-                            'name': name,
-                            'telegram_id': telegram_id
-                        })
-                    
-                    if voters_for_sheet:
-                        self._save_voters_to_sheet("ПЯТНИЦА", voters_for_sheet, poll_info['poll_id'])
-                    else:
-                        print("⚠️ Нет данных для сохранения за пятницу")
-                
-            except Exception as e:
-                print(f"⚠️ Ошибка сохранения данных в Google Sheets: {e}")
-            
-            return True
+            # Получаем обновления от бота (увеличиваем лимит)
+            updates = await self.bot.get_updates(limit=100, timeout=10)
+            print(f"📊 Получено {len(updates)} обновлений")
             
         except Exception as e:
-            print(f"❌ Ошибка сбора данных: {e}")
-            return False
+            print(f"⚠️ Ошибка получения обновлений: {e}")
+            updates = []
+        
+        # Анализируем голоса
+        tuesday_voters = []
+        friday_voters = []
+        trainer_voters = []
+        no_voters = []
+        
+        poll_answers_found = 0
+        
+        for update in updates:
+            if update.poll_answer:
+                poll_answer = update.poll_answer
+                user = update.effective_user
+                
+                if poll_answer.poll_id == poll_info['poll_id']:
+                    poll_answers_found += 1
+                    option_ids = poll_answer.option_ids
+                    
+                    user_name = f"{user.first_name} {user.last_name or ''}".strip()
+                    telegram_id = user.username or "без_username"
+                    if telegram_id != "без_username":
+                        telegram_id = f"@{telegram_id}"
+                    
+                    # Форматируем имя игрока
+                    formatted_name = self.format_player_name(user_name, telegram_id)
+                    
+                    print(f"📊 Голос: {formatted_name} -> варианты {option_ids}")
+                    
+                    # Распределяем по дням
+                    if 0 in option_ids:  # Вторник
+                        tuesday_voters.append(formatted_name)
+                    if 1 in option_ids:  # Пятница
+                        friday_voters.append(formatted_name)
+                    if 2 in option_ids:  # Тренер
+                        trainer_voters.append(formatted_name)
+                    if 3 in option_ids:  # Нет
+                        no_voters.append(formatted_name)
+        
+        print(f"📊 Найдено {poll_answers_found} голосов для опроса {poll_info['poll_id']}")
+        
+        # Сохраняем результаты
+        self.poll_results = {
+            'poll_id': poll_info['poll_id'],
+            'tuesday_voters': tuesday_voters,
+            'friday_voters': friday_voters,
+            'trainer_voters': trainer_voters,
+            'no_voters': no_voters,
+            'timestamp': self.get_moscow_time().isoformat()
+        }
+        
+        with open('poll_results.json', 'w', encoding='utf-8') as f:
+            json.dump(self.poll_results, f, ensure_ascii=False, indent=2)
+        
+        print(f"✅ Данные собраны:")
+        print(f"   Вторник: {len(tuesday_voters)} участников")
+        print(f"   Пятница: {len(friday_voters)} участников")
+        print(f"   Тренер: {len(trainer_voters)} участников")
+        print(f"   Нет: {len(no_voters)} участников")
+        
+        # Логируем сбор данных
+        try:
+            if hasattr(self, '_log_data_collection'):
+                self._log_data_collection(target_day)
+            else:
+                print("⚠️ Метод _log_data_collection не найден")
+        except Exception as e:
+            print(f"⚠️ Ошибка логирования сбора данных: {e}")
+        
+        # Сохраняем данные в Google Sheets
+        try:
+            if target_day.upper() == "ВТОРНИК" and tuesday_voters:
+                print(f"💾 Сохранение данных за вторник в Google Sheets...")
+                # Преобразуем данные для сохранения
+                voters_for_sheet = []
+                for voter_name in tuesday_voters:
+                    # Парсим имя из строки "Имя Фамилия" (без username)
+                    name_parts = voter_name.split()
+                    if len(name_parts) >= 2:
+                        surname = name_parts[-1]  # Последняя часть - фамилия
+                        name = ' '.join(name_parts[:-1])  # Остальное - имя
+                    else:
+                        surname = name_parts[0] if name_parts else "Неизвестный"
+                        name = "Неизвестный"
+                    
+                    # Для реальных данных используем имя как telegram_id
+                    telegram_id = voter_name
+                    
+                    voters_for_sheet.append({
+                        'surname': surname,
+                        'name': name,
+                        'telegram_id': telegram_id
+                    })
+                
+                if voters_for_sheet:
+                    self._save_voters_to_sheet("ВТОРНИК", voters_for_sheet, poll_info['poll_id'])
+                else:
+                    print("⚠️ Нет данных для сохранения за вторник")
+            
+            elif target_day.upper() == "ПЯТНИЦА" and friday_voters:
+                print(f"💾 Сохранение данных за пятницу в Google Sheets...")
+                # Аналогичная логика для пятницы
+                voters_for_sheet = []
+                for voter_name in friday_voters:
+                    # Парсим имя из строки "Имя Фамилия" (без username)
+                    name_parts = voter_name.split()
+                    if len(name_parts) >= 2:
+                        surname = name_parts[-1]
+                        name = ' '.join(name_parts[:-1])
+                    else:
+                        surname = name_parts[0] if name_parts else "Неизвестный"
+                        name = "Неизвестный"
+                    
+                    # Для реальных данных используем имя как telegram_id
+                    telegram_id = voter_name
+                    
+                    voters_for_sheet.append({
+                        'surname': surname,
+                        'name': name,
+                        'telegram_id': telegram_id
+                    })
+                
+                if voters_for_sheet:
+                    self._save_voters_to_sheet("ПЯТНИЦА", voters_for_sheet, poll_info['poll_id'])
+                else:
+                    print("⚠️ Нет данных для сохранения за пятницу")
+                
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения данных в Google Sheets: {e}")
+        
+        return True
 
     def _save_voters_to_sheet(self, target_day: str, voters: List[Dict], poll_id: str) -> bool:
         """Сохраняет данные участников в Google Sheet с автоматической группировкой"""
@@ -1047,26 +1065,40 @@ class TrainingPollsManager:
     def _poll_exists(self) -> bool:
         """Проверяет, существует ли активный опрос для сбора данных"""
         try:
-            if not os.path.exists('current_poll_info.json'):
-                print("📄 Файл current_poll_info.json не найден")
+            if not self.spreadsheet:
+                print("❌ Google Sheets не подключен")
                 return False
             
-            # Проверяем размер файла
-            file_size = os.path.getsize('current_poll_info.json')
-            if file_size <= 10:  # Файл пустой или содержит только {}
-                print("📄 Файл current_poll_info.json пустой")
+            # Получаем лист 'Тренировки'
+            try:
+                worksheet = self.spreadsheet.worksheet("Тренировки")
+            except gspread.WorksheetNotFound:
+                print("❌ Лист 'Тренировки' не найден")
                 return False
             
-            with open('current_poll_info.json', 'r', encoding='utf-8') as f:
-                poll_info = json.load(f)
+            all_values = worksheet.get_all_values()
             
-            # Проверяем наличие poll_id
-            if not poll_info or 'poll_id' not in poll_info:
-                print("📄 Файл current_poll_info.json не содержит poll_id")
+            if len(all_values) <= 1:
+                print("📄 Лист 'Тренировки' пустой")
                 return False
             
-            print(f"✅ Активный опрос найден: {poll_info['poll_id']}")
-            return True
+            # Ищем активные опросы (строки с длинным ID в колонке 1)
+            active_polls = []
+            for i, row in enumerate(all_values):
+                if len(row) > 1 and row[1] and len(row[1]) > 10 and row[1] not in ["Вторник", "Пятница"]:
+                    active_polls.append({
+                        'poll_id': row[1],
+                        'date': row[0],
+                        'row': i + 1
+                    })
+            
+            if active_polls:
+                latest_poll = active_polls[-1]  # Берем последний опрос
+                print(f"✅ Активный опрос найден: {latest_poll['poll_id']} (дата: {latest_poll['date']})")
+                return True
+            else:
+                print("📄 Активные опросы не найдены в Google Sheets")
+                return False
             
         except Exception as e:
             print(f"⚠️ Ошибка проверки существования опроса: {e}")
@@ -1442,10 +1474,10 @@ async def main():
     print("�� ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:")
     print(f"BOT_TOKEN: {'✅' if bot_token else '❌'}")
     print(f"CHAT_ID: {'✅' if chat_id else '❌'}")
-    print(f"GOOGLE_SHEETS_CREDENTIALS: {'✅' if google_credentials else '❌'}")
     print(f"SPREADSHEET_ID: {'✅' if spreadsheet_id else '❌'}")
+    print(f"GOOGLE_CREDENTIALS_FILE: {'✅' if os.path.exists('google_credentials.json') else '❌'}")
     
-    if not all([bot_token, chat_id, google_credentials, spreadsheet_id]):
+    if not all([bot_token, chat_id, spreadsheet_id]):
         print("❌ Не все переменные окружения настроены")
         return
     

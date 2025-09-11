@@ -1,0 +1,44 @@
+name: Daily Poll Monitor
+
+on:
+  schedule:
+    # Запускается каждый день в 8:00 по UTC (11:00 по Москве)
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  daily-poll-monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-github.txt
+        
+    - name: Run daily poll monitor
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        ANNOUNCEMENTS_TOPIC_ID: ${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+      run: |
+        python run_daily_poll_monitor.py
+        
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: daily-poll-monitor-logs
+        path: |
+          poll_votes_*.json
+          *.log

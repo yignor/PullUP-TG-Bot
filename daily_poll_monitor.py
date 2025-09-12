@@ -402,21 +402,29 @@ class DailyPollMonitor:
         
         if not active_polls:
             print("ℹ️ Нет активных опросов для проверки")
+            print("✅ Мониторинг завершен (нет активных опросов)")
             return True
         
         print(f"📋 Активные опросы: {list(active_polls.keys())}")
         
         # Загружаем информацию о текущем опросе
         try:
-            with open('current_poll_info.json', 'r', encoding='utf-8') as f:
-                poll_info = json.load(f)
-            
-            poll_id = poll_info.get('poll_id')
-            if not poll_id:
-                print("❌ ID опроса не найден")
-                return False
-            
-            print(f"📊 Проверяем опрос: {poll_id}")
+            if os.path.exists('current_poll_info.json'):
+                with open('current_poll_info.json', 'r', encoding='utf-8') as f:
+                    poll_info = json.load(f)
+                
+                poll_id = poll_info.get('poll_id')
+                if not poll_id:
+                    print("❌ ID опроса не найден в файле")
+                    return False
+                
+                print(f"📊 Проверяем опрос: {poll_id}")
+            else:
+                print("⚠️ Файл current_poll_info.json не найден")
+                print("ℹ️ Это означает, что опрос тренировок еще не был создан")
+                print("ℹ️ Ожидайте создания опроса в воскресенье")
+                print("✅ Мониторинг завершен (нет активного опроса)")
+                return True  # Не ошибка, просто нет активного опроса
             
         except Exception as e:
             print(f"❌ Ошибка загрузки информации об опросе: {e}")

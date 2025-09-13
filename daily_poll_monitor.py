@@ -119,22 +119,24 @@ class DailyPollMonitor:
             # Получаем сообщения порциями
             for attempt in range(5):  # Ограничиваем количество попыток
                 try:
-                    # Используем get_chat_history для получения сообщений
-                    # Это более надежный способ, чем get_updates
-                    chat_messages = await self.bot.get_chat_history(
-                        chat_id=int(CHAT_ID), 
-                        limit=50, 
-                        offset=offset
-                    )
+                    # Используем get_updates для получения сообщений с опросами
+                    # Это более надежный способ для поиска опросов
+                    updates = await self.bot.get_updates(limit=100, offset=offset, timeout=10)
                     
-                    if not chat_messages:
+                    # Извлекаем сообщения с опросами из обновлений
+                    chat_messages = []
+                    for update in updates:
+                        if update.message and update.message.poll:
+                            chat_messages.append(update.message)
+                    
+                    if not updates:
                         break
                     
                     messages.extend(chat_messages)
-                    offset += len(chat_messages)
+                    offset = updates[-1].update_id + 1 if updates else offset + 100
                     
-                    # Если получили меньше сообщений, значит это последняя порция
-                    if len(chat_messages) < 50:
+                    # Если получили меньше обновлений, значит это последняя порция
+                    if len(updates) < 100:
                         break
                         
                 except Exception as e:

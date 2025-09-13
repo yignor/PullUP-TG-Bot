@@ -603,16 +603,32 @@ class GameSystemManager:
             team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
             team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
             
-            for variant in our_team_variants:
-                variant_normalized = variant.lower().replace(" ", "").replace("-", "").replace("_", "")
-                if variant_normalized in team1_normalized:
-                    our_team = team1
-                    opponent = team2
-                    break
-                elif variant_normalized in team2_normalized:
-                    our_team = team2
-                    opponent = team1
-                    break
+            # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
+            # Если одна команда содержит "Pull Up" а другая "Фарм", то это наша фарм-команда против Quasar
+            if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
+                # Это случай "Pull Up vs Фарм - Quasar" - наша фарм-команда против Quasar
+                our_team = "Pull Up-Фарм"
+                # Извлекаем название противника после "Фарм - "
+                opponent = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
+                print(f"🔍 Специальная обработка: {our_team} vs {opponent}")
+            elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
+                # Это случай "Фарм - Quasar vs Pull Up" - наша фарм-команда против Quasar
+                our_team = "Pull Up-Фарм"
+                # Извлекаем название противника после "Фарм - "
+                opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
+                print(f"🔍 Специальная обработка: {our_team} vs {opponent}")
+            else:
+                # Обычная логика определения команд
+                for variant in our_team_variants:
+                    variant_normalized = variant.lower().replace(" ", "").replace("-", "").replace("_", "")
+                    if variant_normalized in team1_normalized:
+                        our_team = team1
+                        opponent = team2
+                        break
+                    elif variant_normalized in team2_normalized:
+                        our_team = team2
+                        opponent = team1
+                        break
             
             if not our_team:
                 print(f"❌ Не удалось определить нашу команду в игре")

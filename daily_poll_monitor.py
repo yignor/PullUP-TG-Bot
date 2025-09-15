@@ -40,6 +40,7 @@ class DailyPollMonitor:
         self.worksheet = None
         self.current_votes = {}  # Текущие голоса {user_id: {name, options, day}}
         self.previous_votes = {}  # Предыдущие голоса для сравнения
+        self.players_cache = {}  # Кэш игроков для избежания повторных запросов
         
     async def initialize(self):
         """Инициализация бота и Google Sheets"""
@@ -72,11 +73,68 @@ class DailyPollMonitor:
                 print("❌ Google Sheets не настроен")
                 return False
                 
+            # Загружаем кэш игроков
+            self.load_players_cache()
+            
             return True
             
         except Exception as e:
             print(f"❌ Ошибка инициализации: {e}")
             return False
+    
+    def load_players_cache(self):
+        """Загружает кэш игроков из листа 'Игроки' для избежания повторных запросов"""
+        try:
+            if not self.spreadsheet:
+                print("⚠️ Google Sheets не инициализирован")
+                return
+            
+            players_worksheet = self.spreadsheet.worksheet("Игроки")
+            all_values = players_worksheet.get_all_values()
+            
+            if len(all_values) <= 1:
+                print("⚠️ Лист 'Игроки' пуст")
+                return
+            
+            headers = all_values[0]
+            
+            # Ищем колонку с Telegram ID
+            telegram_id_col = None
+            for i, header in enumerate(headers):
+                if 'telegram' in header.lower() or 'id' in header.lower():
+                    telegram_id_col = i
+                    break
+            
+            if telegram_id_col is None:
+                print("⚠️ Колонка Telegram ID не найдена в листе 'Игроки'")
+                return
+            
+            # Загружаем всех игроков в кэш
+            self.players_cache = {}
+            for row in all_values[1:]:
+                if len(row) > telegram_id_col and row[telegram_id_col].strip():
+                    telegram_id = row[telegram_id_col].strip()
+                    surname = row[0] if len(row) > 0 else ''
+                    name = row[1] if len(row) > 1 else ''
+                    nickname = row[2] if len(row) > 2 else ''
+                    status = row[5] if len(row) > 5 else ''
+                    
+                    # Нормализуем Telegram ID для поиска
+                    normalized_id = telegram_id.replace('@', '').lower()
+                    
+                    self.players_cache[normalized_id] = {
+                        'surname': surname,
+                        'name': name,
+                        'telegram_id': telegram_id,
+                        'nickname': nickname,
+                        'status': status
+                    }
+            
+            print(f"✅ Загружен кэш игроков: {len(self.players_cache)} записей")
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки кэша игроков: {e}")
+            self.players_cache = {}
     
     def get_active_polls_info(self) -> Dict[str, Any]:
         """Определяет активные опросы на основе дня недели"""
@@ -200,47 +258,26 @@ class DailyPollMonitor:
             return {}
     
     def find_player_by_telegram_id(self, telegram_id: str) -> Optional[Dict]:
-        """Ищет игрока по Telegram ID в листе 'Игроки'"""
-        if not self.spreadsheet:
-            return None
-        
+        """Ищет игрока по Telegram ID в кэше игроков"""
         try:
-            players_worksheet = self.spreadsheet.worksheet("Игроки")
-            all_values = players_worksheet.get_all_values()
+            # Нормализуем Telegram ID для поиска
+            normalized_id = telegram_id.replace('@', '').lower()
             
-            if len(all_values) <= 1:
-                return None
+            # Ищем в кэше
+            if normalized_id in self.players_cache:
+                player_data = self.players_cache[normalized_id]
+                print(f"✅ Найден игрок в кэше: {player_data['name']} {player_data['surname']} ({player_data['telegram_id']})")
+                return player_data
             
-            headers = all_values[0]
-            
-            # Ищем колонку с Telegram ID
-            telegram_id_col = None
-            for i, header in enumerate(headers):
-                if 'telegram' in header.lower() or 'id' in header.lower():
-                    telegram_id_col = i
-                    break
-            
-            if telegram_id_col is None:
-                return None
-            
-            # Ищем игрока
-            for row in all_values[1:]:
-                if len(row) > telegram_id_col:
-                    cell_value = row[telegram_id_col].strip()
-                    
-                    if (cell_value == telegram_id or 
-                        cell_value == f"@{telegram_id}" or 
-                        cell_value == f"@{telegram_id.replace('@', '')}" or
-                        cell_value == telegram_id.replace('@', '')):
-                        
-                        # Возвращаем данные игрока
-                        return {
-                            'surname': row[0] if len(row) > 0 else '',  # Фамилия
-                            'name': row[1] if len(row) > 1 else '',     # Имя
-                            'telegram_id': cell_value,                  # Telegram ID
-                            'nickname': row[2] if len(row) > 2 else '', # Ник
-                            'status': row[5] if len(row) > 5 else ''    # Статус
-                        }
+            # Если не найден в кэше, пробуем найти по различным вариантам
+            for cached_id, player_data in self.players_cache.items():
+                if (cached_id == normalized_id or 
+                    cached_id == f"@{normalized_id}" or
+                    cached_id == normalized_id.replace('@', '') or
+                    player_data['telegram_id'].lower() == telegram_id.lower() or
+                    player_data['telegram_id'].lower() == f"@{telegram_id.lower()}"):
+                    print(f"✅ Найден игрок в кэше (альтернативный поиск): {player_data['name']} {player_data['surname']} ({player_data['telegram_id']})")
+                    return player_data
             
             return None
             
@@ -327,10 +364,10 @@ class DailyPollMonitor:
                         
                         # Если есть имя и фамилия
                         if len(next_row) > 3 and next_row[2] and next_row[3]:
-                            name = next_row[3]  # Имя
-                            surname = next_row[2]  # Фамилия
+                            first_name = next_row[2]  # Имя (колонка C)
+                            surname = next_row[3]  # Фамилия (колонка D)
                             telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
-                            existing_voters.add(f"{name} {surname}")
+                            existing_voters.add(f"{first_name} {surname}")
                             if telegram_id:
                                 existing_voters.add(telegram_id)  # Добавляем и по Telegram ID для поиска
                         
@@ -382,12 +419,12 @@ class DailyPollMonitor:
                     surname = voter_name
                     first_name = ""
                 
-                # Вставляем строку с Telegram ID
+                # Вставляем строку с Telegram ID (имя, фамилия)
                 self.worksheet.insert_row([
                     "",  # A - пустая колонка
                     "",  # B - пустая колонка  
-                    surname,  # C - фамилия
-                    first_name,  # D - имя
+                    first_name,  # C - имя
+                    surname,  # D - фамилия
                     telegram_id,  # E - Telegram ID
                     ""   # F - пустая колонка
                 ], insert_row)
@@ -420,9 +457,9 @@ class DailyPollMonitor:
                         
                         # Проверяем, это ли наш участник
                         if len(next_row) > 3 and next_row[2] and next_row[3]:
-                            name = next_row[3]  # Имя
-                            surname = next_row[2]  # Фамилия
-                            table_name = f"{name} {surname}"
+                            first_name = next_row[2]  # Имя (колонка C)
+                            surname = next_row[3]  # Фамилия (колонка D)
+                            table_name = f"{first_name} {surname}"
                             
                             # Проверяем по имени или по Telegram ID
                             if (table_name == voter_name or 

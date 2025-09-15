@@ -131,7 +131,7 @@ class EnhancedGameParser:
             print(f"❌ Ошибка парсинга времени: {e}")
             return None
 
-    def parse_game_info(self, api_data: Dict) -> Optional[Dict]:
+    async def parse_game_info(self, api_data: Dict, game_url: str = None) -> Optional[Dict]:
         """Парсит информацию об игре из API данных"""
         try:
             if not api_data or 'game' not in api_data or 'online' not in api_data:
@@ -654,7 +654,7 @@ class EnhancedGameParser:
                 return None
             
             # Парсим информацию об игре
-            game_info = self.parse_game_info(api_data)
+            game_info = await self.parse_game_info(api_data, game_url)
             if not game_info:
                 print(f"❌ Не удалось распарсить данные игры")
                 return None
@@ -683,7 +683,11 @@ async def test_parser():
             print(f"   🏀 Команды: {result.get('our_team', 'Неизвестно')} vs {result.get('opponent', 'Неизвестно')}")
             print(f"   📊 Счет: {result.get('our_score', 0)}:{result.get('opponent_score', 0)}")
             print(f"   🎯 Результат: {result.get('result', 'Неизвестно')}")
-            print(f"   📈 Четверти: {[q['total'] for q in result.get('quarters', [])]}")
+            quarters = result.get('quarters', [])
+            if quarters and isinstance(quarters[0], dict):
+                print(f"   📈 Четверти: {[q['total'] for q in quarters]}")
+            else:
+                print(f"   📈 Четверти: {quarters}")
             print(f"   📅 Дата: {result.get('date', 'Неизвестно')}")
             print(f"   🕐 Время: {result.get('time', 'Неизвестно')}")
             print(f"   📍 Место: {result.get('venue', 'Неизвестно')}")

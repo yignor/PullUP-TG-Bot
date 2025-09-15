@@ -109,60 +109,45 @@ class DailyPollMonitor:
         return active_polls
     
     async def find_active_training_poll(self) -> Optional[str]:
-        """Ищет активный опрос тренировок в чате"""
-        if not self.bot or not CHAT_ID:
-            return None
-        
+        """Ищет активный опрос тренировок из системы защиты от дублирования"""
         try:
-            # Получаем последние сообщения из чата
-            messages = []
-            offset = 0
+            # Импортируем систему защиты от дублирования
+            from enhanced_duplicate_protection import duplicate_protection
             
-            # Получаем сообщения порциями
-            for attempt in range(5):  # Ограничиваем количество попыток
-                try:
-                    # Используем get_updates для получения сообщений с опросами
-                    # Это более надежный способ для поиска опросов
-                    updates = await self.bot.get_updates(limit=100, offset=offset, timeout=10)
-                    
-                    # Извлекаем сообщения с опросами из обновлений
-                    chat_messages = []
-                    for update in updates:
-                        if update.message and update.message.poll:
-                            chat_messages.append(update.message)
-                    
-                    if not updates:
-                        break
-                    
-                    messages.extend(chat_messages)
-                    offset = updates[-1].update_id + 1 if updates else offset + 100
-                    
-                    # Если получили меньше обновлений, значит это последняя порция
-                    if len(updates) < 100:
-                        break
+            # Получаем все записи опросов тренировок
+            training_polls = duplicate_protection.get_records_by_type("ОПРОС_ТРЕНИРОВКА")
+            
+            if not training_polls:
+                print("⚠️ Опросы тренировок не найдены в системе защиты от дублирования")
+                return None
+            
+            # Ищем самый последний активный опрос
+            latest_poll = None
+            latest_date = None
+            
+            for poll in training_polls:
+                poll_date = poll.get('date', '')
+                poll_status = poll.get('status', '')
+                poll_id = poll.get('unique_key', '')
+                
+                # Ищем активные опросы
+                if poll_status == 'АКТИВЕН' and poll_id:
+                    # Извлекаем poll_id из unique_key (формат: ОПРОС_ТРЕНИРОВКА_poll_id)
+                    if poll_id.startswith('ОПРОС_ТРЕНИРОВКА_'):
+                        actual_poll_id = poll_id.replace('ОПРОС_ТРЕНИРОВКА_', '')
                         
-                except Exception as e:
-                    print(f"⚠️ Ошибка получения сообщений (попытка {attempt + 1}): {e}")
-                    break
+                        # Сравниваем даты для поиска самого последнего
+                        if not latest_date or poll_date > latest_date:
+                            latest_poll = actual_poll_id
+                            latest_date = poll_date
             
-            print(f"📊 Получено {len(messages)} сообщений для поиска опроса")
-            
-            # Ищем опрос тренировок в сообщениях
-            for message in messages:
-                if message.poll:
-                    poll = message.poll
-                    # Проверяем, что это опрос тренировок по тексту вопроса
-                    question = poll.question.lower()
-                    
-                    # Ищем ключевые слова, указывающие на опрос тренировок
-                    training_keywords = ['тренировка', 'вторник', 'пятница', 'неделя']
-                    if any(keyword in question for keyword in training_keywords):
-                        print(f"✅ Найден опрос тренировок: {poll.id}")
-                        print(f"📋 Вопрос: {poll.question}")
-                        return poll.id
-            
-            print("⚠️ Активный опрос тренировок не найден")
-            return None
+            if latest_poll:
+                print(f"✅ Найден активный опрос тренировок: {latest_poll}")
+                print(f"📅 Дата создания: {latest_date}")
+                return latest_poll
+            else:
+                print("⚠️ Активные опросы тренировок не найдены")
+                return None
             
         except Exception as e:
             print(f"❌ Ошибка поиска активного опроса: {e}")

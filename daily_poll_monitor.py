@@ -172,11 +172,23 @@ class DailyPollMonitor:
                     if telegram_id != "без_username":
                         telegram_id = f"@{telegram_id}"
                     
-                    # Форматируем имя
-                    formatted_name = self.format_player_name(user_name, telegram_id)
+                    # Ищем игрока в листе "Игроки" по Telegram ID
+                    player_info = self.find_player_by_telegram_id(telegram_id)
+                    
+                    if player_info:
+                        # Используем данные из листа "Игроки"
+                        formatted_name = f"{player_info['surname']} {player_info['name']}"
+                        actual_telegram_id = player_info['telegram_id']
+                        print(f"✅ Найден игрок в базе: {formatted_name} ({actual_telegram_id})")
+                    else:
+                        # Если не найден в базе, используем данные из Telegram
+                        formatted_name = self.format_player_name(user_name, telegram_id)
+                        actual_telegram_id = telegram_id
+                        print(f"⚠️ Игрок не найден в базе, используем Telegram данные: {formatted_name} ({actual_telegram_id})")
                     
                     current_votes[user.id] = {
                         'name': formatted_name,
+                        'telegram_id': actual_telegram_id,
                         'options': update.poll_answer.option_ids,
                         'update_id': update.update_id
                     }
@@ -186,6 +198,55 @@ class DailyPollMonitor:
         except Exception as e:
             print(f"❌ Ошибка получения голосов для опроса {poll_id}: {e}")
             return {}
+    
+    def find_player_by_telegram_id(self, telegram_id: str) -> Optional[Dict]:
+        """Ищет игрока по Telegram ID в листе 'Игроки'"""
+        if not self.spreadsheet:
+            return None
+        
+        try:
+            players_worksheet = self.spreadsheet.worksheet("Игроки")
+            all_values = players_worksheet.get_all_values()
+            
+            if len(all_values) <= 1:
+                return None
+            
+            headers = all_values[0]
+            
+            # Ищем колонку с Telegram ID
+            telegram_id_col = None
+            for i, header in enumerate(headers):
+                if 'telegram' in header.lower() or 'id' in header.lower():
+                    telegram_id_col = i
+                    break
+            
+            if telegram_id_col is None:
+                return None
+            
+            # Ищем игрока
+            for row in all_values[1:]:
+                if len(row) > telegram_id_col:
+                    cell_value = row[telegram_id_col].strip()
+                    
+                    if (cell_value == telegram_id or 
+                        cell_value == f"@{telegram_id}" or 
+                        cell_value == f"@{telegram_id.replace('@', '')}" or
+                        cell_value == telegram_id.replace('@', '')):
+                        
+                        # Возвращаем данные игрока
+                        return {
+                            'surname': row[0] if len(row) > 0 else '',  # Фамилия
+                            'name': row[1] if len(row) > 1 else '',     # Имя
+                            'telegram_id': cell_value,                  # Telegram ID
+                            'nickname': row[2] if len(row) > 2 else '', # Ник
+                            'status': row[5] if len(row) > 5 else ''    # Статус
+                        }
+            
+            return None
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка поиска игрока по Telegram ID: {e}")
+            return None
     
     def format_player_name(self, user_name: str, telegram_id: str) -> str:
         """Форматирует имя игрока"""
@@ -268,7 +329,10 @@ class DailyPollMonitor:
                         if len(next_row) > 3 and next_row[2] and next_row[3]:
                             name = next_row[3]  # Имя
                             surname = next_row[2]  # Фамилия
+                            telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
                             existing_voters.add(f"{name} {surname}")
+                            if telegram_id:
+                                existing_voters.add(telegram_id)  # Добавляем и по Telegram ID для поиска
                         
                         j += 1
                     break
@@ -278,9 +342,12 @@ class DailyPollMonitor:
         
         return existing_voters
     
-    def add_voter_to_sheet(self, voter_name: str, day: str) -> bool:
+    def add_voter_to_sheet(self, voter_data: Dict, day: str) -> bool:
         """Добавляет участника в Google таблицу"""
         try:
+            voter_name = voter_data['name']
+            telegram_id = voter_data.get('telegram_id', '')
+            
             # Находим строку для вставки
             all_values = self.worksheet.get_all_values()
             insert_row = None
@@ -296,7 +363,7 @@ class DailyPollMonitor:
                             insert_row = j + 1  # +1 потому что нумерация строк начинается с 1
                             break
                         # Если пустая строка, вставляем туда
-                        if not any(next_row[2:5]):  # Проверяем колонки C, D, E
+                        if not any(next_row[2:6]):  # Проверяем колонки C, D, E, F
                             insert_row = j + 1
                             break
                         j += 1
@@ -315,16 +382,17 @@ class DailyPollMonitor:
                     surname = voter_name
                     first_name = ""
                 
-                # Вставляем строку
+                # Вставляем строку с Telegram ID
                 self.worksheet.insert_row([
                     "",  # A - пустая колонка
                     "",  # B - пустая колонка  
                     surname,  # C - фамилия
                     first_name,  # D - имя
-                    ""   # E - пустая колонка
+                    telegram_id,  # E - Telegram ID
+                    ""   # F - пустая колонка
                 ], insert_row)
                 
-                print(f"✅ Добавлен участник {voter_name} в {day}")
+                print(f"✅ Добавлен участник {voter_name} ({telegram_id}) в {day}")
                 return True
             
         except Exception as e:
@@ -332,9 +400,12 @@ class DailyPollMonitor:
         
         return False
     
-    def remove_voter_from_sheet(self, voter_name: str, day: str) -> bool:
+    def remove_voter_from_sheet(self, voter_data: Dict, day: str) -> bool:
         """Удаляет участника из Google таблицы"""
         try:
+            voter_name = voter_data['name']
+            telegram_id = voter_data.get('telegram_id', '')
+            
             all_values = self.worksheet.get_all_values()
             
             for i, row in enumerate(all_values):
@@ -353,10 +424,12 @@ class DailyPollMonitor:
                             surname = next_row[2]  # Фамилия
                             table_name = f"{name} {surname}"
                             
-                            if table_name == voter_name:
+                            # Проверяем по имени или по Telegram ID
+                            if (table_name == voter_name or 
+                                (len(next_row) > 4 and next_row[4] == telegram_id)):
                                 # Удаляем строку (j+1 потому что нумерация начинается с 1)
                                 self.worksheet.delete_rows(j + 1)
-                                print(f"✅ Удален участник {voter_name} из {day}")
+                                print(f"✅ Удален участник {voter_name} ({telegram_id}) из {day}")
                                 return True
                         
                         j += 1
@@ -391,19 +464,19 @@ class DailyPollMonitor:
         # Добавляем новые голоса
         for vote in added_votes:
             if 0 in vote['options'] and day == 'Вторник':  # Голос за вторник
-                if self.add_voter_to_sheet(vote['name'], day):
+                if self.add_voter_to_sheet(vote, day):
                     changes_made = True
             elif 1 in vote['options'] and day == 'Пятница':  # Голос за пятницу
-                if self.add_voter_to_sheet(vote['name'], day):
+                if self.add_voter_to_sheet(vote, day):
                     changes_made = True
         
         # Удаляем пропавшие голоса
         for vote in removed_votes:
             if 0 in vote['options'] and day == 'Вторник':  # Был голос за вторник
-                if self.remove_voter_from_sheet(vote['name'], day):
+                if self.remove_voter_from_sheet(vote, day):
                     changes_made = True
             elif 1 in vote['options'] and day == 'Пятница':  # Был голос за пятницу
-                if self.remove_voter_from_sheet(vote['name'], day):
+                if self.remove_voter_from_sheet(vote, day):
                     changes_made = True
         
         # Обрабатываем измененные голоса
@@ -413,18 +486,18 @@ class DailyPollMonitor:
             
             # Если раньше голосовал за этот день, а теперь нет - удаляем
             if 0 in previous_vote['options'] and day == 'Вторник' and 0 not in current_vote['options']:
-                if self.remove_voter_from_sheet(previous_vote['name'], day):
+                if self.remove_voter_from_sheet(previous_vote, day):
                     changes_made = True
             elif 1 in previous_vote['options'] and day == 'Пятница' and 1 not in current_vote['options']:
-                if self.remove_voter_from_sheet(previous_vote['name'], day):
+                if self.remove_voter_from_sheet(previous_vote, day):
                     changes_made = True
             
             # Если раньше не голосовал за этот день, а теперь голосует - добавляем
             if 0 not in previous_vote['options'] and day == 'Вторник' and 0 in current_vote['options']:
-                if self.add_voter_to_sheet(current_vote['name'], day):
+                if self.add_voter_to_sheet(current_vote, day):
                     changes_made = True
             elif 1 not in previous_vote['options'] and day == 'Пятница' and 1 in current_vote['options']:
-                if self.add_voter_to_sheet(current_vote['name'], day):
+                if self.add_voter_to_sheet(current_vote, day):
                     changes_made = True
         
         # Сохраняем текущие голоса как предыдущие для следующей проверки

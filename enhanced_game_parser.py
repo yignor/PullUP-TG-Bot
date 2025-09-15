@@ -389,7 +389,7 @@ class EnhancedGameParser:
             if not player_name or player_name == ' ':
                 return None
             
-            # Извлекаем статистику из API
+            # Извлекаем статистику из API (используем правильные названия полей)
             stats = {
                 'name': player_name,
                 'team': team_name,
@@ -397,20 +397,26 @@ class EnhancedGameParser:
                 'person_id': player_data.get('PersonID', 0),
                 'player_number': player_data.get('PlayerNumber', 0),
                 'points': player_data.get('Points', 0) or 0,
-                'rebounds': player_data.get('Rebounds', 0) or 0,
-                'assists': player_data.get('Assists', 0) or 0,
-                'steals': player_data.get('Steals', 0) or 0,
+                'rebounds': player_data.get('Rebound', 0) or 0,
+                'assists': player_data.get('Assist', 0) or 0,
+                'steals': player_data.get('Steal', 0) or 0,
                 'blocks': player_data.get('Blocks', 0) or 0,
-                'turnovers': player_data.get('Turnovers', 0) or 0,
-                'fouls': player_data.get('Fouls', 0) or 0,
-                'field_goals_made': player_data.get('FieldGoalsMade', 0) or 0,
-                'field_goals_attempted': player_data.get('FieldGoalsAttempted', 0) or 0,
-                'three_pointers_made': player_data.get('ThreePointersMade', 0) or 0,
-                'three_pointers_attempted': player_data.get('ThreePointersAttempted', 0) or 0,
-                'free_throws_made': player_data.get('FreeThrowsMade', 0) or 0,
-                'free_throws_attempted': player_data.get('FreeThrowsAttempted', 0) or 0,
-                'minutes': player_data.get('Minutes', 0) or 0,
-                'plus_minus': player_data.get('PlusMinus', 0) or 0
+                'turnovers': player_data.get('Turnover', 0) or 0,
+                'fouls': player_data.get('Foul', 0) or 0,
+                'field_goals_made': player_data.get('Goal2', 0) or 0,
+                'field_goals_attempted': player_data.get('Shot2', 0) or 0,
+                'three_pointers_made': player_data.get('Goal3', 0) or 0,
+                'three_pointers_attempted': player_data.get('Shot3', 0) or 0,
+                'free_throws_made': player_data.get('Goal1', 0) or 0,
+                'free_throws_attempted': player_data.get('Shot1', 0) or 0,
+                'minutes': player_data.get('PlayedTime', '0:00'),
+                'plus_minus': player_data.get('PlusMinus', 0) or 0,
+                'defensive_rebounds': player_data.get('DefRebound', 0) or 0,
+                'offensive_rebounds': player_data.get('OffRebound', 0) or 0,
+                'height': player_data.get('Height', 0) or 0,
+                'weight': player_data.get('Weight', 0) or 0,
+                'position': player_data.get('PosID', 0) or 0,
+                'is_captain': player_data.get('Capitan', 0) == 1
             }
             
             # Вычисляем проценты попаданий
@@ -503,18 +509,18 @@ class EnhancedGameParser:
         try:
             if not players_stats:
                 return {}
-            
+
             best_players = {}
-            
+
             # MVP (игрок с наибольшим количеством очков)
             mvp = max(players_stats, key=lambda p: p['points'])
             best_players['mvp'] = {
                 'name': mvp['name'],
                 'points': mvp['points'],
-                'field_goal_percentage': mvp['field_goal_percentage'],
+                'field_goal_percentage': mvp.get('field_goal_percentage', 0),
                 'team': mvp['team']
             }
-            
+
             # Лучший по подборам
             best_rebounder = max(players_stats, key=lambda p: p['rebounds'])
             best_players['best_rebounder'] = {
@@ -522,7 +528,7 @@ class EnhancedGameParser:
                 'rebounds': best_rebounder['rebounds'],
                 'team': best_rebounder['team']
             }
-            
+
             # Лучший по перехватам
             best_stealer = max(players_stats, key=lambda p: p['steals'])
             best_players['best_stealer'] = {
@@ -530,7 +536,7 @@ class EnhancedGameParser:
                 'steals': best_stealer['steals'],
                 'team': best_stealer['team']
             }
-            
+
             # Лучший по передачам
             best_assister = max(players_stats, key=lambda p: p['assists'])
             best_players['best_assister'] = {
@@ -538,7 +544,7 @@ class EnhancedGameParser:
                 'assists': best_assister['assists'],
                 'team': best_assister['team']
             }
-            
+
             # Лучший по блокшотам
             best_blocker = max(players_stats, key=lambda p: p['blocks'])
             best_players['best_blocker'] = {
@@ -546,14 +552,33 @@ class EnhancedGameParser:
                 'blocks': best_blocker['blocks'],
                 'team': best_blocker['team']
             }
-            
+
+            # Лучший плюс/минус
+            best_plus_minus = max(players_stats, key=lambda p: p['plus_minus'])
+            best_players['best_plus_minus'] = {
+                'name': best_plus_minus['name'],
+                'plus_minus': best_plus_minus['plus_minus'],
+                'team': best_plus_minus['team']
+            }
+
+            # Самый играющий игрок (по времени)
+            most_playing = max(players_stats, key=lambda p: p.get('minutes', '0:00'))
+            best_players['most_playing'] = {
+                'name': most_playing['name'],
+                'minutes': most_playing.get('minutes', '0:00'),
+                'team': most_playing['team']
+            }
+
             print(f"🏆 Лучшие игроки найдены:")
             print(f"   MVP: {best_players['mvp']['name']} ({best_players['mvp']['points']} очков, {best_players['mvp']['field_goal_percentage']}%)")
             print(f"   Подборы: {best_players['best_rebounder']['name']} ({best_players['best_rebounder']['rebounds']})")
             print(f"   Перехваты: {best_players['best_stealer']['name']} ({best_players['best_stealer']['steals']})")
-            
+            print(f"   Передачи: {best_players['best_assister']['name']} ({best_players['best_assister']['assists']})")
+            print(f"   Блокшоты: {best_players['best_blocker']['name']} ({best_players['best_blocker']['blocks']})")
+            print(f"   Плюс/минус: {best_players['best_plus_minus']['name']} ({best_players['best_plus_minus']['plus_minus']})")
+
             return best_players
-            
+
         except Exception as e:
             print(f"❌ Ошибка поиска лучших игроков: {e}")
             return {}

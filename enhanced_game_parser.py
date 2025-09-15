@@ -499,10 +499,23 @@ class EnhancedGameParser:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(content, 'html.parser')
                     
-                    # Ищем статистику игроков в тексте страницы
-                    page_text = soup.get_text()
+                    # Сначала пробуем парсить HTML таблицу статистики
+                    player_stats = self.parse_html_statistics_table(soup)
                     
-                    # Парсим статистику игроков из protocol
+                    if player_stats:
+                        # Находим лучших игроков
+                        best_players = self.find_best_players(player_stats)
+                        
+                        return {
+                            'players': player_stats,
+                            'best_players': best_players,
+                            'total_players': len(player_stats),
+                            'source': 'html_table'
+                        }
+                    
+                    # Если HTML таблица не найдена, пробуем protocol
+                    print("🔍 HTML таблица не найдена, пробуем protocol...")
+                    page_text = soup.get_text()
                     player_stats = self.parse_protocol_statistics(page_text)
                     
                     if player_stats:
@@ -516,7 +529,7 @@ class EnhancedGameParser:
                             'source': 'protocol'
                         }
                     
-                    print("⚠️ Статистика игроков не найдена в protocol")
+                    print("⚠️ Статистика игроков не найдена ни в HTML таблице, ни в protocol")
                     return None
                 else:
                     print(f"❌ Ошибка загрузки страницы protocol: {response.status}")
@@ -629,6 +642,147 @@ class EnhancedGameParser:
             
         except Exception as e:
             print(f"❌ Ошибка парсинга protocol статистики: {e}")
+            return []
+    
+    def parse_html_statistics_table(self, soup) -> List[Dict]:
+        """Парсит статистику игроков из HTML таблицы"""
+        try:
+            players_stats = []
+            
+            # Ищем таблицу со статистикой
+            stats_table = soup.find('table', class_='statistics__table')
+            if not stats_table:
+                print("⚠️ Таблица статистики не найдена")
+                return []
+            
+            print("✅ Найдена таблица статистики")
+            
+            # Получаем заголовки таблицы
+            headers = []
+            header_row = stats_table.find('thead')
+            if header_row:
+                header_cells = header_row.find_all('th')
+                headers = [cell.get_text().strip() for cell in header_cells]
+                print(f"📋 Заголовки таблицы: {headers}")
+            
+            # Получаем строки с данными игроков
+            tbody = stats_table.find('tbody')
+            if not tbody:
+                print("⚠️ Тело таблицы не найдено")
+                return []
+            
+            rows = tbody.find_all('tr')
+            print(f"🔍 Найдено {len(rows)} строк с данными игроков")
+            
+            for row in rows:
+                cells = row.find_all('td')
+                if len(cells) < 3:  # Минимум: имя, команда, очки
+                    continue
+                
+                # Извлекаем данные игрока
+                player_data = {}
+                
+                # Имя игрока (обычно в первой колонке)
+                player_name_cell = cells[0]
+                player_name = player_name_cell.get_text().strip()
+                if not player_name:
+                    continue
+                
+                player_data['name'] = player_name
+                
+                # Извлекаем статистику по колонкам
+                for i, cell in enumerate(cells[1:], 1):  # Пропускаем первую колонку с именем
+                    if i >= len(headers):
+                        continue
+                    
+                    header = headers[i].lower()
+                    value_text = cell.get_text().strip()
+                    
+                    # Пытаемся извлечь числовое значение
+                    try:
+                        # Убираем проценты и другие символы
+                        clean_value = re.sub(r'[^\d.,]', '', value_text)
+                        if clean_value:
+                            # Заменяем запятую на точку для десятичных чисел
+                            clean_value = clean_value.replace(',', '.')
+                            if '.' in clean_value:
+                                value = float(clean_value)
+                            else:
+                                value = int(clean_value)
+                        else:
+                            value = 0
+                    except (ValueError, TypeError):
+                        value = 0
+                    
+                    # Маппинг заголовков на поля статистики
+                    if 'очк' in header or 'point' in header or 'pts' in header:
+                        player_data['points'] = value
+                    elif 'подбор' in header or 'rebound' in header or 'reb' in header:
+                        player_data['rebounds'] = value
+                    elif 'передач' in header or 'assist' in header or 'ast' in header:
+                        player_data['assists'] = value
+                    elif 'перехват' in header or 'steal' in header or 'stl' in header:
+                        player_data['steals'] = value
+                    elif 'блок' in header or 'block' in header or 'blk' in header:
+                        player_data['blocks'] = value
+                    elif 'потер' in header or 'turnover' in header or 'tov' in header:
+                        player_data['turnovers'] = value
+                    elif 'фол' in header or 'foul' in header or 'pf' in header:
+                        player_data['fouls'] = value
+                    elif 'попад' in header and 'попыт' in header:
+                        # Это может быть процент попаданий
+                        player_data['field_goal_percentage'] = value
+                    elif 'попад' in header:
+                        player_data['field_goals_made'] = value
+                    elif 'попыт' in header:
+                        player_data['field_goals_attempted'] = value
+                    elif '3-очк' in header and 'попад' in header:
+                        player_data['three_pointers_made'] = value
+                    elif '3-очк' in header and 'попыт' in header:
+                        player_data['three_pointers_attempted'] = value
+                    elif 'штраф' in header and 'попад' in header:
+                        player_data['free_throws_made'] = value
+                    elif 'штраф' in header and 'попыт' in header:
+                        player_data['free_throws_attempted'] = value
+                    elif 'минут' in header or 'minute' in header or 'min' in header:
+                        player_data['minutes'] = value
+                
+                # Устанавливаем значения по умолчанию для отсутствующих полей
+                default_stats = {
+                    'points': 0, 'rebounds': 0, 'assists': 0, 'steals': 0, 'blocks': 0,
+                    'turnovers': 0, 'fouls': 0, 'field_goals_made': 0, 'field_goals_attempted': 0,
+                    'three_pointers_made': 0, 'three_pointers_attempted': 0,
+                    'free_throws_made': 0, 'free_throws_attempted': 0, 'minutes': 0,
+                    'team': '', 'position': '', 'jersey_number': ''
+                }
+                
+                for key, default_value in default_stats.items():
+                    if key not in player_data:
+                        player_data[key] = default_value
+                
+                # Вычисляем проценты попаданий
+                if player_data['field_goals_attempted'] > 0:
+                    player_data['field_goal_percentage'] = round((player_data['field_goals_made'] / player_data['field_goals_attempted']) * 100, 1)
+                else:
+                    player_data['field_goal_percentage'] = 0.0
+                
+                if player_data['three_pointers_attempted'] > 0:
+                    player_data['three_point_percentage'] = round((player_data['three_pointers_made'] / player_data['three_pointers_attempted']) * 100, 1)
+                else:
+                    player_data['three_point_percentage'] = 0.0
+                
+                if player_data['free_throws_attempted'] > 0:
+                    player_data['free_throw_percentage'] = round((player_data['free_throws_made'] / player_data['free_throws_attempted']) * 100, 1)
+                else:
+                    player_data['free_throw_percentage'] = 0.0
+                
+                players_stats.append(player_data)
+                print(f"   📊 {player_name}: {player_data['points']} очков, {player_data['rebounds']} подборов, {player_data['steals']} перехватов")
+            
+            return players_stats
+            
+        except Exception as e:
+            print(f"❌ Ошибка парсинга HTML таблицы статистики: {e}")
             return []
     
     async def parse_game_from_url(self, game_url: str) -> Optional[Dict]:

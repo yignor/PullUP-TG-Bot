@@ -379,11 +379,55 @@ class DailyPollMonitor:
         
         return existing_voters
     
+    def is_voter_already_exists(self, voter_data: Dict, day: str) -> bool:
+        """Проверяет, существует ли уже участник в таблице для конкретного дня"""
+        try:
+            voter_name = voter_data['name']
+            telegram_id = voter_data.get('telegram_id', '')
+            
+            all_values = self.worksheet.get_all_values()
+            
+            for i, row in enumerate(all_values):
+                if len(row) > 1 and row[1] == day:
+                    # Нашли заголовок дня, проверяем участников
+                    j = i + 1
+                    while j < len(all_values):
+                        next_row = all_values[j]
+                        # Если встретили другой заголовок дня, останавливаемся
+                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Пятница"]:
+                            break
+                        
+                        # Проверяем, есть ли уже этот участник
+                        if len(next_row) > 3 and next_row[2] and next_row[3]:
+                            first_name = next_row[2]  # Имя (колонка C)
+                            surname = next_row[3]  # Фамилия (колонка D)
+                            existing_telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
+                            table_name = f"{first_name} {surname}"
+                            
+                            # Проверяем по имени или по Telegram ID
+                            if (table_name == voter_name or 
+                                (telegram_id and existing_telegram_id and existing_telegram_id == telegram_id)):
+                                return True
+                        
+                        j += 1
+                    break
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки существования участника: {e}")
+            return False
+    
     def add_voter_to_sheet(self, voter_data: Dict, day: str) -> bool:
         """Добавляет участника в Google таблицу"""
         try:
             voter_name = voter_data['name']
             telegram_id = voter_data.get('telegram_id', '')
+            
+            # Проверяем, не существует ли уже этот участник
+            if self.is_voter_already_exists(voter_data, day):
+                print(f"⚠️ Участник {voter_name} ({telegram_id}) уже существует в {day}")
+                return False
             
             # Находим строку для вставки
             all_values = self.worksheet.get_all_values()
@@ -500,21 +544,31 @@ class DailyPollMonitor:
         
         # Добавляем новые голоса
         for vote in added_votes:
+            print(f"🔍 Обрабатываем новый голос: {vote['name']} - опции: {vote['options']}")
             if 0 in vote['options'] and day == 'Вторник':  # Голос за вторник
+                print(f"✅ Добавляем голос за вторник: {vote['name']}")
                 if self.add_voter_to_sheet(vote, day):
                     changes_made = True
             elif 1 in vote['options'] and day == 'Пятница':  # Голос за пятницу
+                print(f"✅ Добавляем голос за пятницу: {vote['name']}")
                 if self.add_voter_to_sheet(vote, day):
                     changes_made = True
+            else:
+                print(f"⚠️ Голос не подходит для {day}: опции {vote['options']}")
         
         # Удаляем пропавшие голоса
         for vote in removed_votes:
+            print(f"🔍 Обрабатываем удаленный голос: {vote['name']} - опции: {vote['options']}")
             if 0 in vote['options'] and day == 'Вторник':  # Был голос за вторник
+                print(f"❌ Удаляем голос за вторник: {vote['name']}")
                 if self.remove_voter_from_sheet(vote, day):
                     changes_made = True
             elif 1 in vote['options'] and day == 'Пятница':  # Был голос за пятницу
+                print(f"❌ Удаляем голос за пятницу: {vote['name']}")
                 if self.remove_voter_from_sheet(vote, day):
                     changes_made = True
+            else:
+                print(f"⚠️ Удаленный голос не подходит для {day}: опции {vote['options']}")
         
         # Обрабатываем измененные голоса
         for change in changed_votes:

@@ -308,8 +308,25 @@ class EnhancedGameParser:
             # Ищем статистику игроков в данных
             players_stats = []
             
+            # Ищем статистику игроков в GameTeams (основной источник)
+            if 'GameTeams' in online_data:
+                game_teams = online_data['GameTeams']
+                if isinstance(game_teams, list):
+                    for team in game_teams:
+                        team_name = team.get('TeamName', {})
+                        team_name_ru = team_name.get('CompTeamNameRu', 'Неизвестная команда')
+                        
+                        if 'Players' in team:
+                            players_data = team['Players']
+                            if isinstance(players_data, list):
+                                print(f"🔍 Найдены игроки команды {team_name_ru}: {len(players_data)} игроков")
+                                for player in players_data:
+                                    stats = self.parse_player_statistics_from_api(player, team_name_ru)
+                                    if stats:
+                                        players_stats.append(stats)
+            
             # Проверяем различные возможные места для статистики
-            if 'Players' in game_data:
+            elif 'Players' in game_data:
                 players_data = game_data['Players']
                 print(f"🔍 Найдены данные игроков в game.Players: {len(players_data)} игроков")
                 
@@ -359,6 +376,63 @@ class EnhancedGameParser:
             
         except Exception as e:
             print(f"❌ Ошибка извлечения статистики игроков: {e}")
+            return None
+    
+    def parse_player_statistics_from_api(self, player_data: Dict, team_name: str) -> Optional[Dict]:
+        """Парсит статистику игрока из API данных"""
+        try:
+            # Извлекаем основные данные игрока
+            first_name = player_data.get('FirstNameRu', '')
+            last_name = player_data.get('LastNameRu', '')
+            player_name = f"{first_name} {last_name}".strip()
+            
+            if not player_name or player_name == ' ':
+                return None
+            
+            # Извлекаем статистику из API
+            stats = {
+                'name': player_name,
+                'team': team_name,
+                'jersey_number': player_data.get('DisplayNumber', ''),
+                'person_id': player_data.get('PersonID', 0),
+                'player_number': player_data.get('PlayerNumber', 0),
+                'points': player_data.get('Points', 0) or 0,
+                'rebounds': player_data.get('Rebounds', 0) or 0,
+                'assists': player_data.get('Assists', 0) or 0,
+                'steals': player_data.get('Steals', 0) or 0,
+                'blocks': player_data.get('Blocks', 0) or 0,
+                'turnovers': player_data.get('Turnovers', 0) or 0,
+                'fouls': player_data.get('Fouls', 0) or 0,
+                'field_goals_made': player_data.get('FieldGoalsMade', 0) or 0,
+                'field_goals_attempted': player_data.get('FieldGoalsAttempted', 0) or 0,
+                'three_pointers_made': player_data.get('ThreePointersMade', 0) or 0,
+                'three_pointers_attempted': player_data.get('ThreePointersAttempted', 0) or 0,
+                'free_throws_made': player_data.get('FreeThrowsMade', 0) or 0,
+                'free_throws_attempted': player_data.get('FreeThrowsAttempted', 0) or 0,
+                'minutes': player_data.get('Minutes', 0) or 0,
+                'plus_minus': player_data.get('PlusMinus', 0) or 0
+            }
+            
+            # Вычисляем проценты попаданий
+            if stats['field_goals_attempted'] > 0:
+                stats['field_goal_percentage'] = round((stats['field_goals_made'] / stats['field_goals_attempted']) * 100, 1)
+            else:
+                stats['field_goal_percentage'] = 0.0
+            
+            if stats['three_pointers_attempted'] > 0:
+                stats['three_point_percentage'] = round((stats['three_pointers_made'] / stats['three_pointers_attempted']) * 100, 1)
+            else:
+                stats['three_point_percentage'] = 0.0
+            
+            if stats['free_throws_attempted'] > 0:
+                stats['free_throw_percentage'] = round((stats['free_throws_made'] / stats['free_throws_attempted']) * 100, 1)
+            else:
+                stats['free_throw_percentage'] = 0.0
+            
+            return stats
+            
+        except Exception as e:
+            print(f"❌ Ошибка парсинга статистики игрока из API: {e}")
             return None
     
     def parse_player_statistics(self, player_data: Dict) -> Optional[Dict]:

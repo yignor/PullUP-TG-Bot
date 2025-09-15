@@ -932,21 +932,41 @@ class GameSystemManager:
         our_team = None
         opponent = None
         
-        # Проверяем team1
-        if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
-            our_team = team1
-            opponent = team2
-            print(f"   ✅ Наша команда найдена в team1: {our_team}")
-            print(f"   🏀 Соперник: {opponent}")
-        # Проверяем team2
-        elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
-            our_team = team2
-            opponent = team1
-            print(f"   ✅ Наша команда найдена в team2: {our_team}")
-            print(f"   🏀 Соперник: {opponent}")
+        # Нормализуем названия команд для проверки
+        team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
+        team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
+        
+        # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
+        # Если одна команда содержит "Pull Up" а другая "Фарм", то это наша фарм-команда против Quasar
+        if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
+            # Это случай "Pull Up vs Фарм - Quasar" - наша фарм-команда против Quasar
+            our_team = "Pull Up-Фарм"
+            # Извлекаем название противника после "Фарм - "
+            opponent = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
+            print(f"   🔍 Специальная обработка: {our_team} vs {opponent}")
+        elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
+            # Это случай "Фарм - Quasar vs Pull Up" - наша фарм-команда против Quasar
+            our_team = "Pull Up-Фарм"
+            # Извлекаем название противника после "Фарм - "
+            opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
+            print(f"   🔍 Специальная обработка: {our_team} vs {opponent}")
         else:
-            print(f"   ❌ Наша команда не найдена ни в одной из команд")
-            return f"🏀 Сегодня игра против {team2} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
+            # Обычная логика определения команд
+            # Проверяем team1
+            if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+                our_team = team1
+                opponent = team2
+                print(f"   ✅ Наша команда найдена в team1: {our_team}")
+                print(f"   🏀 Соперник: {opponent}")
+            # Проверяем team2
+            elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+                our_team = team2
+                opponent = team1
+                print(f"   ✅ Наша команда найдена в team2: {our_team}")
+                print(f"   🏀 Соперник: {opponent}")
+            else:
+                print(f"   ❌ Наша команда не найдена ни в одной из команд")
+                return f"🏀 Сегодня игра против {team2} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
         
         # Определяем категорию команды с правильным склонением
         # Используем найденную команду из iframe, если она передана, но всегда учитываем соперника

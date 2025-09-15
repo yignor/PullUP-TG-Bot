@@ -278,11 +278,358 @@ class EnhancedGameParser:
                 else:
                     print(f"❌ Pull Up команда не найдена")
             
+            # Извлекаем статистику игроков
+            player_stats = self.extract_player_statistics(api_data)
+            if player_stats:
+                game_info['player_stats'] = player_stats
+                print(f"📊 Статистика игроков извлечена через API: {len(player_stats.get('players', []))} игроков")
+            else:
+                # Если не удалось получить статистику через API, пробуем через protocol
+                print("🔍 Статистика через API не найдена, пробуем через protocol...")
+                protocol_stats = await self.parse_game_statistics_from_protocol(game_url)
+                if protocol_stats:
+                    game_info['player_stats'] = protocol_stats
+                    print(f"📊 Статистика игроков извлечена через protocol: {len(protocol_stats.get('players', []))} игроков")
+                else:
+                    print("⚠️ Статистика игроков не найдена ни через API, ни через protocol")
+            
             return game_info
             
         except Exception as e:
             print(f"❌ Ошибка парсинга данных игры: {e}")
             return None
+    
+    def extract_player_statistics(self, api_data: Dict) -> Optional[Dict]:
+        """Извлекает статистику игроков из API данных"""
+        try:
+            game_data = api_data.get('game', {})
+            online_data = api_data.get('online', {})
+            
+            # Ищем статистику игроков в данных
+            players_stats = []
+            
+            # Проверяем различные возможные места для статистики
+            if 'Players' in game_data:
+                players_data = game_data['Players']
+                print(f"🔍 Найдены данные игроков в game.Players: {len(players_data)} игроков")
+                
+                for player in players_data:
+                    player_stat = self.parse_player_statistics(player)
+                    if player_stat:
+                        players_stats.append(player_stat)
+            
+            elif 'TeamPlayers' in game_data:
+                # Если статистика по командам
+                for team_key in ['Team1', 'Team2']:
+                    if team_key in game_data['TeamPlayers']:
+                        team_players = game_data['TeamPlayers'][team_key]
+                        print(f"🔍 Найдены игроки команды {team_key}: {len(team_players)} игроков")
+                        
+                        for player in team_players:
+                            player_stat = self.parse_player_statistics(player)
+                            if player_stat:
+                                players_stats.append(player_stat)
+            
+            elif 'Statistics' in online_data:
+                # Проверяем онлайн статистику
+                stats_data = online_data['Statistics']
+                print(f"🔍 Найдена онлайн статистика: {list(stats_data.keys())}")
+                
+                # Ищем статистику игроков в онлайн данных
+                for key, value in stats_data.items():
+                    if isinstance(value, list) and len(value) > 0:
+                        for item in value:
+                            if isinstance(item, dict) and 'PlayerName' in item:
+                                player_stat = self.parse_player_statistics(item)
+                                if player_stat:
+                                    players_stats.append(player_stat)
+            
+            if players_stats:
+                # Находим лучших игроков
+                best_players = self.find_best_players(players_stats)
+                
+                return {
+                    'players': players_stats,
+                    'best_players': best_players,
+                    'total_players': len(players_stats)
+                }
+            
+            print("⚠️ Статистика игроков не найдена в API данных")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Ошибка извлечения статистики игроков: {e}")
+            return None
+    
+    def parse_player_statistics(self, player_data: Dict) -> Optional[Dict]:
+        """Парсит статистику отдельного игрока"""
+        try:
+            # Извлекаем основные данные игрока
+            player_name = player_data.get('PlayerName') or player_data.get('Name') or player_data.get('player_name')
+            if not player_name:
+                return None
+            
+            # Извлекаем статистику (различные возможные названия полей)
+            stats = {
+                'name': player_name.strip(),
+                'points': self.extract_stat_value(player_data, ['Points', 'PTS', 'points', 'Очки']),
+                'rebounds': self.extract_stat_value(player_data, ['Rebounds', 'REB', 'rebounds', 'Подборы', 'TRB']),
+                'assists': self.extract_stat_value(player_data, ['Assists', 'AST', 'assists', 'Передачи', 'ПАС']),
+                'steals': self.extract_stat_value(player_data, ['Steals', 'STL', 'steals', 'Перехваты', 'ПЕРЕХ']),
+                'blocks': self.extract_stat_value(player_data, ['Blocks', 'BLK', 'blocks', 'Блокшоты', 'БЛОК']),
+                'turnovers': self.extract_stat_value(player_data, ['Turnovers', 'TOV', 'turnovers', 'Потери', 'ПОТ']),
+                'fouls': self.extract_stat_value(player_data, ['Fouls', 'PF', 'fouls', 'Фолы', 'ФОЛ']),
+                'field_goals_made': self.extract_stat_value(player_data, ['FGM', 'field_goals_made', 'Попадания']),
+                'field_goals_attempted': self.extract_stat_value(player_data, ['FGA', 'field_goals_attempted', 'Попытки']),
+                'three_pointers_made': self.extract_stat_value(player_data, ['3PM', 'three_pointers_made', '3-очковые']),
+                'three_pointers_attempted': self.extract_stat_value(player_data, ['3PA', 'three_pointers_attempted', '3-очковые попытки']),
+                'free_throws_made': self.extract_stat_value(player_data, ['FTM', 'free_throws_made', 'Штрафные']),
+                'free_throws_attempted': self.extract_stat_value(player_data, ['FTA', 'free_throws_attempted', 'Штрафные попытки']),
+                'minutes': self.extract_stat_value(player_data, ['Minutes', 'MIN', 'minutes', 'Минуты', 'Время']),
+                'team': player_data.get('TeamName') or player_data.get('team_name', ''),
+                'position': player_data.get('Position') or player_data.get('position', ''),
+                'jersey_number': player_data.get('JerseyNumber') or player_data.get('jersey_number', '')
+            }
+            
+            # Вычисляем проценты попаданий
+            if stats['field_goals_attempted'] and stats['field_goals_attempted'] > 0:
+                stats['field_goal_percentage'] = round((stats['field_goals_made'] / stats['field_goals_attempted']) * 100, 1)
+            else:
+                stats['field_goal_percentage'] = 0.0
+            
+            if stats['three_pointers_attempted'] and stats['three_pointers_attempted'] > 0:
+                stats['three_point_percentage'] = round((stats['three_pointers_made'] / stats['three_pointers_attempted']) * 100, 1)
+            else:
+                stats['three_point_percentage'] = 0.0
+            
+            if stats['free_throws_attempted'] and stats['free_throws_attempted'] > 0:
+                stats['free_throw_percentage'] = round((stats['free_throws_made'] / stats['free_throws_attempted']) * 100, 1)
+            else:
+                stats['free_throw_percentage'] = 0.0
+            
+            return stats
+            
+        except Exception as e:
+            print(f"❌ Ошибка парсинга статистики игрока: {e}")
+            return None
+    
+    def extract_stat_value(self, data: Dict, possible_keys: List[str]) -> int:
+        """Извлекает значение статистики по возможным ключам"""
+        for key in possible_keys:
+            if key in data:
+                value = data[key]
+                if isinstance(value, (int, float)):
+                    return int(value)
+                elif isinstance(value, str) and value.isdigit():
+                    return int(value)
+        return 0
+    
+    def find_best_players(self, players_stats: List[Dict]) -> Dict:
+        """Находит лучших игроков по различным показателям"""
+        try:
+            if not players_stats:
+                return {}
+            
+            best_players = {}
+            
+            # MVP (игрок с наибольшим количеством очков)
+            mvp = max(players_stats, key=lambda p: p['points'])
+            best_players['mvp'] = {
+                'name': mvp['name'],
+                'points': mvp['points'],
+                'field_goal_percentage': mvp['field_goal_percentage'],
+                'team': mvp['team']
+            }
+            
+            # Лучший по подборам
+            best_rebounder = max(players_stats, key=lambda p: p['rebounds'])
+            best_players['best_rebounder'] = {
+                'name': best_rebounder['name'],
+                'rebounds': best_rebounder['rebounds'],
+                'team': best_rebounder['team']
+            }
+            
+            # Лучший по перехватам
+            best_stealer = max(players_stats, key=lambda p: p['steals'])
+            best_players['best_stealer'] = {
+                'name': best_stealer['name'],
+                'steals': best_stealer['steals'],
+                'team': best_stealer['team']
+            }
+            
+            # Лучший по передачам
+            best_assister = max(players_stats, key=lambda p: p['assists'])
+            best_players['best_assister'] = {
+                'name': best_assister['name'],
+                'assists': best_assister['assists'],
+                'team': best_assister['team']
+            }
+            
+            # Лучший по блокшотам
+            best_blocker = max(players_stats, key=lambda p: p['blocks'])
+            best_players['best_blocker'] = {
+                'name': best_blocker['name'],
+                'blocks': best_blocker['blocks'],
+                'team': best_blocker['team']
+            }
+            
+            print(f"🏆 Лучшие игроки найдены:")
+            print(f"   MVP: {best_players['mvp']['name']} ({best_players['mvp']['points']} очков, {best_players['mvp']['field_goal_percentage']}%)")
+            print(f"   Подборы: {best_players['best_rebounder']['name']} ({best_players['best_rebounder']['rebounds']})")
+            print(f"   Перехваты: {best_players['best_stealer']['name']} ({best_players['best_stealer']['steals']})")
+            
+            return best_players
+            
+        except Exception as e:
+            print(f"❌ Ошибка поиска лучших игроков: {e}")
+            return {}
+    
+    async def parse_game_statistics_from_protocol(self, game_url: str) -> Optional[Dict]:
+        """Парсит статистику игры через protocol на странице"""
+        try:
+            if not self.session:
+                return None
+            
+            print(f"🔍 Парсинг статистики через protocol: {game_url}")
+            
+            # Загружаем страницу с protocol
+            async with self.session.get(game_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(content, 'html.parser')
+                    
+                    # Ищем статистику игроков в тексте страницы
+                    page_text = soup.get_text()
+                    
+                    # Парсим статистику игроков из protocol
+                    player_stats = self.parse_protocol_statistics(page_text)
+                    
+                    if player_stats:
+                        # Находим лучших игроков
+                        best_players = self.find_best_players(player_stats)
+                        
+                        return {
+                            'players': player_stats,
+                            'best_players': best_players,
+                            'total_players': len(player_stats),
+                            'source': 'protocol'
+                        }
+                    
+                    print("⚠️ Статистика игроков не найдена в protocol")
+                    return None
+                else:
+                    print(f"❌ Ошибка загрузки страницы protocol: {response.status}")
+                    return None
+                    
+        except Exception as e:
+            print(f"❌ Ошибка парсинга protocol: {e}")
+            return None
+    
+    def parse_protocol_statistics(self, page_text: str) -> List[Dict]:
+        """Парсит статистику игроков из текста protocol"""
+        try:
+            players_stats = []
+            
+            # Ищем паттерны статистики игроков в protocol
+            # Пример: protocol.player1.Points = 15
+            # Или: protocol.team1.player1.Points = 15
+            
+            # Паттерны для поиска статистики
+            stat_patterns = {
+                'points': r'protocol\.(?:team\d+\.)?player\d+\.Points[:\s]*(\d+)',
+                'rebounds': r'protocol\.(?:team\d+\.)?player\d+\.Rebounds[:\s]*(\d+)',
+                'assists': r'protocol\.(?:team\d+\.)?player\d+\.Assists[:\s]*(\d+)',
+                'steals': r'protocol\.(?:team\d+\.)?player\d+\.Steals[:\s]*(\d+)',
+                'blocks': r'protocol\.(?:team\d+\.)?player\d+\.Blocks[:\s]*(\d+)',
+                'turnovers': r'protocol\.(?:team\d+\.)?player\d+\.Turnovers[:\s]*(\d+)',
+                'fouls': r'protocol\.(?:team\d+\.)?player\d+\.Fouls[:\s]*(\d+)',
+                'field_goals_made': r'protocol\.(?:team\d+\.)?player\d+\.FieldGoalsMade[:\s]*(\d+)',
+                'field_goals_attempted': r'protocol\.(?:team\d+\.)?player\d+\.FieldGoalsAttempted[:\s]*(\d+)',
+                'three_pointers_made': r'protocol\.(?:team\d+\.)?player\d+\.ThreePointersMade[:\s]*(\d+)',
+                'three_pointers_attempted': r'protocol\.(?:team\d+\.)?player\d+\.ThreePointersAttempted[:\s]*(\d+)',
+                'free_throws_made': r'protocol\.(?:team\d+\.)?player\d+\.FreeThrowsMade[:\s]*(\d+)',
+                'free_throws_attempted': r'protocol\.(?:team\d+\.)?player\d+\.FreeThrowsAttempted[:\s]*(\d+)',
+                'minutes': r'protocol\.(?:team\d+\.)?player\d+\.Minutes[:\s]*(\d+(?:\.\d+)?)'
+            }
+            
+            # Ищем имена игроков
+            name_pattern = r'protocol\.(?:team\d+\.)?player(\d+)\.Name[:\s]*([^\n\r]+)'
+            name_matches = re.findall(name_pattern, page_text)
+            
+            print(f"🔍 Найдено {len(name_matches)} игроков в protocol")
+            
+            # Для каждого игрока собираем статистику
+            for player_num, player_name in name_matches:
+                player_name = player_name.strip()
+                if not player_name:
+                    continue
+                
+                player_stats = {
+                    'name': player_name,
+                    'player_number': player_num,
+                    'points': 0,
+                    'rebounds': 0,
+                    'assists': 0,
+                    'steals': 0,
+                    'blocks': 0,
+                    'turnovers': 0,
+                    'fouls': 0,
+                    'field_goals_made': 0,
+                    'field_goals_attempted': 0,
+                    'three_pointers_made': 0,
+                    'three_pointers_attempted': 0,
+                    'free_throws_made': 0,
+                    'free_throws_attempted': 0,
+                    'minutes': 0,
+                    'team': '',
+                    'position': '',
+                    'jersey_number': ''
+                }
+                
+                # Извлекаем статистику для каждого игрока
+                for stat_name, pattern in stat_patterns.items():
+                    # Заменяем player\d+ на конкретный номер игрока
+                    specific_pattern = pattern.replace(r'player\d+', f'player{player_num}')
+                    matches = re.findall(specific_pattern, page_text)
+                    
+                    if matches:
+                        try:
+                            value = float(matches[0]) if '.' in matches[0] else int(matches[0])
+                            player_stats[stat_name] = value
+                        except (ValueError, IndexError):
+                            pass
+                
+                # Вычисляем проценты попаданий
+                if player_stats['field_goals_attempted'] > 0:
+                    player_stats['field_goal_percentage'] = round((player_stats['field_goals_made'] / player_stats['field_goals_attempted']) * 100, 1)
+                else:
+                    player_stats['field_goal_percentage'] = 0.0
+                
+                if player_stats['three_pointers_attempted'] > 0:
+                    player_stats['three_point_percentage'] = round((player_stats['three_pointers_made'] / player_stats['three_pointers_attempted']) * 100, 1)
+                else:
+                    player_stats['three_point_percentage'] = 0.0
+                
+                if player_stats['free_throws_attempted'] > 0:
+                    player_stats['free_throw_percentage'] = round((player_stats['free_throws_made'] / player_stats['free_throws_attempted']) * 100, 1)
+                else:
+                    player_stats['free_throw_percentage'] = 0.0
+                
+                # Определяем команду игрока
+                team_pattern = r'protocol\.team(\d+)\.player' + player_num
+                team_matches = re.findall(team_pattern, page_text)
+                if team_matches:
+                    player_stats['team'] = f"Team{team_matches[0]}"
+                
+                players_stats.append(player_stats)
+                print(f"   📊 {player_name}: {player_stats['points']} очков, {player_stats['rebounds']} подборов, {player_stats['steals']} перехватов")
+            
+            return players_stats
+            
+        except Exception as e:
+            print(f"❌ Ошибка парсинга protocol статистики: {e}")
+            return []
     
     async def parse_game_from_url(self, game_url: str) -> Optional[Dict]:
         """Парсит игру по URL"""
@@ -341,6 +688,34 @@ async def test_parser():
             print(f"   🕐 Время: {result.get('time', 'Неизвестно')}")
             print(f"   📍 Место: {result.get('venue', 'Неизвестно')}")
             print(f"   🏆 Статус: {'Завершена' if result.get('is_finished') else 'В процессе'}")
+            
+            # Показываем статистику игроков
+            player_stats = result.get('player_stats')
+            if player_stats:
+                print(f"\n🏆 СТАТИСТИКА ИГРОКОВ:")
+                print(f"   📊 Всего игроков: {player_stats.get('total_players', 0)}")
+                print(f"   🔍 Источник: {player_stats.get('source', 'API')}")
+                
+                best_players = player_stats.get('best_players', {})
+                if best_players:
+                    print(f"\n   🏆 ЛУЧШИЕ ИГРОКИ:")
+                    if 'mvp' in best_players:
+                        mvp = best_players['mvp']
+                        print(f"      🥇 MVP: {mvp['name']} - {mvp['points']} очков ({mvp['field_goal_percentage']}%)")
+                    if 'best_rebounder' in best_players:
+                        reb = best_players['best_rebounder']
+                        print(f"      🏀 Подборы: {reb['name']} - {reb['rebounds']}")
+                    if 'best_stealer' in best_players:
+                        stl = best_players['best_stealer']
+                        print(f"      🥷 Перехваты: {stl['name']} - {stl['steals']}")
+                    if 'best_assister' in best_players:
+                        ast = best_players['best_assister']
+                        print(f"      🎯 Передачи: {ast['name']} - {ast['assists']}")
+                    if 'best_blocker' in best_players:
+                        blk = best_players['best_blocker']
+                        print(f"      🚫 Блокшоты: {blk['name']} - {blk['blocks']}")
+            else:
+                print(f"\n⚠️ Статистика игроков недоступна")
         else:
             print(f"❌ Парсинг не удался")
 

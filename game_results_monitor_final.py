@@ -331,7 +331,8 @@ class GameResultsMonitorFinal:
                         'venue': game_info.get('venue', ''),
                         'quarters': game_info.get('quarters', []),
                         'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития',
-                        'game_link': game_link  # Сохраняем исходную ссылку на игру
+                        'game_link': game_link,  # Сохраняем исходную ссылку на игру
+                        'our_team_leaders': game_info.get('our_team_leaders', {})  # Добавляем лидеров команды
                     }
                 return None
         except Exception as e:
@@ -417,29 +418,27 @@ class GameResultsMonitorFinal:
                 print(f"⏭️ Результат для игры {game_info['team1']} vs {game_info['team2']} уже отправлен (найдено в локальной истории)")
                 return False
             
-            # Формируем сообщение о результате
-            result_emoji = "🏆" if game_info['result'] == "победа" else "😔" if game_info['result'] == "поражение" else "🤝"
-            
-            message = f"{result_emoji} <b>РЕЗУЛЬТАТ ИГРЫ</b>\n\n"
-            message += f"🏀 {game_info['team_type']} vs {game_info['opponent']}\n"
-            message += f"📊 Счет: <b>{game_info['our_score']}:{game_info['opponent_score']}</b>\n"
-            message += f"🎯 Результат: <b>{game_info['result'].upper()}</b>\n"
-            
-            # Добавляем четверти только если есть реальные данные
-            quarters = game_info.get('quarters', [])
-            if quarters and quarters != ['Данные недоступны']:
-                message += f"📈 Четверти: {quarters}"
-            
-            # Используем ссылку из game_info, если она есть, иначе ищем заново
+            # Используем новую функцию форматирования с лидерами команды
+            our_team_leaders = game_info.get('our_team_leaders', {})
             game_link = game_info.get('game_link')
+            
             if not game_link:
                 print(f"🔍 Ссылка не найдена в game_info, ищем заново...")
                 game_link = await self.find_game_link(game_info['team1'], game_info['team2'], game_info.get('date'))
             
+            # Формируем сообщение используя новую функцию
+            message = self.game_manager.format_game_result_message(
+                game_info=game_info,
+                game_link=game_link,
+                our_team_leaders=our_team_leaders
+            )
+            
+            # Добавляем четверти только если есть реальные данные
+            quarters = game_info.get('quarters', [])
+            if quarters and quarters != ['Данные недоступны']:
+                message += f"\n📈 Четверти: {quarters}"
+            
             if game_link:
-                # Добавляем #protocol в конец ссылки
-                protocol_link = f"{game_link}#protocol"
-                message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
                 print(f"🔗 Используется ссылка: {game_link}")
             else:
                 print(f"❌ Ссылка на игру не найдена")

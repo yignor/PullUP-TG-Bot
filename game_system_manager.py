@@ -1012,6 +1012,117 @@ class GameSystemManager:
         
         return announcement
     
+    def format_game_result_message(self, game_info: Dict, game_link: Optional[str] = None, our_team_leaders: Optional[Dict] = None) -> str:
+        """Форматирует сообщение с результатами игры, включая лидеров нашей команды"""
+        try:
+            # Определяем нашу команду и соперника
+            team1 = game_info.get('team1', '')
+            team2 = game_info.get('team2', '')
+            
+            # Находим нашу команду
+            our_team = None
+            opponent = None
+            
+            # Нормализуем названия команд для проверки
+            team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
+            team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
+            
+            # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
+            if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
+                our_team = "Pull Up-Фарм"
+                opponent = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
+            elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
+                our_team = "Pull Up-Фарм"
+                opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
+            else:
+                # Обычная логика определения команд
+                if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+                    our_team = team1
+                    opponent = team2
+                elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+                    our_team = team2
+                    opponent = team1
+            
+            if not our_team:
+                return f"🏀 Результат игры: {team1} vs {team2}"
+            
+            # Определяем категорию команды
+            team_category = get_team_category_with_declension(our_team, opponent)
+            
+            # Получаем счет
+            our_score = game_info.get('our_score', '?')
+            opponent_score = game_info.get('opponent_score', '?')
+            
+            # Определяем результат
+            if our_score != '?' and opponent_score != '?':
+                try:
+                    our_score_int = int(our_score)
+                    opponent_score_int = int(opponent_score)
+                    if our_score_int > opponent_score_int:
+                        result_emoji = "✅"
+                        result_text = "ПОБЕДА"
+                    elif our_score_int < opponent_score_int:
+                        result_emoji = "❌"
+                        result_text = "ПОРАЖЕНИЕ"
+                    else:
+                        result_emoji = "🤝"
+                        result_text = "НИЧЬЯ"
+                except ValueError:
+                    result_emoji = "🏀"
+                    result_text = "РЕЗУЛЬТАТ"
+            else:
+                result_emoji = "🏀"
+                result_text = "РЕЗУЛЬТАТ"
+            
+            # Формируем основное сообщение
+            message = f"{result_emoji} {result_text} игры {team_category}:\n"
+            message += f"🏀 {our_team} {our_score}:{opponent_score} {opponent}\n"
+            message += f"📅 {game_info.get('date', '')} в {game_info.get('time', '').replace('.', ':')}\n"
+            message += f"📍 {game_info.get('venue', '')}\n"
+            
+            # Добавляем ссылку на игру, если есть
+            if game_link:
+                if game_link.startswith('game.html?'):
+                    full_url = f"http://letobasket.ru/{game_link}"
+                else:
+                    full_url = game_link
+                message += f"🔗 <a href=\"{full_url}\">Ссылка на игру</a>\n"
+            
+            # Добавляем лидеров нашей команды, если есть
+            if our_team_leaders:
+                message += "\n🏆 ЛИДЕРЫ НАШЕЙ КОМАНДЫ:\n"
+                
+                # Лидер по очкам
+                if 'points' in our_team_leaders:
+                    points_leader = our_team_leaders['points']
+                    message += f"🥇 Очки: {points_leader['name']} - {points_leader['value']} ({points_leader.get('percentage', 0)}%)\n"
+                
+                # Лидер по подборам
+                if 'rebounds' in our_team_leaders:
+                    rebounds_leader = our_team_leaders['rebounds']
+                    message += f"🏀 Подборы: {rebounds_leader['name']} - {rebounds_leader['value']}\n"
+                
+                # Лидер по передачам
+                if 'assists' in our_team_leaders:
+                    assists_leader = our_team_leaders['assists']
+                    message += f"🎯 Передачи: {assists_leader['name']} - {assists_leader['value']}\n"
+                
+                # Лидер по перехватам
+                if 'steals' in our_team_leaders:
+                    steals_leader = our_team_leaders['steals']
+                    message += f"🥷 Перехваты: {steals_leader['name']} - {steals_leader['value']}\n"
+                
+                # Лидер по блокшотам
+                if 'blocks' in our_team_leaders:
+                    blocks_leader = our_team_leaders['blocks']
+                    message += f"🚫 Блокшоты: {blocks_leader['name']} - {blocks_leader['value']}\n"
+            
+            return message
+            
+        except Exception as e:
+            print(f"❌ Ошибка форматирования сообщения с результатами: {e}")
+            return f"🏀 Результат игры: {game_info.get('team1', '')} vs {game_info.get('team2', '')}"
+    
     async def send_game_announcement(self, game_info: Dict, game_position: int = 1, game_link: Optional[str] = None, found_team: Optional[str] = None) -> bool:
         """Отправляет анонс игры в основной топик"""
         if not self.bot or not CHAT_ID:

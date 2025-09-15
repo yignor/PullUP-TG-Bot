@@ -283,6 +283,12 @@ class EnhancedGameParser:
             if player_stats:
                 game_info['player_stats'] = player_stats
                 print(f"📊 Статистика игроков извлечена через API: {len(player_stats.get('players', []))} игроков")
+                
+                # Извлекаем лидеров нашей команды
+                our_team_leaders = self.find_our_team_leaders(player_stats.get('players', []))
+                if our_team_leaders:
+                    game_info['our_team_leaders'] = our_team_leaders
+                    print(f"🏆 Лидеры нашей команды извлечены: {len(our_team_leaders)} категорий")
             else:
                 # Если не удалось получить статистику через API, пробуем через protocol
                 print("🔍 Статистика через API не найдена, пробуем через protocol...")
@@ -290,6 +296,12 @@ class EnhancedGameParser:
                 if protocol_stats:
                     game_info['player_stats'] = protocol_stats
                     print(f"📊 Статистика игроков извлечена через protocol: {len(protocol_stats.get('players', []))} игроков")
+                    
+                    # Извлекаем лидеров нашей команды
+                    our_team_leaders = self.find_our_team_leaders(protocol_stats.get('players', []))
+                    if our_team_leaders:
+                        game_info['our_team_leaders'] = our_team_leaders
+                        print(f"🏆 Лидеры нашей команды извлечены: {len(our_team_leaders)} категорий")
                 else:
                     print("⚠️ Статистика игроков не найдена ни через API, ни через protocol")
             
@@ -581,6 +593,80 @@ class EnhancedGameParser:
 
         except Exception as e:
             print(f"❌ Ошибка поиска лучших игроков: {e}")
+            return {}
+
+    def find_our_team_leaders(self, players_stats: List[Dict], our_team_names: List[str] = None) -> Dict:
+        """Находит лидеров нашей команды по различным показателям"""
+        try:
+            if not players_stats:
+                return {}
+
+            # Названия наших команд для поиска
+            if our_team_names is None:
+                our_team_names = ["PULL UP", "Pull Up", "PullUP", "PULL UP фарм", "Pull Up-Фарм"]
+
+            # Фильтруем игроков нашей команды
+            our_team_players = []
+            for player in players_stats:
+                team_name = player.get('team', '')
+                if any(our_name in team_name for our_name in our_team_names):
+                    our_team_players.append(player)
+
+            if not our_team_players:
+                print("⚠️ Игроки нашей команды не найдены в статистике")
+                return {}
+
+            print(f"🏀 Найдено игроков нашей команды: {len(our_team_players)}")
+
+            leaders = {}
+
+            # Лидер по очкам
+            points_leader = max(our_team_players, key=lambda p: p['points'])
+            leaders['points'] = {
+                'name': points_leader['name'],
+                'value': points_leader['points'],
+                'percentage': points_leader.get('field_goal_percentage', 0)
+            }
+
+            # Лидер по подборам
+            rebounds_leader = max(our_team_players, key=lambda p: p['rebounds'])
+            leaders['rebounds'] = {
+                'name': rebounds_leader['name'],
+                'value': rebounds_leader['rebounds']
+            }
+
+            # Лидер по передачам
+            assists_leader = max(our_team_players, key=lambda p: p['assists'])
+            leaders['assists'] = {
+                'name': assists_leader['name'],
+                'value': assists_leader['assists']
+            }
+
+            # Лидер по перехватам
+            steals_leader = max(our_team_players, key=lambda p: p['steals'])
+            leaders['steals'] = {
+                'name': steals_leader['name'],
+                'value': steals_leader['steals']
+            }
+
+            # Лидер по блокшотам
+            blocks_leader = max(our_team_players, key=lambda p: p['blocks'])
+            leaders['blocks'] = {
+                'name': blocks_leader['name'],
+                'value': blocks_leader['blocks']
+            }
+
+            print(f"🏆 Лидеры нашей команды:")
+            print(f"   Очки: {leaders['points']['name']} ({leaders['points']['value']} очков, {leaders['points']['percentage']}%)")
+            print(f"   Подборы: {leaders['rebounds']['name']} ({leaders['rebounds']['value']})")
+            print(f"   Передачи: {leaders['assists']['name']} ({leaders['assists']['value']})")
+            print(f"   Перехваты: {leaders['steals']['name']} ({leaders['steals']['value']})")
+            print(f"   Блокшоты: {leaders['blocks']['name']} ({leaders['blocks']['value']})")
+
+            return leaders
+
+        except Exception as e:
+            print(f"❌ Ошибка поиска лидеров нашей команды: {e}")
             return {}
     
     async def parse_game_statistics_from_protocol(self, game_url: str) -> Optional[Dict]:

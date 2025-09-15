@@ -147,25 +147,21 @@ class NotificationManager:
             return
         
         try:
-            pullup_team = game_info.get('pullup_team', game_info.get('team1', 'Команда 1'))
-            opponent_team = game_info.get('opponent_team', game_info.get('team2', 'Команда 2'))
-            pullup_score = game_info.get('pullup_score', game_info.get('score', 'Неизвестно'))
-            opponent_score = game_info.get('opponent_score', '')
-            date = game_info.get('date', '')
+            # Используем новую функцию форматирования с лидерами команды
+            from game_system_manager import GameSystemManager
+            game_manager = GameSystemManager()
             
-            # Формируем счет
-            if opponent_score:
-                score = f"{pullup_score}:{opponent_score}"
-            else:
-                score = pullup_score
+            # Получаем лидеров команды из game_info
+            our_team_leaders = game_info.get('our_team_leaders', {})
             
-            # Определяем тип состава
-            team_type = "первый состав" if "фарм" not in pullup_team.lower() else "состав развития"
+            # Формируем основное сообщение с лидерами
+            message = game_manager.format_game_result_message(
+                game_info=game_info,
+                game_link=game_link,
+                our_team_leaders=our_team_leaders
+            )
             
-            message = f"🏆 <b>РЕЗУЛЬТАТ ИГРЫ</b>\n\n"
-            message += f"🏀 {team_type} vs {opponent_team}\n"
-            message += f"📊 Счет: <b>{score}</b>\n"
-            
+            # Добавляем статистику голосования, если есть
             if poll_results:
                 votes = poll_results.get('votes', {})
                 ready_count = votes.get('ready', 0)
@@ -173,7 +169,7 @@ class NotificationManager:
                 coach_count = votes.get('coach', 0)
                 total_votes = votes.get('total', 0)
                 
-                message += f"\n📊 Статистика голосования:\n"
+                message += f"\n\n📊 Статистика голосования:\n"
                 message += f"✅ Готовы: {ready_count}\n"
                 message += f"❌ Не готовы: {not_ready_count}\n"
                 message += f"👨‍🏫 Тренер: {coach_count}\n"
@@ -189,13 +185,7 @@ class NotificationManager:
                     else:
                         message += f"\n⚠️ Низкая посещаемость ({attendance_rate:.1f}%)"
             else:
-                message += f"\n📊 Статистика голосования: Недоступна"
-            
-            # Добавляем ссылку на протокол если она есть
-            if game_link:
-                # Добавляем #protocol в конец ссылки
-                protocol_link = f"{game_link}#protocol"
-                message += f"\n\n📋 <a href='{protocol_link}'>Протокол</a>"
+                message += f"\n\n📊 Статистика голосования: Недоступна"
             
             await self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
             self.sent_game_result_notifications.add(notification_id)

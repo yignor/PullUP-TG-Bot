@@ -740,6 +740,25 @@ class GameSystemManager:
             import aiohttp
             from bs4 import BeautifulSoup
             
+            # Исправляем команды для случаев типа "Pull Up vs Фарм - Quasar"
+            original_team1, original_team2 = team1, team2
+            
+            # Нормализуем названия команд для проверки
+            team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
+            team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
+            
+            # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
+            if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
+                # Это случай "Pull Up vs Фарм - Quasar" - исправляем на "Pull Up-Фарм vs Quasar"
+                team1 = "Pull Up-Фарм"
+                team2 = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
+                print(f"🔧 Исправляем команды для поиска ссылки: {original_team1} vs {original_team2} -> {team1} vs {team2}")
+            elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
+                # Это случай "Фарм - Quasar vs Pull Up" - исправляем на "Pull Up-Фарм vs Quasar"
+                team1 = "Pull Up-Фарм"
+                team2 = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
+                print(f"🔧 Исправляем команды для поиска ссылки: {original_team1} vs {original_team2} -> {team1} vs {team2}")
+            
             url = "http://letobasket.ru/"
             
             async with aiohttp.ClientSession() as session:

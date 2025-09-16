@@ -659,12 +659,11 @@ class EnhancedGameParser:
             # Анти-лидеры (худшие показатели)
             anti_leaders = {}
 
-            # Анти-лидер по промахам (наибольшее количество промахов)
-            missed_shots_leader = max(our_team_players, key=lambda p: (p.get('field_goals_attempted', 0) - p.get('field_goals_made', 0)) + (p.get('three_pointers_attempted', 0) - p.get('three_pointers_made', 0)))
-            total_missed = (missed_shots_leader.get('field_goals_attempted', 0) - missed_shots_leader.get('field_goals_made', 0)) + (missed_shots_leader.get('three_pointers_attempted', 0) - missed_shots_leader.get('three_pointers_made', 0))
-            anti_leaders['missed_shots'] = {
-                'name': missed_shots_leader['name'],
-                'value': total_missed
+            # Анти-лидер по проценту попаданий (самый низкий процент)
+            worst_shooting_leader = min(our_team_players, key=lambda p: p.get('field_goal_percentage', 100))
+            anti_leaders['worst_shooting'] = {
+                'name': worst_shooting_leader['name'],
+                'value': worst_shooting_leader.get('field_goal_percentage', 0)
             }
 
             # Анти-лидер по потерям
@@ -698,7 +697,7 @@ class EnhancedGameParser:
             print(f"   Блокшоты: {leaders['blocks']['name']} ({leaders['blocks']['value']})")
 
             print(f"😅 Анти-лидеры нашей команды:")
-            print(f"   Промахи: {anti_leaders['missed_shots']['name']} ({anti_leaders['missed_shots']['value']})")
+            print(f"   Процент попаданий: {anti_leaders['worst_shooting']['name']} ({anti_leaders['worst_shooting']['value']}%)")
             print(f"   Потери: {anti_leaders['turnovers']['name']} ({anti_leaders['turnovers']['value']})")
             print(f"   Фолы: {anti_leaders['fouls']['name']} ({anti_leaders['fouls']['value']})")
             print(f"   КПИ: {anti_leaders['worst_plus_minus']['name']} ({anti_leaders['worst_plus_minus']['value']})")

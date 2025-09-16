@@ -1109,10 +1109,10 @@ class GameSystemManager:
                     
                     anti_leaders = our_team_leaders.get('anti_leaders', {})
                     if anti_leaders:
-                        # Анти-лидер по промахам
-                        if 'missed_shots' in anti_leaders:
-                            missed_leader = anti_leaders['missed_shots']
-                            message += f"🎯 Промахи: {missed_leader['name']} - {missed_leader['value']}\n"
+                        # Анти-лидер по проценту попаданий
+                        if 'worst_shooting' in anti_leaders:
+                            worst_shooting_leader = anti_leaders['worst_shooting']
+                            message += f"🎯 Процент попаданий: {worst_shooting_leader['name']} - {worst_shooting_leader['value']}%\n"
                         
                         # Анти-лидер по потерям
                         if 'turnovers' in anti_leaders:

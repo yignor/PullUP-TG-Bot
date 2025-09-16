@@ -1081,15 +1081,22 @@ class GameSystemManager:
             message = f"{result_emoji} {result_text} игры {team_category}:\n"
             message += f"🏀 {our_team} {our_score}:{opponent_score} {opponent}\n"
             message += f"📅 {game_info.get('date', '')} в {game_info.get('time', '').replace('.', ':')}\n"
-            message += f"📍 {game_info.get('venue', '')}\n"
             
-            # Добавляем ссылку на игру, если есть
+            # Добавляем ссылку на протокол, если есть
             if game_link:
                 if game_link.startswith('game.html?'):
                     full_url = f"http://letobasket.ru/{game_link}"
                 else:
                     full_url = game_link
-                message += f"🔗 <a href=\"{full_url}\">Ссылка на игру</a>\n"
+                
+                # Убеждаемся, что ссылка содержит #protocol
+                if '#protocol' not in full_url:
+                    if '#' in full_url:
+                        full_url = full_url.replace('#', '#protocol')
+                    else:
+                        full_url += '#protocol'
+                
+                message += f"🔗 <a href=\"{full_url}\">Протокол</a>\n"
             
             # Добавляем статистику в зависимости от результата игры
             if our_team_leaders:

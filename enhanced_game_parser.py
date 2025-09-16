@@ -334,7 +334,9 @@ class EnhancedGameParser:
                                 print(f"🔍 Найдены игроки команды {team_name_ru}: {len(players_data)} игроков")
                                 for player in players_data:
                                     stats = self.parse_player_statistics_from_api(player, team_name_ru)
-                                    if stats:
+                                    if (stats and stats.get('name') and 
+                                        stats.get('name').strip() != '' and 
+                                        'None' not in stats.get('name', '')):
                                         players_stats.append(stats)
             
             # Проверяем различные возможные места для статистики
@@ -344,7 +346,9 @@ class EnhancedGameParser:
                 
                 for player in players_data:
                     player_stat = self.parse_player_statistics(player)
-                    if player_stat:
+                    if (player_stat and player_stat.get('name') and 
+                        player_stat.get('name').strip() != '' and 
+                        'None' not in player_stat.get('name', '')):
                         players_stats.append(player_stat)
             
             elif 'TeamPlayers' in game_data:
@@ -356,7 +360,9 @@ class EnhancedGameParser:
                         
                         for player in team_players:
                             player_stat = self.parse_player_statistics(player)
-                            if player_stat:
+                            if (player_stat and player_stat.get('name') and 
+                                player_stat.get('name').strip() != '' and 
+                                'None' not in player_stat.get('name', '')):
                                 players_stats.append(player_stat)
             
             elif 'Statistics' in online_data:
@@ -370,7 +376,9 @@ class EnhancedGameParser:
                         for item in value:
                             if isinstance(item, dict) and 'PlayerName' in item:
                                 player_stat = self.parse_player_statistics(item)
-                                if player_stat:
+                                if (player_stat and player_stat.get('name') and 
+                                    player_stat.get('name').strip() != '' and 
+                                    'None' not in player_stat.get('name', '')):
                                     players_stats.append(player_stat)
             
             if players_stats:
@@ -608,6 +616,12 @@ class EnhancedGameParser:
             # Фильтруем игроков нашей команды
             our_team_players = []
             for player in players_stats:
+                # Проверяем, что игрок валидный (не None и имеет имя)
+                if (not player or not player.get('name') or 
+                    player.get('name').strip() == '' or 
+                    'None' in player.get('name', '')):
+                    continue
+                    
                 team_name = player.get('team', '')
                 if any(our_name in team_name for our_name in our_team_names):
                     our_team_players.append(player)
@@ -660,32 +674,39 @@ class EnhancedGameParser:
             anti_leaders = {}
 
             # Анти-лидер по проценту попаданий (самый низкий процент)
-            worst_shooting_leader = min(our_team_players, key=lambda p: p.get('field_goal_percentage', 100))
-            anti_leaders['worst_shooting'] = {
-                'name': worst_shooting_leader['name'],
-                'value': worst_shooting_leader.get('field_goal_percentage', 0)
-            }
+            # Фильтруем игроков с валидными именами для анти-лидеров
+            valid_players = [p for p in our_team_players if p.get('name') and p.get('name').strip() != '' and 'None' not in p.get('name', '')]
+            
+            
+            if valid_players:
+                worst_shooting_leader = min(valid_players, key=lambda p: p.get('field_goal_percentage', 100))
+                anti_leaders['worst_shooting'] = {
+                    'name': worst_shooting_leader['name'],
+                    'value': worst_shooting_leader.get('field_goal_percentage', 0)
+                }
 
-            # Анти-лидер по потерям
-            turnovers_leader = max(our_team_players, key=lambda p: p.get('turnovers', 0))
-            anti_leaders['turnovers'] = {
-                'name': turnovers_leader['name'],
-                'value': turnovers_leader.get('turnovers', 0)
-            }
+                # Анти-лидер по потерям
+                turnovers_leader = max(valid_players, key=lambda p: p.get('turnovers', 0))
+                anti_leaders['turnovers'] = {
+                    'name': turnovers_leader['name'],
+                    'value': turnovers_leader.get('turnovers', 0)
+                }
 
-            # Анти-лидер по фолам
-            fouls_leader = max(our_team_players, key=lambda p: p.get('fouls', 0))
-            anti_leaders['fouls'] = {
-                'name': fouls_leader['name'],
-                'value': fouls_leader.get('fouls', 0)
-            }
+                # Анти-лидер по фолам
+                fouls_leader = max(valid_players, key=lambda p: p.get('fouls', 0))
+                anti_leaders['fouls'] = {
+                    'name': fouls_leader['name'],
+                    'value': fouls_leader.get('fouls', 0)
+                }
 
-            # Анти-лидер по КПИ (самый низкий плюс/минус)
-            worst_plus_minus = min(our_team_players, key=lambda p: p.get('plus_minus', 0))
-            anti_leaders['worst_plus_minus'] = {
-                'name': worst_plus_minus['name'],
-                'value': worst_plus_minus.get('plus_minus', 0)
-            }
+                # Анти-лидер по КПИ (самый низкий плюс/минус)
+                worst_plus_minus = min(valid_players, key=lambda p: p.get('plus_minus', 0))
+                anti_leaders['worst_plus_minus'] = {
+                    'name': worst_plus_minus['name'],
+                    'value': worst_plus_minus.get('plus_minus', 0)
+                }
+            else:
+                print("⚠️ Нет игроков с валидными именами для анти-лидеров")
 
             leaders['anti_leaders'] = anti_leaders
 

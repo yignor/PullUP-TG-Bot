@@ -317,6 +317,9 @@ class GameResultsMonitorFinal:
             async with EnhancedGameParser() as parser:
                 game_info = await parser.parse_game_from_url(game_link)
                 if game_info and game_info.get('result'):
+                    # Определяем статус игры
+                    status = 'Завершена' if game_info.get('result') in ['победа', 'поражение', 'ничья'] else 'В процессе'
+                    
                     # Преобразуем в формат, ожидаемый системой
                     return {
                         'team1': game_info.get('our_team', ''),
@@ -326,6 +329,7 @@ class GameResultsMonitorFinal:
                         'our_score': game_info.get('our_score', 0),
                         'opponent_score': game_info.get('opponent_score', 0),
                         'result': game_info.get('result', ''),
+                        'status': status,
                         'date': game_info.get('date', ''),
                         'time': game_info.get('time', ''),
                         'venue': game_info.get('venue', ''),

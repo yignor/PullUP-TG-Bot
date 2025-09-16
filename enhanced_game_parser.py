@@ -596,7 +596,7 @@ class EnhancedGameParser:
             return {}
 
     def find_our_team_leaders(self, players_stats: List[Dict], our_team_names: List[str] = None) -> Dict:
-        """Находит лидеров нашей команды по различным показателям"""
+        """Находит лидеров и анти-лидеров нашей команды по различным показателям"""
         try:
             if not players_stats:
                 return {}
@@ -656,12 +656,52 @@ class EnhancedGameParser:
                 'value': blocks_leader['blocks']
             }
 
+            # Анти-лидеры (худшие показатели)
+            anti_leaders = {}
+
+            # Анти-лидер по промахам (наибольшее количество промахов)
+            missed_shots_leader = max(our_team_players, key=lambda p: (p.get('field_goals_attempted', 0) - p.get('field_goals_made', 0)) + (p.get('three_pointers_attempted', 0) - p.get('three_pointers_made', 0)))
+            total_missed = (missed_shots_leader.get('field_goals_attempted', 0) - missed_shots_leader.get('field_goals_made', 0)) + (missed_shots_leader.get('three_pointers_attempted', 0) - missed_shots_leader.get('three_pointers_made', 0))
+            anti_leaders['missed_shots'] = {
+                'name': missed_shots_leader['name'],
+                'value': total_missed
+            }
+
+            # Анти-лидер по потерям
+            turnovers_leader = max(our_team_players, key=lambda p: p.get('turnovers', 0))
+            anti_leaders['turnovers'] = {
+                'name': turnovers_leader['name'],
+                'value': turnovers_leader.get('turnovers', 0)
+            }
+
+            # Анти-лидер по фолам
+            fouls_leader = max(our_team_players, key=lambda p: p.get('fouls', 0))
+            anti_leaders['fouls'] = {
+                'name': fouls_leader['name'],
+                'value': fouls_leader.get('fouls', 0)
+            }
+
+            # Анти-лидер по КПИ (самый низкий плюс/минус)
+            worst_plus_minus = min(our_team_players, key=lambda p: p.get('plus_minus', 0))
+            anti_leaders['worst_plus_minus'] = {
+                'name': worst_plus_minus['name'],
+                'value': worst_plus_minus.get('plus_minus', 0)
+            }
+
+            leaders['anti_leaders'] = anti_leaders
+
             print(f"🏆 Лидеры нашей команды:")
             print(f"   Очки: {leaders['points']['name']} ({leaders['points']['value']} очков, {leaders['points']['percentage']}%)")
             print(f"   Подборы: {leaders['rebounds']['name']} ({leaders['rebounds']['value']})")
             print(f"   Передачи: {leaders['assists']['name']} ({leaders['assists']['value']})")
             print(f"   Перехваты: {leaders['steals']['name']} ({leaders['steals']['value']})")
             print(f"   Блокшоты: {leaders['blocks']['name']} ({leaders['blocks']['value']})")
+
+            print(f"😅 Анти-лидеры нашей команды:")
+            print(f"   Промахи: {anti_leaders['missed_shots']['name']} ({anti_leaders['missed_shots']['value']})")
+            print(f"   Потери: {anti_leaders['turnovers']['name']} ({anti_leaders['turnovers']['value']})")
+            print(f"   Фолы: {anti_leaders['fouls']['name']} ({anti_leaders['fouls']['value']})")
+            print(f"   КПИ: {anti_leaders['worst_plus_minus']['name']} ({anti_leaders['worst_plus_minus']['value']})")
 
             return leaders
 

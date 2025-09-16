@@ -1088,34 +1088,69 @@ class GameSystemManager:
                     full_url = game_link
                 message += f"🔗 <a href=\"{full_url}\">Ссылка на игру</a>\n"
             
-            # Добавляем лидеров нашей команды, если есть
+            # Добавляем статистику в зависимости от результата игры
             if our_team_leaders:
-                message += "\n🏆 ЛИДЕРЫ НАШЕЙ КОМАНДЫ:\n"
+                # Определяем результат игры
+                our_score = game_info.get('our_score', '?')
+                opponent_score = game_info.get('opponent_score', '?')
                 
-                # Лидер по очкам
-                if 'points' in our_team_leaders:
-                    points_leader = our_team_leaders['points']
-                    message += f"🥇 Очки: {points_leader['name']} - {points_leader['value']} ({points_leader.get('percentage', 0)}%)\n"
+                is_victory = False
+                if our_score != '?' and opponent_score != '?':
+                    try:
+                        our_score_int = int(our_score)
+                        opponent_score_int = int(opponent_score)
+                        is_victory = our_score_int > opponent_score_int
+                    except ValueError:
+                        pass
                 
-                # Лидер по подборам
-                if 'rebounds' in our_team_leaders:
-                    rebounds_leader = our_team_leaders['rebounds']
-                    message += f"🏀 Подборы: {rebounds_leader['name']} - {rebounds_leader['value']}\n"
-                
-                # Лидер по передачам
-                if 'assists' in our_team_leaders:
-                    assists_leader = our_team_leaders['assists']
-                    message += f"🎯 Передачи: {assists_leader['name']} - {assists_leader['value']}\n"
-                
-                # Лидер по перехватам
-                if 'steals' in our_team_leaders:
-                    steals_leader = our_team_leaders['steals']
-                    message += f"🥷 Перехваты: {steals_leader['name']} - {steals_leader['value']}\n"
-                
-                # Лидер по блокшотам
-                if 'blocks' in our_team_leaders:
-                    blocks_leader = our_team_leaders['blocks']
-                    message += f"🚫 Блокшоты: {blocks_leader['name']} - {blocks_leader['value']}\n"
+                if is_victory:
+                    # При победе показываем анти-лидеров (что нужно улучшить)
+                    message += "\n😅 ЧТО НУЖНО УЛУЧШИТЬ:\n"
+                    
+                    anti_leaders = our_team_leaders.get('anti_leaders', {})
+                    if anti_leaders:
+                        # Анти-лидер по промахам
+                        if 'missed_shots' in anti_leaders:
+                            missed_leader = anti_leaders['missed_shots']
+                            message += f"🎯 Промахи: {missed_leader['name']} - {missed_leader['value']}\n"
+                        
+                        # Анти-лидер по потерям
+                        if 'turnovers' in anti_leaders:
+                            turnovers_leader = anti_leaders['turnovers']
+                            message += f"💥 Потери: {turnovers_leader['name']} - {turnovers_leader['value']}\n"
+                        
+                        # Анти-лидер по фолам
+                        if 'fouls' in anti_leaders:
+                            fouls_leader = anti_leaders['fouls']
+                            message += f"⚠️ Фолы: {fouls_leader['name']} - {fouls_leader['value']}\n"
+                        
+                        # Анти-лидер по КПИ
+                        if 'worst_plus_minus' in anti_leaders:
+                            worst_pm_leader = anti_leaders['worst_plus_minus']
+                            message += f"📉 КПИ: {worst_pm_leader['name']} - {worst_pm_leader['value']}\n"
+                else:
+                    # При поражении показываем лидеров (кто лучше всего играл)
+                    message += "\n🏆 ЛУЧШИЕ ИГРОКИ:\n"
+                    
+                    # Лидер по очкам
+                    if 'points' in our_team_leaders:
+                        points_leader = our_team_leaders['points']
+                        message += f"🥇 Очки: {points_leader['name']} - {points_leader['value']} ({points_leader.get('percentage', 0)}%)\n"
+                    
+                    # Лидер по подборам
+                    if 'rebounds' in our_team_leaders:
+                        rebounds_leader = our_team_leaders['rebounds']
+                        message += f"🏀 Подборы: {rebounds_leader['name']} - {rebounds_leader['value']}\n"
+                    
+                    # Лидер по передачам
+                    if 'assists' in our_team_leaders:
+                        assists_leader = our_team_leaders['assists']
+                        message += f"🎯 Передачи: {assists_leader['name']} - {assists_leader['value']}\n"
+                    
+                    # Лидер по перехватам
+                    if 'steals' in our_team_leaders:
+                        steals_leader = our_team_leaders['steals']
+                        message += f"🥷 Перехваты: {steals_leader['name']} - {steals_leader['value']}\n"
             
             return message
             

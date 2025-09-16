@@ -1035,11 +1035,14 @@ class GameSystemManager:
                 our_team = "Pull Up-Фарм"
                 opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
             else:
-                # Обычная логика определения команд
-                if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+                # Обычная логика определения команд (регистронезависимый поиск)
+                team1_upper = team1.upper()
+                team2_upper = team2.upper()
+                
+                if any(target_team.upper() in team1_upper for target_team in ['Pull Up', 'PullUP', 'PULL UP']):
                     our_team = team1
                     opponent = team2
-                elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+                elif any(target_team.upper() in team2_upper for target_team in ['Pull Up', 'PullUP', 'PULL UP']):
                     our_team = team2
                     opponent = team1
             

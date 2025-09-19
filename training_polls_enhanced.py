@@ -123,17 +123,19 @@ class TrainingPollsManager:
             
             # Получаем даты тренировок
             tuesday_date = self.get_next_tuesday_date()
+            thursday_date = self.get_next_thursday_date()
             friday_date = self.get_next_friday_date()
             
             # Определяем места тренировок для недели
             locations = self.get_training_locations(week_start)
             
             # Формируем вопрос с датами тренировок
-            question = f"Тренировки {tuesday_date.strftime('%d.%m')} и {friday_date.strftime('%d.%m')}"
+            question = f"Тренировки {tuesday_date.strftime('%d.%m')}, {thursday_date.strftime('%d.%m')} и {friday_date.strftime('%d.%m')}"
             
             # Формируем упрощенные варианты ответов
             options = [
                 "Вторник, 21:30, зал Динамо (Крестовский остров)",
+                "Четверг, 21:30, зал Динамо (Игровая тренировка, максимум 9 человек)",
                 "Пятница, 20:30, зал СШОР ВО",
                 "Тренер",
                 "Нет"
@@ -165,10 +167,12 @@ class TrainingPollsManager:
                 'chat_id': CHAT_ID,
                 'topic_id': ANNOUNCEMENTS_TOPIC_ID,
                 'tuesday_date': tuesday_date.isoformat(),
+                'thursday_date': thursday_date.isoformat(),
                 'friday_date': friday_date.isoformat(),
                 'week_start': week_start.isoformat(),
                 'week_end': week_end.isoformat(),
                 'tuesday_location': {'time': '21:30', 'location': 'зал Динамо (Крестовский остров)'},
+                'thursday_location': {'time': '21:30', 'location': 'зал Динамо (Игровая тренировка, максимум 9 человек)'},
                 'friday_location': {'time': '20:30', 'location': 'зал СШОР ВО'}
             }
             
@@ -177,7 +181,7 @@ class TrainingPollsManager:
                 json.dump(self.current_poll_info, f, ensure_ascii=False, indent=2)
             
             # Добавляем запись в сервисный лист для защиты от дублирования
-            additional_info = f"Вторник {tuesday_date.strftime('%d.%m')}, Пятница {friday_date.strftime('%d.%m')}"
+            additional_info = f"Вторник {tuesday_date.strftime('%d.%m')}, Четверг {thursday_date.strftime('%d.%m')}, Пятница {friday_date.strftime('%d.%m')}"
             duplicate_protection.add_record(
                 "ОПРОС_ТРЕНИРОВКА",
                 str(poll_message.poll.id),
@@ -543,6 +547,15 @@ class TrainingPollsManager:
             days_ahead += 7
         next_tuesday = now + datetime.timedelta(days=days_ahead)
         return next_tuesday.date()
+    
+    def get_next_thursday_date(self):
+        """Возвращает дату следующего четверга"""
+        now = self.get_moscow_time()
+        days_ahead = 3 - now.weekday()  # 3 = четверг
+        if days_ahead <= 0:  # Если сегодня четверг или позже
+            days_ahead += 7
+        next_thursday = now + datetime.timedelta(days=days_ahead)
+        return next_thursday.date()
     
     def get_next_friday_date(self):
         """Возвращает дату следующей пятницы"""

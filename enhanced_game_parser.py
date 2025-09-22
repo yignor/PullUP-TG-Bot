@@ -105,7 +105,8 @@ class EnhancedGameParser:
             match = re.search(r'/Date\((\d+)\)/', date_str)
             if match:
                 timestamp = int(match.group(1)) / 1000  # Конвертируем в секунды
-                dt = datetime.fromtimestamp(timestamp)
+                # Используем московское время вместо системного
+                dt = datetime.fromtimestamp(timestamp, tz=get_moscow_time().tzinfo)
                 return dt.strftime('%d.%m.%Y')
             
             return None
@@ -123,7 +124,8 @@ class EnhancedGameParser:
             match = re.search(r'/Date\((\d+)\)/', time_str)
             if match:
                 timestamp = int(match.group(1)) / 1000  # Конвертируем в секунды
-                dt = datetime.fromtimestamp(timestamp)
+                # Используем московское время вместо системного
+                dt = datetime.fromtimestamp(timestamp, tz=get_moscow_time().tzinfo)
                 return dt.strftime('%H:%M')
             
             return None

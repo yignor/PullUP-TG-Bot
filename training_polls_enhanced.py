@@ -192,7 +192,7 @@ class TrainingPollsManager:
             # Создаем структуру в Google Sheets
             try:
                 print(f"📊 Создание структуры в Google Sheets...")
-                self._create_training_structure(tuesday_date, friday_date, str(poll_message.poll.id))
+                self._create_training_structure(tuesday_date, thursday_date, friday_date, str(poll_message.poll.id))
                 print(f"✅ Структура в Google Sheets создана")
             except Exception as e:
                 print(f"⚠️ Ошибка создания структуры в Google Sheets: {e}")
@@ -578,7 +578,7 @@ class TrainingPollsManager:
         """Получает текущее время в московском часовом поясе"""
         return get_moscow_time()
 
-    def _create_training_structure(self, tuesday_date: datetime.date, friday_date: datetime.date, poll_id: str):
+    def _create_training_structure(self, tuesday_date: datetime.date, thursday_date: datetime.date, friday_date: datetime.date, poll_id: str):
         """Создает структуру данных в листе 'Тренировки'"""
         try:
             worksheet = self._get_or_create_training_worksheet()
@@ -609,6 +609,16 @@ class TrainingPollsManager:
                 ""                               # Telegram ID (пустой)
             ]
             worksheet.append_row(tuesday_header)
+            
+            # Создаем строку для четверга
+            thursday_header = [
+                thursday_date.strftime('%d.%m.%Y'),  # Дата четверга с годом
+                "Четверг",                       # ID содержит день недели
+                "",                              # Фамилия (пустая)
+                "",                              # Имя (пустая)
+                ""                               # Telegram ID (пустой)
+            ]
+            worksheet.append_row(thursday_header)
             
             # Создаем строку для пятницы
             friday_header = [
@@ -651,7 +661,7 @@ class TrainingPollsManager:
         # Ищем активные опросы
         active_polls = []
         for i, row in enumerate(all_values):
-            if len(row) > 1 and row[1] and len(row[1]) > 10 and row[1] not in ["Вторник", "Пятница"]:
+            if len(row) > 1 and row[1] and len(row[1]) > 10 and row[1] not in ["Вторник", "Четверг", "Пятница"]:
                 active_polls.append({
                     'poll_id': row[1],
                     'date': row[0],
@@ -733,6 +743,7 @@ class TrainingPollsManager:
         
         # Получаем список уже существующих участников из Google таблицы
         existing_tuesday_voters = set()
+        existing_thursday_voters = set()
         existing_friday_voters = set()
         
         try:
@@ -742,20 +753,29 @@ class TrainingPollsManager:
             # Ищем заголовки и собираем существующих участников
             for i, row in enumerate(all_values):
                 if len(row) > 0 and row[0]:  # Если есть дата
-                    # Проверяем, это заголовок вторника или пятницы
+                    # Проверяем, это заголовок вторника, четверга или пятницы
                     if len(row) > 1 and row[1] == "Вторник":
                         # Собираем участников вторника после этого заголовка
                         j = i + 1
-                        while j < len(all_values) and all_values[j][1] != "Пятница" and all_values[j][1] != "Вторник":
+                        while j < len(all_values) and all_values[j][1] not in ["Вторник", "Четверг", "Пятница"]:
                             if len(all_values[j]) > 3 and all_values[j][2] and all_values[j][3]:  # Есть имя и фамилия
                                 name = all_values[j][3]  # Имя
                                 surname = all_values[j][2]  # Фамилия
                                 existing_tuesday_voters.add(f"{name} {surname}")
                             j += 1
+                    elif len(row) > 1 and row[1] == "Четверг":
+                        # Собираем участников четверга после этого заголовка
+                        j = i + 1
+                        while j < len(all_values) and all_values[j][1] not in ["Вторник", "Четверг", "Пятница"]:
+                            if len(all_values[j]) > 3 and all_values[j][2] and all_values[j][3]:  # Есть имя и фамилия
+                                name = all_values[j][3]  # Имя
+                                surname = all_values[j][2]  # Фамилия
+                                existing_thursday_voters.add(f"{name} {surname}")
+                            j += 1
                     elif len(row) > 1 and row[1] == "Пятница":
                         # Собираем участников пятницы после этого заголовка
                         j = i + 1
-                        while j < len(all_values) and all_values[j][1] != "Вторник" and all_values[j][1] != "Пятница":
+                        while j < len(all_values) and all_values[j][1] not in ["Вторник", "Четверг", "Пятница"]:
                             if len(all_values[j]) > 3 and all_values[j][2] and all_values[j][3]:  # Есть имя и фамилия
                                 name = all_values[j][3]  # Имя
                                 surname = all_values[j][2]  # Фамилия
@@ -763,9 +783,12 @@ class TrainingPollsManager:
                             j += 1
             
             print(f"📊 Найдено существующих участников вторника: {len(existing_tuesday_voters)}")
+            print(f"📊 Найдено существующих участников четверга: {len(existing_thursday_voters)}")
             print(f"📊 Найдено существующих участников пятницы: {len(existing_friday_voters)}")
             if existing_tuesday_voters:
                 print(f"📊 Участники вторника: {', '.join(list(existing_tuesday_voters)[:5])}{'...' if len(existing_tuesday_voters) > 5 else ''}")
+            if existing_thursday_voters:
+                print(f"📊 Участники четверга: {', '.join(list(existing_thursday_voters)[:5])}{'...' if len(existing_thursday_voters) > 5 else ''}")
             if existing_friday_voters:
                 print(f"📊 Участники пятницы: {', '.join(list(existing_friday_voters)[:5])}{'...' if len(existing_friday_voters) > 5 else ''}")
                 
@@ -774,6 +797,7 @@ class TrainingPollsManager:
         
         # Анализируем голоса
         tuesday_voters = []
+        thursday_voters = []
         friday_voters = []
         trainer_voters = []
         no_voters = []
@@ -836,7 +860,21 @@ class TrainingPollsManager:
                     tuesday_voters.append(formatted_name)
                     print(f"✅ Добавлен участник вторника: {formatted_name}")
             
-            if 1 in option_ids:  # Пятница
+            if 1 in option_ids:  # Четверг
+                # Проверяем, есть ли уже этот участник в таблице для четверга
+                name_parts = formatted_name.split()
+                if len(name_parts) >= 2:
+                    table_name = f"{name_parts[0]} {name_parts[-1]}"  # Имя Фамилия
+                    if table_name not in existing_thursday_voters:
+                        thursday_voters.append(formatted_name)
+                        print(f"✅ Добавлен участник четверга: {formatted_name}")
+                    else:
+                        print(f"⚠️ Пропускаем дубликат четверга: {formatted_name} (уже есть в таблице)")
+                else:
+                    thursday_voters.append(formatted_name)
+                    print(f"✅ Добавлен участник четверга: {formatted_name}")
+            
+            if 2 in option_ids:  # Пятница
                 # Проверяем, есть ли уже этот участник в таблице для пятницы
                 name_parts = formatted_name.split()
                 if len(name_parts) >= 2:
@@ -850,11 +888,11 @@ class TrainingPollsManager:
                     friday_voters.append(formatted_name)
                     print(f"✅ Добавлен участник пятницы: {formatted_name}")
             
-            if 2 in option_ids:  # Тренер
+            if 3 in option_ids:  # Тренер
                 trainer_voters.append(formatted_name)
                 print(f"✅ Добавлен тренер: {formatted_name}")
             
-            if 3 in option_ids:  # Нет
+            if 4 in option_ids:  # Нет
                 no_voters.append(formatted_name)
                 print(f"✅ Добавлен 'Нет': {formatted_name}")
         
@@ -875,6 +913,7 @@ class TrainingPollsManager:
         self.poll_results = {
             'poll_id': poll_info['poll_id'],
             'tuesday_voters': tuesday_voters,
+            'thursday_voters': thursday_voters,
             'friday_voters': friday_voters,
             'trainer_voters': trainer_voters,
             'no_voters': no_voters,
@@ -886,6 +925,7 @@ class TrainingPollsManager:
         
         print(f"✅ Данные собраны:")
         print(f"   Вторник: {len(tuesday_voters)} участников")
+        print(f"   Четверг: {len(thursday_voters)} участников")
         print(f"   Пятница: {len(friday_voters)} участников")
         print(f"   Тренер: {len(trainer_voters)} участников")
         print(f"   Нет: {len(no_voters)} участников")
@@ -928,6 +968,34 @@ class TrainingPollsManager:
                     self._save_voters_to_sheet("ВТОРНИК", voters_for_sheet, poll_info['poll_id'])
                 else:
                     print("⚠️ Нет данных для сохранения за вторник")
+            
+            elif target_day.upper() == "ЧЕТВЕРГ" and thursday_voters:
+                print(f"💾 Сохранение данных за четверг в Google Sheets...")
+                # Преобразуем данные для сохранения
+                voters_for_sheet = []
+                for voter_name in thursday_voters:
+                    # Парсим имя из строки "Имя Фамилия" (без username)
+                    name_parts = voter_name.split()
+                    if len(name_parts) >= 2:
+                        surname = name_parts[-1]  # Последняя часть - фамилия
+                        name = ' '.join(name_parts[:-1])  # Остальное - имя
+                    else:
+                        surname = name_parts[0] if name_parts else "Неизвестный"
+                        name = "Неизвестный"
+                    
+                    # Для реальных данных используем имя как telegram_id
+                    telegram_id = voter_name
+                    
+                    voters_for_sheet.append({
+                        'surname': surname,
+                        'name': name,
+                        'telegram_id': telegram_id
+                    })
+                
+                if voters_for_sheet:
+                    self._save_voters_to_sheet("ЧЕТВЕРГ", voters_for_sheet, poll_info['poll_id'])
+                else:
+                    print("⚠️ Нет данных для сохранения за четверг")
             
             elif target_day.upper() == "ПЯТНИЦА" and friday_voters:
                 print(f"💾 Сохранение данных за пятницу в Google Sheets...")
@@ -1018,7 +1086,7 @@ class TrainingPollsManager:
             # Находим следующую строку после заголовка дня
             next_day_row = None
             for i in range(day_header_row, len(all_values)):
-                if len(all_values[i]) > 1 and all_values[i][1] in ["Вторник", "Пятница"]:
+                if len(all_values[i]) > 1 and all_values[i][1] in ["Вторник", "Четверг", "Пятница"]:
                     next_day_row = i + 1
                     break
             
@@ -1112,7 +1180,7 @@ class TrainingPollsManager:
                         tuesday_header_row = i + 1
                     elif row[1] == "Пятница":
                         friday_header_row = i + 1
-                    elif row[1] and row[1] != "Вторник" and row[1] != "Пятница" and row[2] and row[3]:
+                    elif row[1] and row[1] != "Вторник" and row[1] != "Четверг" and row[1] != "Пятница" and row[2] and row[3]:
                         # Это участник
                         if tuesday_header_row and not tuesday_end_row:
                             tuesday_end_row = i + 1
@@ -1237,7 +1305,7 @@ class TrainingPollsManager:
             # Ищем активные опросы (строки с длинным ID в колонке 1)
             active_polls = []
             for i, row in enumerate(all_values):
-                if len(row) > 1 and row[1] and len(row[1]) > 10 and row[1] not in ["Вторник", "Пятница"]:
+                if len(row) > 1 and row[1] and len(row[1]) > 10 and row[1] not in ["Вторник", "Четверг", "Пятница"]:
                     active_polls.append({
                         'poll_id': row[1],
                         'date': row[0],
@@ -1295,6 +1363,9 @@ class TrainingPollsManager:
             if target_day == "Вторник":
                 voters = poll_results['tuesday_voters']
                 training_date = poll_info['tuesday_date']
+            elif target_day == "Четверг":
+                voters = poll_results['thursday_voters']
+                training_date = poll_info['thursday_date']
             elif target_day == "Пятница":
                 voters = poll_results['friday_voters']
                 training_date = poll_info['friday_date']
@@ -1389,6 +1460,7 @@ class TableIntegrityGuard:
         self.structure_index = {
             'polls': {},           # poll_id -> {row, date}
             'tuesday_sections': {}, # date -> {row, poll_id}
+            'thursday_sections': {}, # date -> {row, poll_id}
             'friday_sections': {},  # date -> {row, poll_id}
             'participants': {}      # day_date_surname_name -> row
         }
@@ -1398,7 +1470,7 @@ class TableIntegrityGuard:
         for i, row in enumerate(self.all_values):
             if len(row) > 1:
                 # Ищем опросы
-                if row[1] and row[1] != "Вторник" and row[1] != "Пятница" and len(row[1]) > 10:
+                if row[1] and row[1] != "Вторник" and row[1] != "Четверг" and row[1] != "Пятница" and len(row[1]) > 10:
                     poll_id = row[1]
                     date = row[0]
                     self.structure_index['polls'][poll_id] = {'row': i + 1, 'date': date}
@@ -1411,6 +1483,11 @@ class TableIntegrityGuard:
                     self.structure_index['tuesday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
                     print(f"   🏀 Вторник: {date} (строка {i+1}, опрос {current_poll_id})")
                 
+                elif row[1] == "Четверг":
+                    date = row[0]
+                    self.structure_index['thursday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
+                    print(f"   🏀 Четверг: {date} (строка {i+1}, опрос {current_poll_id})")
+                
                 elif row[1] == "Пятница":
                     date = row[0]
                     self.structure_index['friday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
@@ -1419,6 +1496,7 @@ class TableIntegrityGuard:
         print(f"✅ Индекс построен:")
         print(f"   📊 Опросов: {len(self.structure_index['polls'])}")
         print(f"   🏀 Секций вторника: {len(self.structure_index['tuesday_sections'])}")
+        print(f"   🏀 Секций четверга: {len(self.structure_index['thursday_sections'])}")
         print(f"   🏀 Секций пятницы: {len(self.structure_index['friday_sections'])}")
         
         return True
@@ -1437,6 +1515,10 @@ class TableIntegrityGuard:
             info = self.structure_index['tuesday_sections'][date]
             print(f"⚠️ Секция вторника для {date} уже существует в строке {info['row']}")
             return True
+        elif target_day == "Четверг" and date in self.structure_index['thursday_sections']:
+            info = self.structure_index['thursday_sections'][date]
+            print(f"⚠️ Секция четверга для {date} уже существует в строке {info['row']}")
+            return True
         elif target_day == "Пятница" and date in self.structure_index['friday_sections']:
             info = self.structure_index['friday_sections'][date]
             print(f"⚠️ Секция пятницы для {date} уже существует в строке {info['row']}")
@@ -1449,6 +1531,8 @@ class TableIntegrityGuard:
         section_info = None
         if target_day == "Вторник":
             section_info = self.structure_index['tuesday_sections'].get(date)
+        elif target_day == "Четверг":
+            section_info = self.structure_index['thursday_sections'].get(date)
         elif target_day == "Пятница":
             section_info = self.structure_index['friday_sections'].get(date)
         
@@ -1464,7 +1548,7 @@ class TableIntegrityGuard:
                 if row[2] == surname and row[3] == name:
                     print(f"⚠️ Участник {surname} {name} уже существует в {target_day} {date} (строка {i+1})")
                     return True
-            elif len(row) > 1 and row[1] in ["Вторник", "Пятница"]:
+            elif len(row) > 1 and row[1] in ["Вторник", "Четверг", "Пятница"]:
                 # Достигли следующего заголовка
                 break
         

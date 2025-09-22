@@ -2,10 +2,12 @@ name: Daily Poll Monitor
 
 on:
   schedule:
-    # Ежедневно в 12:00 UTC = 15:00 MSK
-    - cron: '0 12 * * *'
-    # Ежедневно в 00:00 UTC = 03:00 MSK
-    - cron: '0 0 * * *'
+    # Ежедневный мониторинг с понедельника по субботу
+    # 2 проверки в день: утром и вечером
+    # Утром: 08:00-08:45 UTC = 11:00-11:45 MSK
+    - cron: '0,15,30,45 8 * * 1-6'  # Понедельник-суббота
+    # Вечером: 20:00-20:45 UTC = 23:00-23:45 MSK  
+    - cron: '0,15,30,45 20 * * 1-6'  # Понедельник-суббота
   workflow_dispatch:
     inputs:
       action:
@@ -15,10 +17,12 @@ on:
         type: choice
         options:
         - monitor
-        - test
+        - check_tuesday
+        - check_thursday
+        - check_friday
 
 jobs:
-  daily-monitor:
+  daily-poll-monitor:
     runs-on: ubuntu-latest
     
     steps:
@@ -30,21 +34,53 @@ jobs:
       with:
         python-version: '3.11'
         
-    - name: Restore poll votes cache
+    - name: Restore poll monitor cache
       uses: actions/cache@v3
       with:
         path: |
+          poll_monitor_history.json
+          poll_changes_log.json
           poll_votes_*.json
-        key: poll-votes-${{ github.ref }}
+        key: poll-monitor-${{ github.ref }}
         restore-keys: |
-          poll-votes-
+          poll-monitor-
         
-    - name: Check poll votes files
+    - name: Check poll monitor files
       run: |
-        echo "🔍 ПРОВЕРКА ФАЙЛОВ ГОЛОСОВАНИЙ"
+        echo "🔍 ПРОВЕРКА ФАЙЛОВ МОНИТОРИНГА ОПРОСОВ"
         echo "=================================================="
-        echo "📋 Проверяем наличие файлов голосований:"
-        ls -la poll_votes_*.json 2>/dev/null || echo "ℹ️ Файлы голосований не найдены (это нормально для первого запуска)"
+        echo "📋 Проверяем наличие файлов:"
+        ls -la *.json 2>/dev/null || echo "❌ JSON файлы не найдены"
+        echo ""
+        echo "📄 Содержимое poll_monitor_history.json (если есть):"
+        if [ -f "poll_monitor_history.json" ]; then
+          cat poll_monitor_history.json
+        else
+          echo "❌ Файл poll_monitor_history.json не найден"
+        fi
+        echo ""
+        echo "📄 Содержимое poll_changes_log.json (если есть):"
+        if [ -f "poll_changes_log.json" ]; then
+          cat poll_changes_log.json
+        else
+          echo "❌ Файл poll_changes_log.json не найден"
+        fi
+        echo "=================================================="
+        
+    - name: Initialize poll monitor files
+      run: |
+        echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ МОНИТОРИНГА ОПРОСОВ"
+        echo "=================================================="
+        # Создаем пустые файлы, если они не существуют
+        if [ ! -f "poll_monitor_history.json" ]; then
+          echo "📝 Создаем пустой poll_monitor_history.json"
+          echo '{}' > poll_monitor_history.json
+        fi
+        if [ ! -f "poll_changes_log.json" ]; then
+          echo "📝 Создаем пустой poll_changes_log.json"
+          echo '{"changes": []}' > poll_changes_log.json
+        fi
+        echo "✅ Файлы мониторинга инициализированы"
         echo "=================================================="
         
     - name: Install dependencies
@@ -56,6 +92,7 @@ jobs:
       run: |
         echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
         echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
+        echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
         echo "GOOGLE_SHEETS_CREDENTIALS=${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" >> .env
         echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
         
@@ -63,14 +100,13 @@ jobs:
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHAT_ID: ${{ secrets.CHAT_ID }}
+        ANNOUNCEMENTS_TOPIC_ID: ${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}
         GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
-        echo "🕐 Запуск ежедневного мониторинга голосований..."
+        echo "🔍 Запуск ежедневного мониторинга опросов..."
         echo "🕐 Время запуска: $(date)"
         echo "📅 День недели: $(date +%u)"
-        echo "📅 День недели (название): $(date +%A)"
-        echo "ℹ️ Проверка проводится 2 раза в день: 15:00 и 03:00 по Москве"
         
         # Проверяем переменные окружения
         if [ -z "$BOT_TOKEN" ]; then
@@ -91,11 +127,11 @@ jobs:
         fi
         
         echo "✅ Все переменные окружения настроены"
-        echo "🔄 Запуск ежедневного мониторинга..."
+        echo "🔄 Запуск ежедневного мониторинга опросов..."
         echo "=================================================="
         
         # Запускаем ежедневный мониторинг
-        echo "📊 Запуск ежедневного мониторинга голосований..."
+        echo "🔍 Запуск ежедневного мониторинга опросов..."
         python daily_poll_monitor.py
         
         echo "=================================================="
@@ -105,28 +141,34 @@ jobs:
       run: |
         echo "🔍 ПРОВЕРКА ФАЙЛОВ ПЕРЕД СОХРАНЕНИЕМ В CACHE"
         echo "=================================================="
-        if ls poll_votes_*.json 1> /dev/null 2>&1; then
-          echo "✅ Файлы голосований найдены:"
-          ls -la poll_votes_*.json
+        if [ -f "poll_monitor_history.json" ]; then
+          echo "✅ poll_monitor_history.json существует"
         else
-          echo "ℹ️ Файлы голосований не найдены"
+          echo "❌ poll_monitor_history.json не существует"
+        fi
+        if [ -f "poll_changes_log.json" ]; then
+          echo "✅ poll_changes_log.json существует"
+        else
+          echo "❌ poll_changes_log.json не существует"
         fi
         echo "=================================================="
         
-    - name: Save poll votes cache
+    - name: Save poll monitor cache
       uses: actions/cache@v3
       if: always()
       with:
         path: |
+          poll_monitor_history.json
+          poll_changes_log.json
           poll_votes_*.json
-        key: poll-votes-${{ github.ref }}
+        key: poll-monitor-${{ github.ref }}
         
     - name: Upload logs
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: daily-monitor-logs
+        name: poll-monitor-logs
         path: |
-          poll_votes_*.json
+          *.json
           *.log
         retention-days: 7

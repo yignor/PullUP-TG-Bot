@@ -14,6 +14,7 @@ from telegram import Bot
 import gspread
 from datetime_utils import get_moscow_time, log_current_time
 from google.oauth2.service_account import Credentials
+from poll_change_detector import PollChangeDetector
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -41,6 +42,7 @@ class DailyPollMonitor:
         self.current_votes = {}  # Текущие голоса {user_id: {name, options, day}}
         self.previous_votes = {}  # Предыдущие голоса для сравнения
         self.players_cache = {}  # Кэш игроков для избежания повторных запросов
+        self.change_detector = PollChangeDetector()  # Система детекции изменений
         
     async def initialize(self):
         """Инициализация бота и Google Sheets"""
@@ -137,31 +139,22 @@ class DailyPollMonitor:
             self.players_cache = {}
     
     def get_active_polls_info(self) -> Dict[str, Any]:
-        """Определяет активные опросы на основе дня недели"""
+        """Определяет активные опросы - проверяем все дни с понедельника по субботу"""
         now = get_moscow_time()
         weekday = now.weekday()  # 0=понедельник, 6=воскресенье
         
         active_polls = {}
         
-        # Новая логика активных опросов:
-        # Воскресенье (6): создается опрос на неделю
-        # Понедельник-среда (0-2): проверка за вторник
-        # Четверг-суббота (3-5): проверка за пятницу (до субботы включительно)
+        # Новая логика: проверяем ВСЕ дни с понедельника по субботу
+        # Воскресенье (6): не проверяем (день создания опроса)
+        # Понедельник-суббота (0-5): проверяем все варианты ответов
         
-        if weekday >= 0 and weekday <= 2:  # Понедельник-среда
-            active_polls['tuesday'] = {
-                'day': 'Вторник',
+        if weekday <= 5:  # Понедельник-суббота
+            active_polls['all_days'] = {
+                'days': ['Вторник', 'Четверг', 'Пятница'],
                 'active': True,
-                'period': 'понедельник-среда',
-                'ends': 'среда'
-            }
-        
-        if weekday >= 3 and weekday <= 5:  # Четверг-суббота (включая субботу)
-            active_polls['friday'] = {
-                'day': 'Пятница', 
-                'active': True,
-                'period': 'четверг-суббота',
-                'ends': 'суббота'
+                'period': 'понедельник-суббота',
+                'description': 'проверка всех вариантов ответов'
             }
         
         return active_polls
@@ -345,6 +338,10 @@ class DailyPollMonitor:
         
         return added_votes, removed_votes, changed_votes
     
+    def should_apply_changes(self, changes: Dict, poll_id: str) -> bool:
+        """Определяет, следует ли применять изменения с использованием системы детекции"""
+        return self.change_detector.should_apply_changes(changes, poll_id)
+    
     def get_existing_voters_from_sheet(self, day: str) -> Set[str]:
         """Получает существующих участников из Google таблицы для конкретного дня"""
         existing_voters = set()
@@ -359,7 +356,7 @@ class DailyPollMonitor:
                     while j < len(all_values):
                         next_row = all_values[j]
                         # Если встретили другой заголовок дня, останавливаемся
-                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Пятница"]:
+                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
                             break
                         
                         # Если есть имя и фамилия
@@ -394,7 +391,7 @@ class DailyPollMonitor:
                     while j < len(all_values):
                         next_row = all_values[j]
                         # Если встретили другой заголовок дня, останавливаемся
-                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Пятница"]:
+                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
                             break
                         
                         # Проверяем, есть ли уже этот участник
@@ -440,7 +437,7 @@ class DailyPollMonitor:
                     while j < len(all_values):
                         next_row = all_values[j]
                         # Если встретили другой заголовок дня, вставляем перед ним
-                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Пятница"]:
+                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
                             insert_row = j + 1  # +1 потому что нумерация строк начинается с 1
                             break
                         # Если пустая строка, вставляем туда
@@ -496,7 +493,7 @@ class DailyPollMonitor:
                     while j < len(all_values):
                         next_row = all_values[j]
                         # Если встретили другой заголовок дня, останавливаемся
-                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Пятница"]:
+                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
                             break
                         
                         # Проверяем, это ли наш участник
@@ -521,9 +518,9 @@ class DailyPollMonitor:
         
         return False
     
-    async def process_poll_changes(self, poll_id: str, day: str):
-        """Обрабатывает изменения в голосовании для конкретного дня"""
-        print(f"🔍 Обработка изменений для {day} (опрос {poll_id})")
+    async def process_all_poll_changes(self, poll_id: str):
+        """Обрабатывает изменения в голосовании для всех дней одновременно"""
+        print(f"🔍 Обработка изменений для всех дней (опрос {poll_id})")
         
         # Получаем текущие голоса
         current_votes = await self.get_current_poll_votes(poll_id)
@@ -534,70 +531,82 @@ class DailyPollMonitor:
         # Находим изменения
         added_votes, removed_votes, changed_votes = self.find_vote_changes(previous_votes, current_votes)
         
-        print(f"📊 Изменения для {day}:")
+        print(f"📊 Общие изменения:")
         print(f"   Новые голоса: {len(added_votes)}")
         print(f"   Удаленные голоса: {len(removed_votes)}")
         print(f"   Измененные голоса: {len(changed_votes)}")
         
-        # Обрабатываем изменения
-        changes_made = False
+        # Создаем структуру изменений для системы детекции
+        changes_data = {
+            'added_voters': [vote['name'] for vote in added_votes],
+            'removed_voters': [vote['name'] for vote in removed_votes],
+            'changed_voters': len(changed_votes),
+            'total_changes': len(added_votes) + len(removed_votes) + len(changed_votes)
+        }
         
-        # Добавляем новые голоса
-        for vote in added_votes:
-            print(f"🔍 Обрабатываем новый голос: {vote['name']} - опции: {vote['options']}")
-            if 0 in vote['options'] and day == 'Вторник':  # Голос за вторник
-                print(f"✅ Добавляем голос за вторник: {vote['name']}")
-                if self.add_voter_to_sheet(vote, day):
-                    changes_made = True
-            elif 1 in vote['options'] and day == 'Пятница':  # Голос за пятницу
-                print(f"✅ Добавляем голос за пятницу: {vote['name']}")
-                if self.add_voter_to_sheet(vote, day):
-                    changes_made = True
-            else:
-                print(f"⚠️ Голос не подходит для {day}: опции {vote['options']}")
+        # Проверяем, следует ли применять изменения
+        if not self.should_apply_changes(changes_data, poll_id):
+            print(f"⚠️ Изменения не применяются (низкая уверенность или ложное срабатывание)")
+            # Логируем изменения как не примененные
+            self.change_detector.log_changes(poll_id, changes_data, False)
+            return
         
-        # Удаляем пропавшие голоса
-        for vote in removed_votes:
-            print(f"🔍 Обрабатываем удаленный голос: {vote['name']} - опции: {vote['options']}")
-            if 0 in vote['options'] and day == 'Вторник':  # Был голос за вторник
-                print(f"❌ Удаляем голос за вторник: {vote['name']}")
-                if self.remove_voter_from_sheet(vote, day):
-                    changes_made = True
-            elif 1 in vote['options'] and day == 'Пятница':  # Был голос за пятницу
-                print(f"❌ Удаляем голос за пятницу: {vote['name']}")
-                if self.remove_voter_from_sheet(vote, day):
-                    changes_made = True
-            else:
-                print(f"⚠️ Удаленный голос не подходит для {day}: опции {vote['options']}")
+        # Обрабатываем изменения для всех дней
+        total_changes_made = 0
         
-        # Обрабатываем измененные голоса
-        for change in changed_votes:
-            previous_vote = change['previous']
-            current_vote = change['current']
+        # Обрабатываем каждый день
+        for day in ['Вторник', 'Четверг', 'Пятница']:
+            day_changes_made = 0
+            day_option = {'Вторник': 0, 'Четверг': 1, 'Пятница': 2}[day]
             
-            # Если раньше голосовал за этот день, а теперь нет - удаляем
-            if 0 in previous_vote['options'] and day == 'Вторник' and 0 not in current_vote['options']:
-                if self.remove_voter_from_sheet(previous_vote, day):
-                    changes_made = True
-            elif 1 in previous_vote['options'] and day == 'Пятница' and 1 not in current_vote['options']:
-                if self.remove_voter_from_sheet(previous_vote, day):
-                    changes_made = True
+            print(f"\n🔍 Обработка изменений для {day}:")
             
-            # Если раньше не голосовал за этот день, а теперь голосует - добавляем
-            if 0 not in previous_vote['options'] and day == 'Вторник' and 0 in current_vote['options']:
-                if self.add_voter_to_sheet(current_vote, day):
-                    changes_made = True
-            elif 1 not in previous_vote['options'] and day == 'Пятница' and 1 in current_vote['options']:
-                if self.add_voter_to_sheet(current_vote, day):
-                    changes_made = True
+            # Добавляем новые голоса для этого дня
+            for vote in added_votes:
+                if day_option in vote['options']:
+                    print(f"✅ Добавляем голос за {day}: {vote['name']}")
+                    if self.add_voter_to_sheet(vote, day):
+                        day_changes_made += 1
+            
+            # Удаляем пропавшие голоса для этого дня
+            for vote in removed_votes:
+                if day_option in vote['options']:
+                    print(f"❌ Удаляем голос за {day}: {vote['name']}")
+                    if self.remove_voter_from_sheet(vote, day):
+                        day_changes_made += 1
+            
+            # Обрабатываем измененные голоса для этого дня
+            for change in changed_votes:
+                previous_vote = change['previous']
+                current_vote = change['current']
+                
+                # Если раньше голосовал за этот день, а теперь нет - удаляем
+                if (day_option in previous_vote['options'] and 
+                    day_option not in current_vote['options']):
+                    print(f"❌ Удаляем измененный голос за {day}: {previous_vote['name']}")
+                    if self.remove_voter_from_sheet(previous_vote, day):
+                        day_changes_made += 1
+                
+                # Если раньше не голосовал за этот день, а теперь голосует - добавляем
+                elif (day_option not in previous_vote['options'] and 
+                      day_option in current_vote['options']):
+                    print(f"✅ Добавляем измененный голос за {day}: {current_vote['name']}")
+                    if self.add_voter_to_sheet(current_vote, day):
+                        day_changes_made += 1
+            
+            print(f"📊 Изменения в {day}: {day_changes_made}")
+            total_changes_made += day_changes_made
         
         # Сохраняем текущие голоса как предыдущие для следующей проверки
         self.save_current_votes(poll_id, current_votes)
         
-        if changes_made:
-            print(f"✅ Изменения в {day} применены")
+        # Логируем изменения
+        self.change_detector.log_changes(poll_id, changes_data, total_changes_made > 0)
+        
+        if total_changes_made > 0:
+            print(f"\n✅ Всего изменений применено: {total_changes_made}")
         else:
-            print(f"ℹ️ Изменений в {day} нет")
+            print(f"\nℹ️ Изменений не обнаружено")
     
     async def run_daily_check(self):
         """Запускает ежедневную проверку голосований"""
@@ -616,14 +625,16 @@ class DailyPollMonitor:
         if not active_polls:
             print("ℹ️ Нет активных опросов для проверки")
             print("ℹ️ Проверка проводится:")
-            print("   📅 Понедельник-среда: за вторник")
-            print("   📅 Четверг-суббота: за пятницу (до субботы включительно)")
+            print("   📅 Понедельник-суббота: проверка всех вариантов ответов")
+            print("   📅 2 раза в день: утром и вечером")
             print("✅ Мониторинг завершен (нет активных опросов)")
             return True
         
         print(f"📋 Активные опросы: {list(active_polls.keys())}")
         for poll_key, poll_info in active_polls.items():
-            print(f"   🏀 {poll_info['day']}: период {poll_info['period']}")
+            print(f"   🏀 Дни: {', '.join(poll_info['days'])}")
+            print(f"   📅 Период: {poll_info['period']}")
+            print(f"   📝 Описание: {poll_info['description']}")
         
         # Ищем активный опрос тренировок в Telegram
         print("🔍 Поиск активного опроса тренировок в чате...")
@@ -638,10 +649,9 @@ class DailyPollMonitor:
         
         print(f"📊 Найден активный опрос: {poll_id}")
         
-        # Обрабатываем каждый активный день
-        for day_key, day_info in active_polls.items():
-            day_name = day_info['day']
-            await self.process_poll_changes(poll_id, day_name)
+        # Обрабатываем все дни одновременно
+        for poll_key, poll_info in active_polls.items():
+            await self.process_all_poll_changes(poll_id)
         
         print("✅ Ежедневная проверка завершена")
         return True

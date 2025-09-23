@@ -538,6 +538,7 @@ class DailyPollMonitor:
         
         # Создаем структуру изменений для системы детекции
         changes_data = {
+            'has_changes': len(added_votes) + len(removed_votes) + len(changed_votes) > 0,
             'added_voters': [vote['name'] for vote in added_votes],
             'removed_voters': [vote['name'] for vote in removed_votes],
             'changed_voters': len(changed_votes),

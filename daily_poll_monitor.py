@@ -548,8 +548,27 @@ class DailyPollMonitor:
             'is_likely_false_positive': False
         }
         
+        # Рассчитываем confidence score
+        changes_data['confidence_score'] = self.change_detector._calculate_confidence_score(changes_data)
+        
+        # Проверяем на ложные срабатывания (используем пустые данные для упрощения)
+        changes_data['is_likely_false_positive'] = self.change_detector._is_likely_false_positive(changes_data, {}, {})
+        
+        print(f"📊 Анализ изменений:")
+        print(f"   Confidence score: {changes_data['confidence_score']:.2f}")
+        print(f"   Ложное срабатывание: {changes_data['is_likely_false_positive']}")
+        print(f"   Применить изменения: {not changes_data['is_likely_false_positive'] and changes_data['confidence_score'] >= 0.5}")
+        
         # Проверяем, следует ли применять изменения
-        if not self.should_apply_changes(changes_data, poll_id):
+        # Для новых голосов снижаем порог confidence score
+        should_apply = self.should_apply_changes(changes_data, poll_id)
+        
+        # Если есть новые голоса, но confidence score низкий, все равно применяем
+        if not should_apply and len(added_votes) > 0 and not changes_data['is_likely_false_positive']:
+            print(f"⚠️ Confidence score низкий ({changes_data['confidence_score']:.2f}), но есть новые голоса - применяем изменения")
+            should_apply = True
+        
+        if not should_apply:
             print(f"⚠️ Изменения не применяются (низкая уверенность или ложное срабатывание)")
             # Логируем изменения как не примененные
             self.change_detector.log_changes(poll_id, changes_data, False)

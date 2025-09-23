@@ -542,7 +542,10 @@ class DailyPollMonitor:
             'added_voters': [vote['name'] for vote in added_votes],
             'removed_voters': [vote['name'] for vote in removed_votes],
             'changed_voters': len(changed_votes),
-            'total_changes': len(added_votes) + len(removed_votes) + len(changed_votes)
+            'total_changes': len(added_votes) + len(removed_votes) + len(changed_votes),
+            'day_changes': {},
+            'confidence_score': 0.0,
+            'is_likely_false_positive': False
         }
         
         # Проверяем, следует ли применять изменения

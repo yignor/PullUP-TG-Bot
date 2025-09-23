@@ -415,7 +415,7 @@ class DailyPollMonitor:
             print(f"⚠️ Ошибка проверки существования участника: {e}")
             return False
     
-    def add_voter_to_sheet(self, voter_data: Dict, day: str) -> bool:
+    def add_voter_to_sheet(self, voter_data: Dict, day: str, poll_id: str = None) -> bool:
         """Добавляет участника в Google таблицу"""
         try:
             voter_name = voter_data['name']
@@ -430,7 +430,42 @@ class DailyPollMonitor:
             all_values = self.worksheet.get_all_values()
             insert_row = None
             
-            for i, row in enumerate(all_values):
+            # Ищем правильную секцию по poll_id
+            target_section_start = None
+            target_section_end = None
+            
+            if poll_id:
+                # Ищем секцию с нужным poll_id
+                for i, row in enumerate(all_values):
+                    if len(row) > 0 and str(poll_id) in str(row[0]):
+                        target_section_start = i
+                        print(f"🔍 Найдена секция для опроса {poll_id} в строке {i + 1}")
+                        break
+            
+            # Если не нашли секцию по poll_id, ищем последнюю секцию
+            if target_section_start is None:
+                print(f"⚠️ Секция для опроса {poll_id} не найдена, ищем последнюю секцию")
+                # Ищем последние заголовки дней
+                last_tuesday_row = None
+                last_thursday_row = None
+                last_friday_row = None
+                
+                for i, row in enumerate(all_values):
+                    if len(row) > 1 and row[1] == "Вторник":
+                        last_tuesday_row = i
+                    elif len(row) > 1 and row[1] == "Четверг":
+                        last_thursday_row = i
+                    elif len(row) > 1 and row[1] == "Пятница":
+                        last_friday_row = i
+                
+                # Используем последний найденный заголовок как начало секции
+                target_section_start = max(filter(None, [last_tuesday_row, last_thursday_row, last_friday_row]))
+                if target_section_start is not None:
+                    print(f"🔍 Используем последнюю секцию, начиная со строки {target_section_start + 1}")
+            
+            # Ищем заголовок нужного дня в найденной секции
+            for i in range(target_section_start or 0, len(all_values)):
+                row = all_values[i]
                 if len(row) > 1 and row[1] == day:
                     # Нашли заголовок дня, ищем место для вставки
                     j = i + 1
@@ -478,7 +513,7 @@ class DailyPollMonitor:
         
         return False
     
-    def remove_voter_from_sheet(self, voter_data: Dict, day: str) -> bool:
+    def remove_voter_from_sheet(self, voter_data: Dict, day: str, poll_id: str = None) -> bool:
         """Удаляет участника из Google таблицы"""
         try:
             voter_name = voter_data['name']
@@ -486,7 +521,41 @@ class DailyPollMonitor:
             
             all_values = self.worksheet.get_all_values()
             
-            for i, row in enumerate(all_values):
+            # Ищем правильную секцию по poll_id
+            target_section_start = None
+            
+            if poll_id:
+                # Ищем секцию с нужным poll_id
+                for i, row in enumerate(all_values):
+                    if len(row) > 0 and str(poll_id) in str(row[0]):
+                        target_section_start = i
+                        print(f"🔍 Найдена секция для опроса {poll_id} в строке {i + 1}")
+                        break
+            
+            # Если не нашли секцию по poll_id, ищем последнюю секцию
+            if target_section_start is None:
+                print(f"⚠️ Секция для опроса {poll_id} не найдена, ищем последнюю секцию")
+                # Ищем последние заголовки дней
+                last_tuesday_row = None
+                last_thursday_row = None
+                last_friday_row = None
+                
+                for i, row in enumerate(all_values):
+                    if len(row) > 1 and row[1] == "Вторник":
+                        last_tuesday_row = i
+                    elif len(row) > 1 and row[1] == "Четверг":
+                        last_thursday_row = i
+                    elif len(row) > 1 and row[1] == "Пятница":
+                        last_friday_row = i
+                
+                # Используем последний найденный заголовок как начало секции
+                target_section_start = max(filter(None, [last_tuesday_row, last_thursday_row, last_friday_row]))
+                if target_section_start is not None:
+                    print(f"🔍 Используем последнюю секцию, начиная со строки {target_section_start + 1}")
+            
+            # Ищем заголовок нужного дня в найденной секции
+            for i in range(target_section_start or 0, len(all_values)):
+                row = all_values[i]
                 if len(row) > 1 and row[1] == day:
                     # Нашли заголовок дня, ищем участника
                     j = i + 1
@@ -588,14 +657,14 @@ class DailyPollMonitor:
             for vote in added_votes:
                 if day_option in vote['options']:
                     print(f"✅ Добавляем голос за {day}: {vote['name']}")
-                    if self.add_voter_to_sheet(vote, day):
+                    if self.add_voter_to_sheet(vote, day, poll_id):
                         day_changes_made += 1
             
             # Удаляем пропавшие голоса для этого дня
             for vote in removed_votes:
                 if day_option in vote['options']:
                     print(f"❌ Удаляем голос за {day}: {vote['name']}")
-                    if self.remove_voter_from_sheet(vote, day):
+                    if self.remove_voter_from_sheet(vote, day, poll_id):
                         day_changes_made += 1
             
             # Обрабатываем измененные голоса для этого дня
@@ -607,14 +676,14 @@ class DailyPollMonitor:
                 if (day_option in previous_vote['options'] and 
                     day_option not in current_vote['options']):
                     print(f"❌ Удаляем измененный голос за {day}: {previous_vote['name']}")
-                    if self.remove_voter_from_sheet(previous_vote, day):
+                    if self.remove_voter_from_sheet(previous_vote, day, poll_id):
                         day_changes_made += 1
                 
                 # Если раньше не голосовал за этот день, а теперь голосует - добавляем
                 elif (day_option not in previous_vote['options'] and 
                       day_option in current_vote['options']):
                     print(f"✅ Добавляем измененный голос за {day}: {current_vote['name']}")
-                    if self.add_voter_to_sheet(current_vote, day):
+                    if self.add_voter_to_sheet(current_vote, day, poll_id):
                         day_changes_made += 1
             
             print(f"📊 Изменения в {day}: {day_changes_made}")

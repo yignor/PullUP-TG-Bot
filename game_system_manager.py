@@ -12,6 +12,7 @@ import re
 from typing import Dict, List, Optional
 from datetime_utils import get_moscow_time, is_today, log_current_time
 from enhanced_duplicate_protection import duplicate_protection
+from info_basket_client import InfoBasketClient
 
 # Переменные окружения (загружаются из системы или .env файла)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -266,6 +267,37 @@ class GameSystemManager:
         
         return games
     
+    async def fetch_infobasket_schedule(self) -> List[Dict]:
+        """Получает расписание игр через Infobasket API"""
+        try:
+            client = InfoBasketClient()
+            games = await client.get_schedule()
+            
+            # Фильтруем игры с нашими командами
+            target_games = []
+            for game in games:
+                game_text = f"{game.get('team1', '')} {game.get('team2', '')}"
+                if self.find_target_teams_in_text(game_text):
+                    # Преобразуем в формат, совместимый с существующей системой
+                    game_info = {
+                        'date': game.get('date', ''),
+                        'time': game.get('time', ''),
+                        'team1': game.get('team1', ''),
+                        'team2': game.get('team2', ''),
+                        'venue': game.get('venue', ''),
+                        'game_id': game.get('game_id', ''),
+                        'status': game.get('status', ''),
+                        'source': 'infobasket'
+                    }
+                    target_games.append(game_info)
+            
+            print(f"📊 Infobasket API: найдено игр с нашими командами: {len(target_games)}")
+            return target_games
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения расписания через Infobasket API: {e}")
+            return []
+
     async def fetch_letobasket_schedule(self) -> List[Dict]:
         """Получает расписание игр с сайта letobasket.ru"""
         try:
@@ -1268,10 +1300,16 @@ class GameSystemManager:
             # ШАГ 1: Парсинг расписания
             print(f"\n📊 ШАГ 1: ПАРСИНГ РАСПИСАНИЯ")
             print("-" * 40)
-            games = await self.fetch_letobasket_schedule()
+            
+            # Пробуем сначала Infobasket API, затем letobasket.ru
+            games = await self.fetch_infobasket_schedule()
             
             if not games:
-                print("⚠️ Игры не найдены, завершаем работу")
+                print("🔄 Infobasket API не дал результатов, пробуем letobasket.ru...")
+                games = await self.fetch_letobasket_schedule()
+            
+            if not games:
+                print("⚠️ Игры не найдены ни в одном источнике, завершаем работу")
                 return
             
             print(f"✅ Найдено {len(games)} игр")

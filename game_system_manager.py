@@ -1282,8 +1282,13 @@ class GameSystemManager:
             print(f"\n📊 ШАГ 1: ПАРСИНГ РАСПИСАНИЯ")
             print("-" * 40)
             
-            # Получаем расписание с letobasket.ru (основной источник)
-            games = await self.fetch_letobasket_schedule()
+            # Получаем расписание через Infobasket Smart API (основной источник)
+            games = await self.fetch_infobasket_schedule()
+            
+            # Если Infobasket API не дал результатов, пробуем letobasket.ru как fallback
+            if not games:
+                print("🔄 Infobasket Smart API не дал результатов, пробуем letobasket.ru...")
+                games = await self.fetch_letobasket_schedule()
             
             if not games:
                 print("⚠️ Игры не найдены, завершаем работу")
@@ -1291,7 +1296,12 @@ class GameSystemManager:
             
             print(f"✅ Найдено {len(games)} игр")
             for i, game in enumerate(games, 1):
-                print(f"   {i}. {game['full_text']}")
+                # Формируем описание игры в зависимости от источника
+                if game.get('source') == 'infobasket_smart_api':
+                    game_desc = f"{game.get('date')} {game.get('time')} ({game.get('venue', 'Место TBD')}) - {game.get('team1')} vs {game.get('team2')}"
+                else:
+                    game_desc = game.get('full_text', f"{game.get('date')} {game.get('time')} - {game.get('team1')} vs {game.get('team2')}")
+                print(f"   {i}. {game_desc}")
             
             # ШАГ 2: Создание опросов
             print(f"\n📊 ШАГ 2: СОЗДАНИЕ ОПРОСОВ")

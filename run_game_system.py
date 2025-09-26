@@ -5,11 +5,12 @@
 """
 
 import asyncio
-from game_system_manager import game_system_manager
+from game_system_manager import GameSystemManager
 
 async def main():
     """Запускает полную систему управления играми"""
-    await game_system_manager.run_full_system()
+    manager = GameSystemManager()
+    await manager.run_full_system()
 
 if __name__ == "__main__":
     asyncio.run(main())

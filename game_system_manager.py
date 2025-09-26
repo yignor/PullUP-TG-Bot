@@ -324,6 +324,7 @@ class GameSystemManager:
                         game_patterns = [
                             r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)(?:\n|$)',
                             r'(\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)-(\d{2})',  # Новый формат с правильным захватом
+                            r'(\d{2}\.\d{2}\.\d{4})\s*-\s*([^-]+?)\s*-\s*([^-]+?)\s+(\d+:\d+)',  # Формат с результатом: дата - команда1 - команда2 счет
                         ]
                         
                         # Дополнительный паттерн для строк с несколькими играми подряд
@@ -363,48 +364,18 @@ class GameSystemManager:
                                         date = f"{day}.{month}.{current_year}"
                                 else:  # Новый формат: день месяца
                                     day, venue, team1, team2, month = match
-                                    
-                                    # Исправляем неправильный день
-                                    try:
-                                        day_int = int(day)
-                                        if day_int == 0:
-                                            day = "30"  # Исправляем на последний день месяца
-                                    except ValueError:
-                                        day = "30"  # Если не можем преобразовать, используем 30
-                                    
-                                    # Конструируем полную дату
-                                    # Получаем текущий год и месяц
-                                    current_date = get_moscow_time()
-                                    current_year = current_date.year
-                                    current_month = current_date.month
-                                    
-                                    # Если день больше 28, то это может быть следующий месяц
-                                    if int(day) > 28:
-                                        # Проверяем, есть ли такие дни в текущем месяце
-                                        import calendar
-                                        days_in_current_month = calendar.monthrange(current_year, current_month)[1]
-                                        if int(day) > days_in_current_month:
-                                            # Переходим к следующему месяцу
-                                            if current_month == 12:
-                                                current_month = 1
-                                                current_year += 1
-                                            else:
-                                                current_month += 1
-                                    
-                                    date = f"{day}.{current_month:02d}.{current_year}"
-                                    time = "12:30"  # Время по умолчанию
-                                    
-                                    # Исправляем название команды, если оно было обрезано
-                                    if team2.strip() == "Pull Up" and "Фарм" in str(match):
-                                        team2 = "Pull Up-Фарм"
-                                    elif team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
-                                        team2 = "Pull Up-Фарм"
-                                    elif team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
-                                        team2 = "Pull Up-Фарм"
-                                    
-                                    # Дополнительная проверка: если в исходном тексте есть "Pull Up-Фарм", но команда обрезана
-                                    if team2.strip() == "Pull Up" and "Pull Up-Фарм" in str(match):
-                                        team2 = "Pull Up-Фарм"
+                            elif len(match) == 4:  # Новый формат с результатом: дата - команда1 - команда2 - счет
+                                date, team1, team2, score = match
+                                # Исправляем год - игнорируем год с сайта и используем текущий
+                                date_parts = date.split('.')
+                                if len(date_parts) == 3:
+                                    day, month, _ = date_parts  # Игнорируем год с сайта
+                                    current_year = get_moscow_time().year
+                                    date = f"{day}.{month}.{current_year}"
+                                
+                                # Устанавливаем время и место по умолчанию
+                                time = "20:30"  # Время по умолчанию
+                                venue = "ВО СШОР Малый 66"  # Место по умолчанию
                             else:
                                 continue  # Пропускаем неправильные форматы
                             

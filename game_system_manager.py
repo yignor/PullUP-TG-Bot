@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 from datetime_utils import get_moscow_time, is_today, log_current_time
 from enhanced_duplicate_protection import duplicate_protection
 from info_basket_client import InfoBasketClient
+from infobasket_smart_parser import InfobasketSmartParser
 
 # Переменные окружения (загружаются из системы или .env файла)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -270,33 +271,41 @@ class GameSystemManager:
     async def fetch_infobasket_schedule(self) -> List[Dict]:
         """Получает расписание игр через Infobasket API"""
         try:
-            client = InfoBasketClient()
-            games = await client.get_schedule()
+            print("🔍 Получение расписания через Infobasket Smart API...")
             
-            # Фильтруем игры с нашими командами
-            target_games = []
-            for game in games:
-                game_text = f"{game.get('team1', '')} {game.get('team2', '')}"
-                if self.find_target_teams_in_text(game_text):
-                    # Преобразуем в формат, совместимый с существующей системой
-                    game_info = {
-                        'date': game.get('date', ''),
-                        'time': game.get('time', ''),
-                        'team1': game.get('team1', ''),
-                        'team2': game.get('team2', ''),
-                        'venue': game.get('venue', ''),
-                        'game_id': game.get('game_id', ''),
-                        'status': game.get('status', ''),
-                        'source': 'infobasket',
-                        'game_link': InfoBasketClient.create_game_link(game.get('game_id', ''))
+            # Инициализируем умный парсер
+            parser = InfobasketSmartParser()
+            
+            # Получаем игры для всех составов
+            all_games = await parser.get_all_team_games()
+            
+            # Собираем все будущие игры
+            future_games = []
+            for team_type, games in all_games.items():
+                for game in games['future']:
+                    formatted_game = {
+                        'date': game.get('GameDate'),
+                        'time': game.get('GameTimeMsk'),
+                        'team1': game.get('ShortTeamNameAru'),
+                        'team2': game.get('ShortTeamNameBru'),
+                        'venue': game.get('ArenaRu'),
+                        'comp_name': game.get('CompNameRu'),
+                        'game_id': game.get('GameID'),
+                        'team_type': team_type,
+                        'source': 'infobasket_smart_api',
+                        'game_link': f"http://letobasket.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
                     }
-                    target_games.append(game_info)
+                    future_games.append(formatted_game)
             
-            print(f"📊 Infobasket API: найдено игр с нашими командами: {len(target_games)}")
-            return target_games
-            
+            if future_games:
+                print(f"✅ Infobasket Smart API: найдено {len(future_games)} будущих игр")
+                return future_games
+            else:
+                print("❌ Infobasket Smart API: будущие игры не найдены")
+                return []
+                
         except Exception as e:
-            print(f"❌ Ошибка получения расписания через Infobasket API: {e}")
+            print(f"❌ Ошибка Infobasket Smart API: {e}")
             return []
 
     async def fetch_letobasket_schedule(self) -> List[Dict]:

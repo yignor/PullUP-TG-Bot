@@ -307,6 +307,7 @@ class GameSystemManager:
         except Exception as e:
             print(f"❌ Ошибка Infobasket Smart API: {e}")
             return []
+    
 
     async def fetch_letobasket_schedule(self) -> List[Dict]:
         """Получает расписание игр с сайта letobasket.ru"""

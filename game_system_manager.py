@@ -18,8 +18,8 @@ from info_basket_client import InfoBasketClient
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
-TARGET_TEAMS_STR = os.getenv("TARGET_TEAMS", "PullUP,Pull Up-Фарм")
-TARGET_TEAMS = [team.strip() for team in TARGET_TEAMS_STR.split(",") if team.strip()]
+# Команды для поиска (жестко закодированы в find_target_teams_in_text)
+TARGET_TEAMS = ["PullUP", "Pull Up-Фарм"]  # Для отображения в логах
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
 
 # Файлы для истории
@@ -1273,15 +1273,11 @@ class GameSystemManager:
             print(f"\n📊 ШАГ 1: ПАРСИНГ РАСПИСАНИЯ")
             print("-" * 40)
             
-            # Пробуем сначала Infobasket API, затем letobasket.ru
-            games = await self.fetch_infobasket_schedule()
+            # Получаем расписание с letobasket.ru (основной источник)
+            games = await self.fetch_letobasket_schedule()
             
             if not games:
-                print("🔄 Infobasket API не дал результатов, пробуем letobasket.ru...")
-                games = await self.fetch_letobasket_schedule()
-            
-            if not games:
-                print("⚠️ Игры не найдены ни в одном источнике, завершаем работу")
+                print("⚠️ Игры не найдены, завершаем работу")
                 return
             
             print(f"✅ Найдено {len(games)} игр")

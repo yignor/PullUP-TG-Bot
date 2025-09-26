@@ -98,9 +98,6 @@ jobs:
         TARGET_TEAMS: ${{ secrets.TARGET_TEAMS }}
         GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-        INFOBASKET_API_BASE: ${{ secrets.INFOBASKET_API_BASE }}
-        INFOBASKET_COMPETITION_ID: ${{ secrets.INFOBASKET_COMPETITION_ID }}
-        INFOBASKET_COMPETITION_TAG: ${{ secrets.INFOBASKET_COMPETITION_TAG }}
         TEST_MODE: "false"  # Продакшн режим
       run: |
         echo "🏀 Запуск системы управления играми (ежедневно в 10:00 MSK)..."

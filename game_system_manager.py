@@ -287,7 +287,8 @@ class GameSystemManager:
                         'venue': game.get('venue', ''),
                         'game_id': game.get('game_id', ''),
                         'status': game.get('status', ''),
-                        'source': 'infobasket'
+                        'source': 'infobasket',
+                        'game_link': InfoBasketClient.create_game_link(game.get('game_id', ''))
                     }
                     target_games.append(game_info)
             
@@ -1347,18 +1348,24 @@ class GameSystemManager:
                 if self.should_send_announcement(game):
                     print(f"📢 Отправляю анонс для игры...")
                     
-                    # Проверяем, есть ли игра в табло
-                    team1 = game.get('team1', '')
-                    team2 = game.get('team2', '')
-                    game_link_result = await self.find_game_link(team1, team2)
-                    
-                    if game_link_result and isinstance(game_link_result, tuple):
-                        game_link, found_team = game_link_result
-                        print(f"✅ Игра найдена в табло, отправляем анонс с ссылкой")
+                    # Используем готовую ссылку из Infobasket API, если есть
+                    if game.get('source') == 'infobasket' and game.get('game_link'):
+                        game_link = game.get('game_link')
+                        found_team = None  # Для Infobasket API не определяем команду отдельно
+                        print(f"✅ Используем ссылку из Infobasket API: {game_link}")
                     else:
-                        game_link = None
-                        found_team = None
-                        print(f"⚠️ Игра не найдена в табло, отправляем анонс без ссылки")
+                        # Для letobasket.ru ищем ссылку в табло
+                        team1 = game.get('team1', '')
+                        team2 = game.get('team2', '')
+                        game_link_result = await self.find_game_link(team1, team2)
+                        
+                        if game_link_result and isinstance(game_link_result, tuple):
+                            game_link, found_team = game_link_result
+                            print(f"✅ Игра найдена в табло, отправляем анонс с ссылкой")
+                        else:
+                            game_link = None
+                            found_team = None
+                            print(f"⚠️ Игра не найдена в табло, отправляем анонс без ссылки")
                     
                     if await self.send_game_announcement(game, game_link=game_link, found_team=found_team):
                         sent_announcements += 1

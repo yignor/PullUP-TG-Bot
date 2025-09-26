@@ -112,6 +112,101 @@ class InfoBasketClient:
             "status": str(status).strip(),
         }
 
+    @staticmethod
+    def create_game_link(game_id: str) -> str:
+        """Создает ссылку на игру по game_id"""
+        if not game_id:
+            return ""
+        return f"http://letobasket.ru/game.html?gameId={game_id}&apiUrl=https://reg.infobasket.su&lang=ru"
+
+    async def check_game_result(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Проверяет результат игры по game_id"""
+        if not game_id:
+            return None
+        
+        try:
+            # Получаем данные игры напрямую через API
+            game_data = await self.get_issue_by_id(str(game_id))
+            if not game_data:
+                print(f"❌ Не удалось получить данные игры {game_id}")
+                return None
+            
+            # Ищем информацию о результате в данных игры
+            result_info = self._extract_game_result(game_data)
+            if result_info:
+                print(f"✅ Найден результат игры {game_id}: {result_info}")
+                return result_info
+            else:
+                print(f"⚠️ Результат игры {game_id} не найден или игра не завершена")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Ошибка проверки результата игры {game_id}: {e}")
+            return None
+
+    @staticmethod
+    def _extract_game_result(game_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Извлекает информацию о результате игры из данных API"""
+        try:
+            # Ищем поля с результатом
+            result_fields = ['Score', 'Result', 'FinalScore', 'GameResult']
+            score_info = None
+            
+            for field in result_fields:
+                if field in game_data:
+                    score_info = game_data[field]
+                    break
+            
+            if not score_info:
+                # Ищем в вложенных структурах
+                def find_score(obj):
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            if any(score_field in key.lower() for score_field in ['score', 'result', 'final']):
+                                return value
+                            if isinstance(value, (dict, list)):
+                                result = find_score(value)
+                                if result:
+                                    return result
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            result = find_score(item)
+                            if result:
+                                return result
+                    return None
+                
+                score_info = find_score(game_data)
+            
+            if score_info:
+                # Пытаемся извлечь счет
+                if isinstance(score_info, str):
+                    # Парсим строку счета (например, "85:78")
+                    import re
+                    score_match = re.search(r'(\d+):(\d+)', score_info)
+                    if score_match:
+                        team1_score = int(score_match.group(1))
+                        team2_score = int(score_match.group(2))
+                        return {
+                            'team1_score': team1_score,
+                            'team2_score': team2_score,
+                            'is_finished': True,
+                            'raw_score': score_info
+                        }
+                elif isinstance(score_info, dict):
+                    # Структурированные данные
+                    return {
+                        'team1_score': score_info.get('Team1Score', 0),
+                        'team2_score': score_info.get('Team2Score', 0),
+                        'is_finished': score_info.get('IsFinished', False),
+                        'raw_score': str(score_info)
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ Ошибка извлечения результата: {e}")
+            return None
+
     async def get_schedule(self, issue_id: Optional[str] = None) -> List[Dict[str, Any]]:
         # Определяем issue_id
         iid = issue_id or INFOBASKET_COMPETITION_ID
@@ -128,6 +223,7 @@ class InfoBasketClient:
             return []
 
         print(f"📊 Получены данные, ключи: {list(data.keys())}")
+        print(f"📊 Полные данные: {data}")
         
         # Ищем активные соревнования и запрашиваем их данные
         all_games = []
@@ -138,9 +234,24 @@ class InfoBasketClient:
                     print(f"🔍 Запрашиваем данные для CompID: {comp_id}")
                     comp_data = await self.get_issue_by_id(str(comp_id))
                     if comp_data:
+                        print(f"📊 Данные CompID {comp_id}: {comp_data}")
                         comp_games = self._collect_games_from_issue(comp_data)
                         all_games.extend(comp_games)
                         print(f"🎮 Найдено игр в CompID {comp_id}: {len(comp_games)}")
+                        
+                        # Если есть под-соревнования, проверяем их тоже
+                        if "Comps" in comp_data and comp_data["Comps"]:
+                            print(f"🔍 Найдены под-соревнования в CompID {comp_id}")
+                            for sub_comp in comp_data["Comps"]:
+                                sub_comp_id = sub_comp.get("CompID")
+                                if sub_comp_id:
+                                    print(f"🔍 Запрашиваем данные для под-CompID: {sub_comp_id}")
+                                    sub_comp_data = await self.get_issue_by_id(str(sub_comp_id))
+                                    if sub_comp_data:
+                                        print(f"📊 Данные под-CompID {sub_comp_id}: {sub_comp_data}")
+                                        sub_comp_games = self._collect_games_from_issue(sub_comp_data)
+                                        all_games.extend(sub_comp_games)
+                                        print(f"🎮 Найдено игр в под-CompID {sub_comp_id}: {len(sub_comp_games)}")
         
         print(f"🎮 Всего найдено сырых игр: {len(all_games)}")
         

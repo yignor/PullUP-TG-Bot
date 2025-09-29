@@ -376,38 +376,69 @@ class DailyPollMonitor:
         
         return existing_voters
     
-    def is_voter_already_exists(self, voter_data: Dict, day: str) -> bool:
-        """Проверяет, существует ли уже участник в таблице для конкретного дня"""
+    def is_voter_already_exists(self, voter_data: Dict, day: str, poll_id: str = None) -> bool:
+        """Проверяет, существует ли уже участник в таблице для конкретного дня и опроса"""
         try:
             voter_name = voter_data['name']
             telegram_id = voter_data.get('telegram_id', '')
             
             all_values = self.worksheet.get_all_values()
             
-            for i, row in enumerate(all_values):
-                if len(row) > 1 and row[1] == day:
-                    # Нашли заголовок дня, проверяем участников
-                    j = i + 1
-                    while j < len(all_values):
-                        next_row = all_values[j]
-                        # Если встретили другой заголовок дня, останавливаемся
-                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
-                            break
-                        
-                        # Проверяем, есть ли уже этот участник
-                        if len(next_row) > 3 and next_row[2] and next_row[3]:
-                            first_name = next_row[2]  # Имя (колонка C)
-                            surname = next_row[3]  # Фамилия (колонка D)
-                            existing_telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
-                            table_name = f"{first_name} {surname}"
+            # Ищем правильную секцию по poll_id
+            target_section_start = None
+            
+            if poll_id:
+                # Ищем секцию с нужным poll_id (poll_id находится в колонке B)
+                for i, row in enumerate(all_values):
+                    if len(row) > 1 and str(poll_id) in str(row[1]):
+                        target_section_start = i
+                        break
+            
+            # Если не нашли секцию по poll_id, ищем последнюю секцию
+            if target_section_start is None:
+                # Ищем последние заголовки дней
+                last_tuesday_row = None
+                last_thursday_row = None
+                last_friday_row = None
+                
+                for i, row in enumerate(all_values):
+                    if len(row) > 1 and row[1] == "Вторник":
+                        last_tuesday_row = i
+                    elif len(row) > 1 and row[1] == "Четверг":
+                        last_thursday_row = i
+                    elif len(row) > 1 and row[1] == "Пятница":
+                        last_friday_row = i
+                
+                # Используем последний найденный заголовок как начало секции
+                target_section_start = max(filter(None, [last_tuesday_row, last_thursday_row, last_friday_row]))
+            
+            if target_section_start is not None:
+                # Ищем заголовок нужного дня в найденной секции
+                for i in range(target_section_start, len(all_values)):
+                    row = all_values[i]
+                    if len(row) > 1 and row[1] == day:
+                        # Нашли заголовок дня, проверяем участников в этой секции
+                        j = i + 1
+                        while j < len(all_values):
+                            next_row = all_values[j]
+                            # Если встретили другой заголовок дня, останавливаемся
+                            if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
+                                break
                             
-                            # Проверяем по имени или по Telegram ID
-                            if (table_name == voter_name or 
-                                (telegram_id and existing_telegram_id and existing_telegram_id == telegram_id)):
-                                return True
-                        
-                        j += 1
-                    break
+                            # Проверяем, есть ли уже этот участник
+                            if len(next_row) > 3 and next_row[2] and next_row[3]:
+                                first_name = next_row[2]  # Имя (колонка C)
+                                surname = next_row[3]  # Фамилия (колонка D)
+                                existing_telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
+                                table_name = f"{first_name} {surname}"
+                                
+                                # Проверяем по имени или по Telegram ID
+                                if (table_name == voter_name or 
+                                    (telegram_id and existing_telegram_id and existing_telegram_id == telegram_id)):
+                                    return True
+                            
+                            j += 1
+                        break
             
             return False
             
@@ -422,7 +453,7 @@ class DailyPollMonitor:
             telegram_id = voter_data.get('telegram_id', '')
             
             # Проверяем, не существует ли уже этот участник
-            if self.is_voter_already_exists(voter_data, day):
+            if self.is_voter_already_exists(voter_data, day, poll_id):
                 print(f"⚠️ Участник {voter_name} ({telegram_id}) уже существует в {day}")
                 return False
             

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from typing import Any, cast
 
 # Импортируем общие модули
-from game_parser import game_parser
+from enhanced_game_parser import EnhancedGameParser
 from notification_manager import notification_manager
 from players_manager import PlayersManager
 
@@ -135,7 +135,8 @@ async def check_birthdays():
 
 async def parse_game_info(game_url):
     """Парсит информацию о игре с страницы игры"""
-    return await game_parser.parse_game_info(game_url)
+    parser = EnhancedGameParser()
+    return await parser.parse_game_info(game_url)
 
 async def parse_game_info_simple(game_url):
     """Простой парсинг информации об игре без использования браузера"""
@@ -174,7 +175,8 @@ async def parse_game_info_simple(game_url):
 async def check_game_end(game_url):
     """Проверяет, нужно ли отправить уведомление о конце игры"""
     try:
-        game_info = await game_parser.parse_game_info(game_url)
+        parser = EnhancedGameParser()
+        game_info = await parser.parse_game_info(game_url)
         if game_info:
             # Создаем уведомление о завершении игры
             await notification_manager.send_game_end_notification(game_info, game_url)
@@ -184,7 +186,8 @@ async def check_game_end(game_url):
 async def check_game_end_simple(game_url):
     """Проверяет конец игры без использования браузера"""
     try:
-        game_info = await game_parser.parse_game_info(game_url)
+        parser = EnhancedGameParser()
+        game_info = await parser.parse_game_info(game_url)
         if game_info:
             # Создаем уведомление о завершении игры
             await notification_manager.send_game_end_notification(game_info, game_url)
@@ -342,7 +345,8 @@ async def check_letobasket_site():
         print(f"🔍 Проверяю сайт letobasket.ru...")
         
         # Получаем свежий контент страницы
-        html_content = await game_parser.get_fresh_page_content()
+        parser = EnhancedGameParser()
+        html_content = await parser.get_fresh_page_content()
         
         # Парсим HTML
         soup = BeautifulSoup(html_content, 'html.parser')

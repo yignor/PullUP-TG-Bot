@@ -49,5 +49,39 @@
     "date": "2025-09-06T13:13:16.031266+03:00",
     "chat_id": "-15573582",
     "topic_id": "main"
+  },
+  "29.09.2025_20:30_Атлант_40 - Pull Up": {
+    "message_id": 255,
+    "text": "🏀 Сегодня игра Первого состава против Атлант.\n📍 Место проведения: MarvelHall\n🕐 Время игры: 20:30",
+    "game_info": {
+      "date": "29.09.2025",
+      "time": "20:30",
+      "team1": "Атлант",
+      "team2": "40 - Pull Up",
+      "venue": "MarvelHall",
+      "full_text": "29.09.2025 20:30 (MarvelHall) - Атлант - 40 - Pull Up"
+    },
+    "game_link": null,
+    "game_position": 1,
+    "date": "2025-09-29T10:32:51.144818+03:00",
+    "chat_id": "-15573582",
+    "topic_id": "main"
+  },
+  "29.09.2025_20:30_Атлант 40_Pull Up": {
+    "message_id": 257,
+    "text": "🏀 Сегодня игра Первого состава против Атлант 40.\n📍 Место проведения: MarvelHall\n🕐 Время игры: 20:30\n🔗 Ссылка на игру: <a href=\"http://letobasket.ru/game.html?gameId=945742&apiUrl=https://reg.infobasket.su&lang=ru\">тут</a>",
+    "game_info": {
+      "date": "29.09.2025",
+      "time": "20:30",
+      "team1": "Атлант 40",
+      "team2": "Pull Up",
+      "venue": "MarvelHall",
+      "full_text": "29.09.2025 20:30 (MarvelHall) - Атлант 40 - Pull Up"
+    },
+    "game_link": "game.html?gameId=945742&apiUrl=https://reg.infobasket.su&lang=ru",
+    "game_position": 1,
+    "date": "2025-09-29T10:33:45.708801+03:00",
+    "chat_id": "-15573582",
+    "topic_id": "main"
   }
 }

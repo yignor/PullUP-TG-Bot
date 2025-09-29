@@ -437,7 +437,7 @@ class DailyPollMonitor:
             if poll_id:
                 # Ищем секцию с нужным poll_id
                 for i, row in enumerate(all_values):
-                    if len(row) > 0 and str(poll_id) in str(row[0]):
+                    if len(row) > 1 and str(poll_id) in str(row[1]):
                         target_section_start = i
                         print(f"🔍 Найдена секция для опроса {poll_id} в строке {i + 1}")
                         break
@@ -527,7 +527,7 @@ class DailyPollMonitor:
             if poll_id:
                 # Ищем секцию с нужным poll_id
                 for i, row in enumerate(all_values):
-                    if len(row) > 0 and str(poll_id) in str(row[0]):
+                    if len(row) > 1 and str(poll_id) in str(row[1]):
                         target_section_start = i
                         print(f"🔍 Найдена секция для опроса {poll_id} в строке {i + 1}")
                         break

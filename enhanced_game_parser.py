@@ -842,7 +842,11 @@ class EnhancedGameParser:
                 # Анти-лидер по штрафным броскам (самый низкий процент среди бросавших)
                 ft_players = [p for p in valid_players if p.get('free_throws_attempted', 0) > 0]
                 if ft_players:
-                    worst_free_throw_leader = min(ft_players, key=lambda p: p.get('free_throw_percentage', 100))
+                    # Сначала находим минимальный процент
+                    min_ft_percentage = min(p.get('free_throw_percentage', 100) for p in ft_players)
+                    # Затем среди игроков с минимальным процентом берем того, у кого больше попыток
+                    worst_ft_candidates = [p for p in ft_players if p.get('free_throw_percentage', 100) == min_ft_percentage]
+                    worst_free_throw_leader = max(worst_ft_candidates, key=lambda p: p.get('free_throws_attempted', 0))
                     anti_leaders['worst_free_throw'] = {
                         'name': worst_free_throw_leader['name'],
                         'value': worst_free_throw_leader.get('free_throw_percentage', 0)
@@ -851,7 +855,11 @@ class EnhancedGameParser:
                 # Анти-лидер по двухочковым броскам (самый низкий процент среди бросавших)
                 two_pt_players = [p for p in valid_players if p.get('field_goals_attempted', 0) > 0]
                 if two_pt_players:
-                    worst_two_point_leader = min(two_pt_players, key=lambda p: p.get('two_point_percentage', p.get('field_goal_percentage', 100)))
+                    # Сначала находим минимальный процент
+                    min_2pt_percentage = min(p.get('two_point_percentage', p.get('field_goal_percentage', 100)) for p in two_pt_players)
+                    # Затем среди игроков с минимальным процентом берем того, у кого больше попыток
+                    worst_2pt_candidates = [p for p in two_pt_players if p.get('two_point_percentage', p.get('field_goal_percentage', 100)) == min_2pt_percentage]
+                    worst_two_point_leader = max(worst_2pt_candidates, key=lambda p: p.get('field_goals_attempted', 0))
                     anti_leaders['worst_two_point'] = {
                         'name': worst_two_point_leader['name'],
                         'value': worst_two_point_leader.get('two_point_percentage', worst_two_point_leader.get('field_goal_percentage', 0))
@@ -860,7 +868,11 @@ class EnhancedGameParser:
                 # Анти-лидер по трехочковым броскам (самый низкий процент среди бросавших)
                 three_pt_players = [p for p in valid_players if p.get('three_pointers_attempted', 0) > 0]
                 if three_pt_players:
-                    worst_three_point_leader = min(three_pt_players, key=lambda p: p.get('three_point_percentage', 100))
+                    # Сначала находим минимальный процент
+                    min_3pt_percentage = min(p.get('three_point_percentage', 100) for p in three_pt_players)
+                    # Затем среди игроков с минимальным процентом берем того, у кого больше попыток
+                    worst_3pt_candidates = [p for p in three_pt_players if p.get('three_point_percentage', 100) == min_3pt_percentage]
+                    worst_three_point_leader = max(worst_3pt_candidates, key=lambda p: p.get('three_pointers_attempted', 0))
                     anti_leaders['worst_three_point'] = {
                         'name': worst_three_point_leader['name'],
                         'value': worst_three_point_leader.get('three_point_percentage', 0)

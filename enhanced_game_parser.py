@@ -800,6 +800,27 @@ class EnhancedGameParser:
                     'name': worst_plus_minus['name'],
                     'value': worst_plus_minus.get('plus_minus', 0)
                 }
+                
+                # Анти-лидер по штрафным броскам (самый низкий процент)
+                worst_free_throw_leader = min(valid_players, key=lambda p: p.get('free_throw_percentage', 100))
+                anti_leaders['worst_free_throw'] = {
+                    'name': worst_free_throw_leader['name'],
+                    'value': worst_free_throw_leader.get('free_throw_percentage', 0)
+                }
+                
+                # Анти-лидер по двухочковым броскам (самый низкий процент)
+                worst_two_point_leader = min(valid_players, key=lambda p: p.get('field_goal_percentage', 100))
+                anti_leaders['worst_two_point'] = {
+                    'name': worst_two_point_leader['name'],
+                    'value': worst_two_point_leader.get('field_goal_percentage', 0)
+                }
+                
+                # Анти-лидер по трехочковым броскам (самый низкий процент)
+                worst_three_point_leader = min(valid_players, key=lambda p: p.get('three_point_percentage', 100))
+                anti_leaders['worst_three_point'] = {
+                    'name': worst_three_point_leader['name'],
+                    'value': worst_three_point_leader.get('three_point_percentage', 0)
+                }
             else:
                 print("⚠️ Нет игроков с валидными именами для анти-лидеров")
 

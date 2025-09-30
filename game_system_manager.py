@@ -1146,10 +1146,20 @@ class GameSystemManager:
                     
                     anti_leaders = our_team_leaders.get('anti_leaders', {})
                     if anti_leaders:
-                        # Анти-лидер по проценту попаданий
-                        if 'worst_shooting' in anti_leaders:
-                            worst_shooting_leader = anti_leaders['worst_shooting']
-                            message += f"🎯 Процент попаданий: {worst_shooting_leader['name']} - {worst_shooting_leader['value']}%\n"
+                        # Анти-лидер по штрафным броскам
+                        if 'worst_free_throw' in anti_leaders:
+                            worst_ft_leader = anti_leaders['worst_free_throw']
+                            message += f"🏀 Штрафные: {worst_ft_leader['name']} - {worst_ft_leader['value']}%\n"
+                        
+                        # Анти-лидер по двухочковым броскам
+                        if 'worst_two_point' in anti_leaders:
+                            worst_2p_leader = anti_leaders['worst_two_point']
+                            message += f"🎯 Двухочковые: {worst_2p_leader['name']} - {worst_2p_leader['value']}%\n"
+                        
+                        # Анти-лидер по трехочковым броскам
+                        if 'worst_three_point' in anti_leaders:
+                            worst_3p_leader = anti_leaders['worst_three_point']
+                            message += f"🎯 Трехочковые: {worst_3p_leader['name']} - {worst_3p_leader['value']}%\n"
                         
                         # Анти-лидер по потерям
                         if 'turnovers' in anti_leaders:

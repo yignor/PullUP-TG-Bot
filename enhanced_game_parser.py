@@ -442,8 +442,12 @@ class EnhancedGameParser:
             }
             
             # Вычисляем проценты попаданий
-            if stats['field_goals_attempted'] > 0:
-                stats['field_goal_percentage'] = round((stats['field_goals_made'] / stats['field_goals_attempted']) * 100, 1)
+            # Общий процент попаданий = (все попадания) / (все попытки) * 100
+            total_made = (stats['free_throws_made'] + stats['field_goals_made'] + stats['three_pointers_made'])
+            total_attempted = (stats['free_throws_attempted'] + stats['field_goals_attempted'] + stats['three_pointers_attempted'])
+            
+            if total_attempted > 0:
+                stats['field_goal_percentage'] = round((total_made / total_attempted) * 100, 1)
             else:
                 stats['field_goal_percentage'] = 0.0
             
@@ -456,6 +460,19 @@ class EnhancedGameParser:
                 stats['free_throw_percentage'] = round((stats['free_throws_made'] / stats['free_throws_attempted']) * 100, 1)
             else:
                 stats['free_throw_percentage'] = 0.0
+            
+            # Вычисляем КПИ по формуле:
+            # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
+            # Промахи = (попытки бросков - попадания)
+            misses = total_attempted - total_made
+            # Фолы соперника = в API нет этих данных, используем 0
+            opponent_fouls = 0
+            
+            kpi = (stats['points'] + stats['rebounds'] + stats['assists'] + 
+                   stats['steals'] + stats['blocks'] + opponent_fouls - 
+                   misses - stats['turnovers'] - stats['fouls'])
+            
+            stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
             
             return stats
             
@@ -494,8 +511,12 @@ class EnhancedGameParser:
             }
             
             # Вычисляем проценты попаданий
-            if stats['field_goals_attempted'] and stats['field_goals_attempted'] > 0:
-                stats['field_goal_percentage'] = round((stats['field_goals_made'] / stats['field_goals_attempted']) * 100, 1)
+            # Общий процент попаданий = (все попадания) / (все попытки) * 100
+            total_made = (stats['free_throws_made'] + stats['field_goals_made'] + stats['three_pointers_made'])
+            total_attempted = (stats['free_throws_attempted'] + stats['field_goals_attempted'] + stats['three_pointers_attempted'])
+            
+            if total_attempted and total_attempted > 0:
+                stats['field_goal_percentage'] = round((total_made / total_attempted) * 100, 1)
             else:
                 stats['field_goal_percentage'] = 0.0
             
@@ -508,6 +529,17 @@ class EnhancedGameParser:
                 stats['free_throw_percentage'] = round((stats['free_throws_made'] / stats['free_throws_attempted']) * 100, 1)
             else:
                 stats['free_throw_percentage'] = 0.0
+            
+            # Вычисляем КПИ по формуле:
+            # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
+            misses = total_attempted - total_made
+            opponent_fouls = 0  # В API нет данных о фолах соперника
+            
+            kpi = (stats['points'] + stats['rebounds'] + stats['assists'] + 
+                   stats['steals'] + stats['blocks'] + opponent_fouls - 
+                   misses - stats['turnovers'] - stats['fouls'])
+            
+            stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
             
             return stats
             
@@ -861,8 +893,12 @@ class EnhancedGameParser:
                             pass
                 
                 # Вычисляем проценты попаданий
-                if player_stats['field_goals_attempted'] > 0:
-                    player_stats['field_goal_percentage'] = round((player_stats['field_goals_made'] / player_stats['field_goals_attempted']) * 100, 1)
+                # Общий процент попаданий = (все попадания) / (все попытки) * 100
+                total_made = (player_stats['free_throws_made'] + player_stats['field_goals_made'] + player_stats['three_pointers_made'])
+                total_attempted = (player_stats['free_throws_attempted'] + player_stats['field_goals_attempted'] + player_stats['three_pointers_attempted'])
+                
+                if total_attempted > 0:
+                    player_stats['field_goal_percentage'] = round((total_made / total_attempted) * 100, 1)
                 else:
                     player_stats['field_goal_percentage'] = 0.0
                 
@@ -875,6 +911,17 @@ class EnhancedGameParser:
                     player_stats['free_throw_percentage'] = round((player_stats['free_throws_made'] / player_stats['free_throws_attempted']) * 100, 1)
                 else:
                     player_stats['free_throw_percentage'] = 0.0
+                
+                # Вычисляем КПИ по формуле:
+                # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
+                misses = total_attempted - total_made
+                opponent_fouls = 0  # В API нет данных о фолах соперника
+                
+                kpi = (player_stats['points'] + player_stats['rebounds'] + player_stats['assists'] + 
+                       player_stats['steals'] + player_stats['blocks'] + opponent_fouls - 
+                       misses - player_stats['turnovers'] - player_stats['fouls'])
+                
+                player_stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
                 
                 # Определяем команду игрока
                 team_pattern = r'protocol\.team(\d+)\.player' + player_num
@@ -1008,8 +1055,12 @@ class EnhancedGameParser:
                         player_data[key] = default_value
                 
                 # Вычисляем проценты попаданий
-                if player_data['field_goals_attempted'] > 0:
-                    player_data['field_goal_percentage'] = round((player_data['field_goals_made'] / player_data['field_goals_attempted']) * 100, 1)
+                # Общий процент попаданий = (все попадания) / (все попытки) * 100
+                total_made = (player_data['free_throws_made'] + player_data['field_goals_made'] + player_data['three_pointers_made'])
+                total_attempted = (player_data['free_throws_attempted'] + player_data['field_goals_attempted'] + player_data['three_pointers_attempted'])
+                
+                if total_attempted > 0:
+                    player_data['field_goal_percentage'] = round((total_made / total_attempted) * 100, 1)
                 else:
                     player_data['field_goal_percentage'] = 0.0
                 
@@ -1022,6 +1073,17 @@ class EnhancedGameParser:
                     player_data['free_throw_percentage'] = round((player_data['free_throws_made'] / player_data['free_throws_attempted']) * 100, 1)
                 else:
                     player_data['free_throw_percentage'] = 0.0
+                
+                # Вычисляем КПИ по формуле:
+                # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
+                misses = total_attempted - total_made
+                opponent_fouls = 0  # В API нет данных о фолах соперника
+                
+                kpi = (player_data['points'] + player_data['rebounds'] + player_data['assists'] + 
+                       player_data['steals'] + player_data['blocks'] + opponent_fouls - 
+                       misses - player_data['turnovers'] - player_data['fouls'])
+                
+                player_data['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
                 
                 players_stats.append(player_data)
                 print(f"   📊 {player_name}: {player_data['points']} очков, {player_data['rebounds']} подборов, {player_data['steals']} перехватов")

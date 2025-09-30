@@ -7,6 +7,7 @@ import asyncio
 import aiohttp
 import json
 import re
+import ssl
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from datetime_utils import get_moscow_time
@@ -18,7 +19,13 @@ class EnhancedGameParser:
         self.session = None
     
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        # Создаем SSL context с отключенной проверкой сертификатов
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        self.session = aiohttp.ClientSession(connector=connector)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -63,32 +70,28 @@ class EnhancedGameParser:
             if not self.session:
                 return None
             
-            # URL для получения данных игры
-            game_api_url = f"{api_url}/Widget/GamePage/{game_id}"
-            online_api_url = f"{api_url}/Widget/GetOnline/{game_id}"
+            # URL для получения данных игры (только GetOnline, содержит все данные)
+            online_api_url = f"{api_url}/Widget/GetOnline/{game_id}?format=json&lang=ru"
             
             print(f"🔍 Запрашиваем данные игры через API:")
-            print(f"   Game API: {game_api_url}")
             print(f"   Online API: {online_api_url}")
             
-            # Параллельно запрашиваем данные игры и онлайн данные
-            async with self.session.get(game_api_url, params={'format': 'json', 'lang': 'ru'}) as game_response, \
-                     self.session.get(online_api_url, params={'format': 'json', 'lang': 'ru'}) as online_response:
+            # Запрашиваем данные игры
+            async with self.session.get(online_api_url) as online_response:
                 
-                if game_response.status == 200 and online_response.status == 200:
-                    game_data = await game_response.json()
+                if online_response.status == 200:
                     online_data = await online_response.json()
                     
                     print(f"✅ Данные получены успешно")
-                    print(f"   Game data keys: {list(game_data.keys())}")
-                    print(f"   Online data keys: {list(online_data.keys())}")
+                    print(f"   Online data keys: {list(online_data.keys())[:15]}")
                     
+                    # GetOnline содержит все данные, включая Protocol с игроками
                     return {
-                        'game': game_data,
+                        'game': online_data,  # Используем online_data как game
                         'online': online_data
                     }
                 else:
-                    print(f"❌ Ошибка API: Game={game_response.status}, Online={online_response.status}")
+                    print(f"❌ Ошибка API: Online={online_response.status}")
                     return None
                     
         except Exception as e:
@@ -168,49 +171,81 @@ class EnhancedGameParser:
             teams_data = None
             
             # Пробуем разные источники данных о командах
-            if 'GameTeams' in online_data and len(online_data['GameTeams']) >= 2:
+            # Приоритет 1: OnlineTeams (более детальные данные)
+            if 'OnlineTeams' in online_data and len(online_data['OnlineTeams']) >= 2:
+                teams_data = online_data['OnlineTeams']
+            # Приоритет 2: GameTeams
+            elif 'GameTeams' in online_data and len(online_data['GameTeams']) >= 2:
                 teams_data = online_data['GameTeams']
             elif 'GameTeams' in game_data and len(game_data['GameTeams']) >= 2:
                 teams_data = game_data['GameTeams']
             
             if teams_data:
-                team1 = teams_data[0]
-                team2 = teams_data[1]
+                # Фильтруем команды с TeamNumber 1 и 2
+                team1 = None
+                team2 = None
+                
+                for team in teams_data:
+                    if team.get('TeamNumber') == 1:
+                        team1 = team
+                    elif team.get('TeamNumber') == 2:
+                        team2 = team
+                
+                if not team1:
+                    team1 = teams_data[0] if len(teams_data) > 0 else {}
+                if not team2:
+                    team2 = teams_data[1] if len(teams_data) > 1 else {}
                 
                 # Извлекаем названия команд
                 team1_name = 'Команда 1'
                 team2_name = 'Команда 2'
                 
-                if 'TeamName' in team1:
+                # Для OnlineTeams структура проще
+                if 'TeamName2' in team1:
+                    team1_name = team1.get('TeamName2', team1.get('TeamName1', 'Команда 1'))
+                elif 'TeamName' in team1:
                     team1_name = team1['TeamName'].get('CompTeamNameRu', team1['TeamName'].get('CompTeamNameEn', 'Команда 1'))
                 elif 'CompTeamNameRu' in team1:
                     team1_name = team1['CompTeamNameRu']
                 
-                if 'TeamName' in team2:
+                if 'TeamName2' in team2:
+                    team2_name = team2.get('TeamName2', team2.get('TeamName1', 'Команда 2'))
+                elif 'TeamName' in team2:
                     team2_name = team2['TeamName'].get('CompTeamNameRu', team2['TeamName'].get('CompTeamNameEn', 'Команда 2'))
                 elif 'CompTeamNameRu' in team2:
                     team2_name = team2['CompTeamNameRu']
+                
+                # Получаем счет из GameTeams, если OnlineTeams не содержит Score
+                score1 = team1.get('Score', 0)
+                score2 = team2.get('Score', 0)
+                
+                # Если счет нулевой, пробуем взять из GameTeams
+                if score1 == 0 and score2 == 0 and 'GameTeams' in online_data:
+                    game_teams = online_data['GameTeams']
+                    if len(game_teams) >= 2:
+                        score1 = game_teams[0].get('Score', 0)
+                        score2 = game_teams[1].get('Score', 0)
                 
                 game_info['teams'] = [
                     {
                         'id': team1.get('TeamID'),
                         'name': team1_name,
-                        'short_name': team1.get('TeamName', {}).get('CompTeamShortNameRu', 'К1'),
-                        'score': team1.get('Score', 0)
+                        'short_name': team1.get('TeamName', {}).get('CompTeamShortNameRu', 'К1') if isinstance(team1.get('TeamName'), dict) else 'К1',
+                        'score': score1
                     },
                     {
                         'id': team2.get('TeamID'),
                         'name': team2_name,
-                        'short_name': team2.get('TeamName', {}).get('CompTeamShortNameRu', 'К2'),
-                        'score': team2.get('Score', 0)
+                        'short_name': team2.get('TeamName', {}).get('CompTeamShortNameRu', 'К2') if isinstance(team2.get('TeamName'), dict) else 'К2',
+                        'score': score2
                     }
                 ]
                 
                 # Формируем счет
                 game_info['score'] = {
-                    'team1': team1.get('Score', 0),
-                    'team2': team2.get('Score', 0),
-                    'total': f"{team1.get('Score', 0)}:{team2.get('Score', 0)}"
+                    'team1': score1,
+                    'team2': score2,
+                    'total': f"{score1}:{score2}"
                 }
                 
                 print(f"🏀 Команды найдены: {team1_name} vs {team2_name}")
@@ -322,8 +357,30 @@ class EnhancedGameParser:
             # Ищем статистику игроков в данных
             players_stats = []
             
-            # Ищем статистику игроков в GameTeams (основной источник)
-            if 'GameTeams' in online_data:
+            # Ищем статистику игроков в Protocol (приоритет 1)
+            if 'Protocol' in online_data and len(online_data['Protocol']) > 0:
+                protocol = online_data['Protocol'][0]
+                if 'Players' in protocol:
+                    players_data = protocol['Players']
+                    print(f"🔍 Найдены игроки в Protocol: {len(players_data)} игроков")
+                    for player in players_data:
+                        # Определяем название команды по номеру
+                        team_number = player.get('TeamNumber')
+                        team_name = f"Team {team_number}"
+                        if team_number and 'OnlineTeams' in online_data:
+                            for team in online_data['OnlineTeams']:
+                                if team.get('TeamNumber') == team_number:
+                                    team_name = team.get('TeamName2', team.get('TeamName1', team_name))
+                                    break
+                        
+                        stats = self.parse_player_statistics_from_api(player, team_name)
+                        if (stats and stats.get('name') and 
+                            stats.get('name').strip() != '' and 
+                            'None' not in stats.get('name', '')):
+                            players_stats.append(stats)
+            
+            # Ищем статистику игроков в GameTeams (приоритет 2)
+            elif 'GameTeams' in online_data:
                 game_teams = online_data['GameTeams']
                 if isinstance(game_teams, list):
                     for team in game_teams:

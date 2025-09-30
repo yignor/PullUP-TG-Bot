@@ -144,5 +144,9 @@ shooting_percentage = (total_made / total_attempted) * 100
 ### КПИ:
 ```
 misses = total_attempted - total_made
+opponent_fouls = player_data.get('OpponentFoul', 0)  # Фолы соперника ИЗ API!
+
 kpi = points + rebounds + assists + steals + blocks + opponent_fouls - misses - turnovers - fouls
 ```
+
+**ВАЖНО:** API предоставляет поле `OpponentFoul` (фолы, заработанные на сопернике), которое учитывается в КПИ!

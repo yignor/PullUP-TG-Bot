@@ -490,6 +490,7 @@ class EnhancedGameParser:
                 'free_throws_attempted': player_data.get('Shot1', 0) or 0,
                 'minutes': player_data.get('PlayedTime', '0:00'),
                 'plus_minus': player_data.get('PlusMinus', 0) or 0,
+                'opponent_fouls': player_data.get('OpponentFoul', 0) or 0,  # Фолы соперника
                 'defensive_rebounds': player_data.get('DefRebound', 0) or 0,
                 'offensive_rebounds': player_data.get('OffRebound', 0) or 0,
                 'height': player_data.get('Height', 0) or 0,
@@ -522,14 +523,16 @@ class EnhancedGameParser:
             # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
             # Промахи = (попытки бросков - попадания)
             misses = total_attempted - total_made
-            # Фолы соперника = в API нет этих данных, используем 0
-            opponent_fouls = 0
+            # Фолы соперника = берем из API, если есть
+            opponent_fouls = player_data.get('OpponentFoul', 0) or 0
             
             kpi = (stats['points'] + stats['rebounds'] + stats['assists'] + 
                    stats['steals'] + stats['blocks'] + opponent_fouls - 
                    misses - stats['turnovers'] - stats['fouls'])
             
             stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+            stats['kpi'] = kpi  # Добавляем отдельное поле КПИ
+            stats['opponent_fouls'] = opponent_fouls  # Сохраняем фолы соперника
             
             return stats
             
@@ -590,13 +593,14 @@ class EnhancedGameParser:
             # Вычисляем КПИ по формуле:
             # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
             misses = total_attempted - total_made
-            opponent_fouls = 0  # В API нет данных о фолах соперника
+            opponent_fouls = stats.get('opponent_fouls', 0) or 0  # Берем из stats, если есть
             
             kpi = (stats['points'] + stats['rebounds'] + stats['assists'] + 
                    stats['steals'] + stats['blocks'] + opponent_fouls - 
                    misses - stats['turnovers'] - stats['fouls'])
             
             stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+            stats['kpi'] = kpi  # Добавляем отдельное поле КПИ
             
             return stats
             
@@ -972,13 +976,14 @@ class EnhancedGameParser:
                 # Вычисляем КПИ по формуле:
                 # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
                 misses = total_attempted - total_made
-                opponent_fouls = 0  # В API нет данных о фолах соперника
+                opponent_fouls = player_stats.get('opponent_fouls', 0) or 0  # Берем из данных, если есть
                 
                 kpi = (player_stats['points'] + player_stats['rebounds'] + player_stats['assists'] + 
                        player_stats['steals'] + player_stats['blocks'] + opponent_fouls - 
                        misses - player_stats['turnovers'] - player_stats['fouls'])
                 
                 player_stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+                player_stats['kpi'] = kpi  # Добавляем отдельное поле КПИ
                 
                 # Определяем команду игрока
                 team_pattern = r'protocol\.team(\d+)\.player' + player_num
@@ -1134,13 +1139,14 @@ class EnhancedGameParser:
                 # Вычисляем КПИ по формуле:
                 # КПИ = (Очки + Подборы + Передачи + Перехваты + Блоки + Фолы соперника - Промахи - Потери - Фолы)
                 misses = total_attempted - total_made
-                opponent_fouls = 0  # В API нет данных о фолах соперника
+                opponent_fouls = player_data.get('opponent_fouls', 0) or 0  # Берем из данных, если есть
                 
                 kpi = (player_data['points'] + player_data['rebounds'] + player_data['assists'] + 
                        player_data['steals'] + player_data['blocks'] + opponent_fouls - 
                        misses - player_data['turnovers'] - player_data['fouls'])
                 
                 player_data['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+                player_data['kpi'] = kpi  # Добавляем отдельное поле КПИ
                 
                 players_stats.append(player_data)
                 print(f"   📊 {player_name}: {player_data['points']} очков, {player_data['rebounds']} подборов, {player_data['steals']} перехватов")

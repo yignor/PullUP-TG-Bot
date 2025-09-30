@@ -771,6 +771,13 @@ class EnhancedGameParser:
                 'value': blocks_leader['blocks']
             }
 
+            # Лидер по КПИ (лучший плюс/минус)
+            best_plus_minus = max(our_team_players, key=lambda p: p['plus_minus'])
+            leaders['best_plus_minus'] = {
+                'name': best_plus_minus['name'],
+                'value': best_plus_minus['plus_minus']
+            }
+
             # Анти-лидеры (худшие показатели)
             anti_leaders = {}
 

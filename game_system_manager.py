@@ -1179,14 +1179,12 @@ class GameSystemManager:
                     # При поражении показываем лидеров (кто лучше всего играл)
                     message += "\n🏆 ЛУЧШИЕ ИГРОКИ:\n"
                     
-                    anti = our_team_leaders.get('anti_leaders', {})
-
                     # Лидер по очкам
                     if 'points' in our_team_leaders:
                         points_leader = our_team_leaders['points']
                         message += f"🥇 Очки: {points_leader['name']} - {points_leader['value']} ({points_leader.get('percentage', 0)}%)\n"
                     
-                    # Лидер по подборам (общим)
+                    # Лидер по подборам
                     if 'rebounds' in our_team_leaders:
                         rebounds_leader = our_team_leaders['rebounds']
                         message += f"🏀 Подборы: {rebounds_leader['name']} - {rebounds_leader['value']}\n"
@@ -1200,25 +1198,11 @@ class GameSystemManager:
                     if 'steals' in our_team_leaders:
                         steals_leader = our_team_leaders['steals']
                         message += f"🥷 Перехваты: {steals_leader['name']} - {steals_leader['value']}\n"
-
-                    # Лучшие проценты попаданий среди бросавших
-                    if anti:
-                        if 'worst_free_throw' in anti:
-                            # Возьмем лучшего как противоположность худшему: нужен max среди бросавших
-                            # В leaders у нас нет прямого списка, поэтому опираемся на players в game_info не можем тут; оставим только текстовое место.
-                            pass
-
-                    # Извлекаем проценты из лидеров нашей команды, если сформированы
-                    # Эти поля добавляются в enhanced_game_parser -> leaders['anti_leaders'] для anti и leaders['points'].percentage для очков
-                    ft = our_team_leaders.get('best_free_throw')
-                    tp2 = our_team_leaders.get('best_two_point')
-                    tp3 = our_team_leaders.get('best_three_point')
-                    if ft:
-                        message += f"🏀 Штрафные: {ft['name']} - {ft['value']}%\n"
-                    if tp2:
-                        message += f"🎯 Двухочковые: {tp2['name']} - {tp2['value']}%\n"
-                    if tp3:
-                        message += f"🎯 Трехочковые: {tp3['name']} - {tp3['value']}%\n"
+                    
+                    # Лидер по КПИ
+                    if 'best_plus_minus' in our_team_leaders:
+                        kpi_leader = our_team_leaders['best_plus_minus']
+                        message += f"📈 КПИ: {kpi_leader['name']} - {kpi_leader['value']}\n"
             
             return message
             

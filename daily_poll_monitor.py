@@ -400,8 +400,8 @@ class DailyPollMonitor:
                 last_tuesday_row = None
                 last_thursday_row = None
                 last_friday_row = None
-                
-                for i, row in enumerate(all_values):
+            
+            for i, row in enumerate(all_values):
                     if len(row) > 1 and row[1] == "Вторник":
                         last_tuesday_row = i
                     elif len(row) > 1 and row[1] == "Четверг":
@@ -416,29 +416,29 @@ class DailyPollMonitor:
                 # Ищем заголовок нужного дня в найденной секции
                 for i in range(target_section_start, len(all_values)):
                     row = all_values[i]
-                    if len(row) > 1 and row[1] == day:
+                if len(row) > 1 and row[1] == day:
                         # Нашли заголовок дня, проверяем участников в этой секции
-                        j = i + 1
-                        while j < len(all_values):
-                            next_row = all_values[j]
-                            # Если встретили другой заголовок дня, останавливаемся
-                            if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
-                                break
+                    j = i + 1
+                    while j < len(all_values):
+                        next_row = all_values[j]
+                        # Если встретили другой заголовок дня, останавливаемся
+                        if len(next_row) > 1 and next_row[1] in ["Вторник", "Четверг", "Пятница"]:
+                            break
+                        
+                        # Проверяем, есть ли уже этот участник
+                        if len(next_row) > 3 and next_row[2] and next_row[3]:
+                            first_name = next_row[2]  # Имя (колонка C)
+                            surname = next_row[3]  # Фамилия (колонка D)
+                            existing_telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
+                            table_name = f"{first_name} {surname}"
                             
-                            # Проверяем, есть ли уже этот участник
-                            if len(next_row) > 3 and next_row[2] and next_row[3]:
-                                first_name = next_row[2]  # Имя (колонка C)
-                                surname = next_row[3]  # Фамилия (колонка D)
-                                existing_telegram_id = next_row[4] if len(next_row) > 4 else ''  # Telegram ID
-                                table_name = f"{first_name} {surname}"
-                                
-                                # Проверяем по имени или по Telegram ID
-                                if (table_name == voter_name or 
-                                    (telegram_id and existing_telegram_id and existing_telegram_id == telegram_id)):
-                                    return True
-                            
-                            j += 1
-                        break
+                            # Проверяем по имени или по Telegram ID
+                            if (table_name == voter_name or 
+                                (telegram_id and existing_telegram_id and existing_telegram_id == telegram_id)):
+                                return True
+                        
+                        j += 1
+                    break
             
             return False
             
@@ -480,8 +480,8 @@ class DailyPollMonitor:
                 last_tuesday_row = None
                 last_thursday_row = None
                 last_friday_row = None
-                
-                for i, row in enumerate(all_values):
+            
+            for i, row in enumerate(all_values):
                     if len(row) > 1 and row[1] == "Вторник":
                         last_tuesday_row = i
                     elif len(row) > 1 and row[1] == "Четверг":
@@ -570,8 +570,8 @@ class DailyPollMonitor:
                 last_tuesday_row = None
                 last_thursday_row = None
                 last_friday_row = None
-                
-                for i, row in enumerate(all_values):
+            
+            for i, row in enumerate(all_values):
                     if len(row) > 1 and row[1] == "Вторник":
                         last_tuesday_row = i
                     elif len(row) > 1 and row[1] == "Четверг":
@@ -677,6 +677,9 @@ class DailyPollMonitor:
         # Обрабатываем изменения для всех дней
         total_changes_made = 0
         
+        # Кэш добавленных голосов в рамках этого запуска, чтобы не дублировать
+        added_in_this_run = set()  # Хранит (telegram_id, day) пары
+        
         # Обрабатываем каждый день
         for day in ['Вторник', 'Четверг', 'Пятница']:
             day_changes_made = 0
@@ -687,9 +690,17 @@ class DailyPollMonitor:
             # Добавляем новые голоса для этого дня
             for vote in added_votes:
                 if day_option in vote['options']:
+                    vote_key = (vote.get('telegram_id', vote['name']), day)
+                    
+                    # Проверяем, не добавили ли мы уже этот голос в этом запуске
+                    if vote_key in added_in_this_run:
+                        print(f"⚠️ Голос {vote['name']} за {day} уже был добавлен в этом запуске, пропускаем")
+                        continue
+                    
                     print(f"✅ Добавляем голос за {day}: {vote['name']}")
                     if self.add_voter_to_sheet(vote, day, poll_id):
                         day_changes_made += 1
+                        added_in_this_run.add(vote_key)
             
             # Удаляем пропавшие голоса для этого дня
             for vote in removed_votes:
@@ -713,9 +724,17 @@ class DailyPollMonitor:
                 # Если раньше не голосовал за этот день, а теперь голосует - добавляем
                 elif (day_option not in previous_vote['options'] and 
                       day_option in current_vote['options']):
+                    vote_key = (current_vote.get('telegram_id', current_vote['name']), day)
+                    
+                    # Проверяем, не добавили ли мы уже этот голос в этом запуске
+                    if vote_key in added_in_this_run:
+                        print(f"⚠️ Измененный голос {current_vote['name']} за {day} уже был добавлен в этом запуске, пропускаем")
+                        continue
+                    
                     print(f"✅ Добавляем измененный голос за {day}: {current_vote['name']}")
                     if self.add_voter_to_sheet(current_vote, day, poll_id):
                         day_changes_made += 1
+                        added_in_this_run.add(vote_key)
             
             print(f"📊 Изменения в {day}: {day_changes_made}")
             total_changes_made += day_changes_made

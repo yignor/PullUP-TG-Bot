@@ -123,19 +123,19 @@ class TrainingPollsManager:
             
             # Получаем даты тренировок
             tuesday_date = self.get_next_tuesday_date()
-            thursday_date = self.get_next_thursday_date()
+#            thursday_date = self.get_next_thursday_date()
             friday_date = self.get_next_friday_date()
             
             # Определяем места тренировок для недели
             locations = self.get_training_locations(week_start)
             
             # Формируем вопрос с датами тренировок
-            question = f"Тренировки {tuesday_date.strftime('%d.%m')}, {thursday_date.strftime('%d.%m')} и {friday_date.strftime('%d.%m')}"
+            question = f"Тренировки {tuesday_date.strftime('%d.%m')} и {friday_date.strftime('%d.%m')}"
             
             # Формируем упрощенные варианты ответов
             options = [
                 "Вторник, 21:30, зал Динамо (Крестовский остров)",
-                "Четверг, 21:30, зал Динамо (Игровая тренировка, максимум 9 человек)",
+#                "Четверг, 21:30, зал Динамо (Игровая тренировка, максимум 9 человек)",
                 "Пятница, 20:30, зал СШОР ВО",
                 "Тренер",
                 "Нет"
@@ -167,12 +167,12 @@ class TrainingPollsManager:
                 'chat_id': CHAT_ID,
                 'topic_id': ANNOUNCEMENTS_TOPIC_ID,
                 'tuesday_date': tuesday_date.isoformat(),
-                'thursday_date': thursday_date.isoformat(),
+#               'thursday_date': thursday_date.isoformat(),
                 'friday_date': friday_date.isoformat(),
                 'week_start': week_start.isoformat(),
                 'week_end': week_end.isoformat(),
                 'tuesday_location': {'time': '21:30', 'location': 'зал Динамо (Крестовский остров)'},
-                'thursday_location': {'time': '21:30', 'location': 'зал Динамо (Игровая тренировка, максимум 9 человек)'},
+#               'thursday_location': {'time': '21:30', 'location': 'зал Динамо (Игровая тренировка, максимум 9 человек)'},
                 'friday_location': {'time': '20:30', 'location': 'зал СШОР ВО'}
             }
             
@@ -181,7 +181,7 @@ class TrainingPollsManager:
                 json.dump(self.current_poll_info, f, ensure_ascii=False, indent=2)
             
             # Добавляем запись в сервисный лист для защиты от дублирования
-            additional_info = f"Вторник {tuesday_date.strftime('%d.%m')}, Четверг {thursday_date.strftime('%d.%m')}, Пятница {friday_date.strftime('%d.%m')}"
+            additional_info = f"Вторник {tuesday_date.strftime('%d.%m')}, Пятница {friday_date.strftime('%d.%m')}"
             duplicate_protection.add_record(
                 "ОПРОС_ТРЕНИРОВКА",
                 str(poll_message.poll.id),
@@ -192,7 +192,7 @@ class TrainingPollsManager:
             # Создаем структуру в Google Sheets
             try:
                 print(f"📊 Создание структуры в Google Sheets...")
-                self._create_training_structure(tuesday_date, thursday_date, friday_date, str(poll_message.poll.id))
+                self._create_training_structure(tuesday_date, friday_date, str(poll_message.poll.id))
                 print(f"✅ Структура в Google Sheets создана")
             except Exception as e:
                 print(f"⚠️ Ошибка создания структуры в Google Sheets: {e}")
@@ -969,19 +969,19 @@ class TrainingPollsManager:
                 else:
                     print("⚠️ Нет данных для сохранения за вторник")
             
-            elif target_day.upper() == "ЧЕТВЕРГ" and thursday_voters:
-                print(f"💾 Сохранение данных за четверг в Google Sheets...")
+#            elif target_day.upper() == "ЧЕТВЕРГ" and thursday_voters:
+#                print(f"💾 Сохранение данных за четверг в Google Sheets...")
                 # Преобразуем данные для сохранения
-                voters_for_sheet = []
-                for voter_name in thursday_voters:
+#                voters_for_sheet = []
+#                for voter_name in thursday_voters:
                     # Парсим имя из строки "Имя Фамилия" (без username)
-                    name_parts = voter_name.split()
-                    if len(name_parts) >= 2:
-                        surname = name_parts[-1]  # Последняя часть - фамилия
-                        name = ' '.join(name_parts[:-1])  # Остальное - имя
-                    else:
-                        surname = name_parts[0] if name_parts else "Неизвестный"
-                        name = "Неизвестный"
+#                    name_parts = voter_name.split()
+#                    if len(name_parts) >= 2:
+#                        surname = name_parts[-1]  # Последняя часть - фамилия
+#                        name = ' '.join(name_parts[:-1])  # Остальное - имя
+#                    else:
+#                        surname = name_parts[0] if name_parts else "Неизвестный"
+#                        name = "Неизвестный"
                     
                     # Для реальных данных используем имя как telegram_id
                     telegram_id = voter_name
@@ -1363,9 +1363,9 @@ class TrainingPollsManager:
             if target_day == "Вторник":
                 voters = poll_results['tuesday_voters']
                 training_date = poll_info['tuesday_date']
-            elif target_day == "Четверг":
-                voters = poll_results['thursday_voters']
-                training_date = poll_info['thursday_date']
+#            elif target_day == "Четверг":
+#                voters = poll_results['thursday_voters']
+#                training_date = poll_info['thursday_date']
             elif target_day == "Пятница":
                 voters = poll_results['friday_voters']
                 training_date = poll_info['friday_date']
@@ -1460,7 +1460,7 @@ class TableIntegrityGuard:
         self.structure_index = {
             'polls': {},           # poll_id -> {row, date}
             'tuesday_sections': {}, # date -> {row, poll_id}
-            'thursday_sections': {}, # date -> {row, poll_id}
+#            'thursday_sections': {}, # date -> {row, poll_id}
             'friday_sections': {},  # date -> {row, poll_id}
             'participants': {}      # day_date_surname_name -> row
         }
@@ -1483,10 +1483,10 @@ class TableIntegrityGuard:
                     self.structure_index['tuesday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
                     print(f"   🏀 Вторник: {date} (строка {i+1}, опрос {current_poll_id})")
                 
-                elif row[1] == "Четверг":
-                    date = row[0]
-                    self.structure_index['thursday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
-                    print(f"   🏀 Четверг: {date} (строка {i+1}, опрос {current_poll_id})")
+#                elif row[1] == "Четверг":
+#                    date = row[0]
+#                    self.structure_index['thursday_sections'][date] = {'row': i + 1, 'poll_id': current_poll_id}
+#                    print(f"   🏀 Четверг: {date} (строка {i+1}, опрос {current_poll_id})")
                 
                 elif row[1] == "Пятница":
                     date = row[0]
@@ -1496,7 +1496,7 @@ class TableIntegrityGuard:
         print(f"✅ Индекс построен:")
         print(f"   📊 Опросов: {len(self.structure_index['polls'])}")
         print(f"   🏀 Секций вторника: {len(self.structure_index['tuesday_sections'])}")
-        print(f"   🏀 Секций четверга: {len(self.structure_index['thursday_sections'])}")
+#        print(f"   🏀 Секций четверга: {len(self.structure_index['thursday_sections'])}")
         print(f"   🏀 Секций пятницы: {len(self.structure_index['friday_sections'])}")
         
         return True
@@ -1515,10 +1515,10 @@ class TableIntegrityGuard:
             info = self.structure_index['tuesday_sections'][date]
             print(f"⚠️ Секция вторника для {date} уже существует в строке {info['row']}")
             return True
-        elif target_day == "Четверг" and date in self.structure_index['thursday_sections']:
-            info = self.structure_index['thursday_sections'][date]
-            print(f"⚠️ Секция четверга для {date} уже существует в строке {info['row']}")
-            return True
+#        elif target_day == "Четверг" and date in self.structure_index['thursday_sections']:
+#            info = self.structure_index['thursday_sections'][date]
+#            print(f"⚠️ Секция четверга для {date} уже существует в строке {info['row']}")
+#            return True
         elif target_day == "Пятница" and date in self.structure_index['friday_sections']:
             info = self.structure_index['friday_sections'][date]
             print(f"⚠️ Секция пятницы для {date} уже существует в строке {info['row']}")
@@ -1531,8 +1531,8 @@ class TableIntegrityGuard:
         section_info = None
         if target_day == "Вторник":
             section_info = self.structure_index['tuesday_sections'].get(date)
-        elif target_day == "Четверг":
-            section_info = self.structure_index['thursday_sections'].get(date)
+#        elif target_day == "Четверг":
+#            section_info = self.structure_index['thursday_sections'].get(date)
         elif target_day == "Пятница":
             section_info = self.structure_index['friday_sections'].get(date)
         

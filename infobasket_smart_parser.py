@@ -280,12 +280,9 @@ class InfobasketSmartParser:
         all_games = {}
         
         for team_type in self.tags.keys():
-            print(f"\n🔍 Анализ игр для {team_type}...")
             games = await self.get_team_games(team_type)
             all_games[team_type] = games
             
-            print(f"✅ {team_type}: {len(games['future'])} будущих, {len(games['today'])} сегодня, {len(games['past'])} прошедших")
-        
         return all_games
     
     async def _get_games_for_config_ids(self) -> Dict[str, Dict[str, List[Dict]]]:

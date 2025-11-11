@@ -778,8 +778,8 @@ class EnhancedDuplicateProtection:
             if not all_data or len(all_data) <= 1:
                 return {'has_data': False, 'payload': payload}
 
-            comp_ids: Set[int] = set()
-            team_ids: Set[int] = set()
+            comp_ids_set: Set[int] = set()
+            team_ids_set: Set[int] = set()
             teams: Dict[int, Dict[str, Any]] = {}
             training_polls: List[Dict[str, Any]] = []
             fallback_sources: List[Dict[str, Any]] = []
@@ -800,11 +800,18 @@ class EnhancedDuplicateProtection:
                 row_team_ids = self._parse_ids(team_id_cell)
                 config_payload = self._parse_json_config(settings_json)
 
+                if not row_type:
+                    if row_team_ids:
+                        row_type = "CONFIG_TEAM"
+                    elif row_comp_ids:
+                        row_type = "CONFIG_COMP"
+
                 if row_type in {"CONFIG_COMP", "COMP_CONFIG"}:
-                    comp_ids.update(row_comp_ids)
+                    comp_ids_set.update(row_comp_ids)
                 elif row_type in {"CONFIG_TEAM", "TEAM_CONFIG"}:
+                    comp_ids_set.update(row_comp_ids)
                     for team_id in row_team_ids:
-                        team_ids.add(team_id)
+                        team_ids_set.add(team_id)
                         team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
                         if alt_name:
                             team_entry["alt_name"] = alt_name
@@ -839,10 +846,10 @@ class EnhancedDuplicateProtection:
                 if not team.get("alt_name"):
                     team.pop("alt_name", None)
 
-            has_data = bool(comp_ids or team_ids or teams or training_polls or fallback_sources)
+            has_data = bool(comp_ids_set or team_ids_set or teams or training_polls or fallback_sources)
             payload.update({
-                'comp_ids': comp_ids,
-                'team_ids': team_ids,
+                'comp_ids': sorted(comp_ids_set),
+                'team_ids': sorted(team_ids_set),
                 'teams': teams,
                 'training_polls': training_polls,
                 'fallback_sources': fallback_sources,
@@ -874,8 +881,8 @@ class EnhancedDuplicateProtection:
                     'fallback_sources': []
                 }
 
-            comp_ids: Set[int] = set()
-            team_ids: Set[int] = set()
+            comp_ids_set: Set[int] = set()
+            team_ids_set: Set[int] = set()
             teams: Dict[int, Dict[str, Any]] = {}
             training_polls: List[Dict[str, Any]] = []
             fallback_sources: List[Dict[str, Any]] = []
@@ -894,12 +901,12 @@ class EnhancedDuplicateProtection:
                 config_payload = self._parse_json_config(row[CONFIG_COL] if len(row) > CONFIG_COL else "")
 
                 if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_COMP", "COMP_CONFIG"}:
-                    comp_ids.update(row_comp_ids)
+                    comp_ids_set.update(row_comp_ids)
 
                 if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_TEAM", "TEAM_CONFIG"}:
-                    comp_ids.update(row_comp_ids)
+                    comp_ids_set.update(row_comp_ids)
                     for team_id in row_team_ids:
-                        team_ids.add(team_id)
+                        team_ids_set.add(team_id)
                         team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
                         if alt_name:
                             team_entry["alt_name"] = alt_name
@@ -929,10 +936,10 @@ class EnhancedDuplicateProtection:
 
                 else:
                     if row_comp_ids:
-                        comp_ids.update(row_comp_ids)
+                        comp_ids_set.update(row_comp_ids)
                     if row_team_ids:
                         for team_id in row_team_ids:
-                            team_ids.add(team_id)
+                            team_ids_set.add(team_id)
                             team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
                             if alt_name:
                                 team_entry["alt_name"] = alt_name
@@ -948,8 +955,8 @@ class EnhancedDuplicateProtection:
                     team.pop("alt_name", None)
 
             return {
-                'comp_ids': comp_ids,
-                'team_ids': team_ids,
+                'comp_ids': comp_ids_set,
+                'team_ids': team_ids_set,
                 'teams': teams,
                 'training_polls': training_polls,
                 'fallback_sources': fallback_sources

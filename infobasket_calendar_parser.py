@@ -11,13 +11,18 @@ import asyncio
 import aiohttp
 import json
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
+from enhanced_duplicate_protection import duplicate_protection
+
 
 class InfobasketCalendarParser:
     def __init__(self):
         self.org_api_url = "https://org.infobasket.su"
         self.reg_api_url = "https://reg.infobasket.su"
-        self.target_teams = ["PULL UP", "PULLUP", "Атлант", "АТЛАНТ", "Атлант 40"]
+        self.team_ids: List[int] = []
+        self.team_name_variants: List[str] = []
+        self._load_config()
         
     async def get_seasons_for_tag(self, tag: str) -> List[Dict]:
         """Получает сезоны по тегу"""
@@ -67,25 +72,59 @@ class InfobasketCalendarParser:
                 print(f"❌ Исключение при получении календаря: {e}")
                 return []
     
+    def _load_config(self) -> None:
+        config = duplicate_protection.get_config_ids()
+        self.team_ids = config.get("team_ids", []) or []
+
+        name_variants: List[str] = []
+        teams_meta = config.get("teams", {}) or {}
+        for team_info in teams_meta.values():
+            alt_name = team_info.get("alt_name")
+            if isinstance(alt_name, str) and alt_name.strip():
+                name_variants.append(alt_name.strip())
+            metadata = team_info.get("metadata") or {}
+            aliases = metadata.get("aliases") if isinstance(metadata, dict) else []
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        name_variants.append(alias.strip())
+
+        self.team_name_variants = list({name.lower() for name in name_variants if name})
+
     def filter_games_by_teams(self, games: List[Dict]) -> List[Dict]:
         """Фильтрует игры по нашим командам"""
         filtered_games = []
         
         for game in games:
-            # Проверяем названия команд
+            # 1) Предпочтительно по ID
+            team1_id = game.get('Team1ID')
+            team2_id = game.get('Team2ID')
+            if (
+                isinstance(team1_id, int)
+                and team1_id in self.team_ids
+                or isinstance(team2_id, int)
+                and team2_id in self.team_ids
+            ):
+                filtered_games.append(game)
+                continue
+
+            # 2) Fallback по названиям
             team_a = game.get('ShortTeamNameAru', '')
             team_b = game.get('ShortTeamNameBru', '')
             team_a_full = game.get('TeamNameAru', '')
             team_b_full = game.get('TeamNameBru', '')
-            
-            # Ищем наши команды
-            for target_team in self.target_teams:
-                if (target_team.upper() in team_a.upper() or 
-                    target_team.upper() in team_b.upper() or
-                    target_team.upper() in team_a_full.upper() or
-                    target_team.upper() in team_b_full.upper()):
+            team_names = " ".join([
+                str(team_a),
+                str(team_b),
+                str(team_a_full),
+                str(team_b_full),
+            ]).lower()
+
+            for target_name in self.team_name_variants:
+                normalized_target = target_name.lower()
+                if normalized_target and normalized_target in team_names:
                     filtered_games.append(game)
-                    print(f"🏀 Найдена игра с командой {target_team}: {team_a} vs {team_b}")
+                    print(f"🏀 Найдена игра с командой {target_name}: {team_a} vs {team_b}")
                     break
         
         return filtered_games
@@ -109,7 +148,7 @@ class InfobasketCalendarParser:
             'comp_name': game.get('CompNameRu'),
             'league_name': game.get('LeagueNameRu'),
             'display_date': game.get('DisplayDateTimeMsk'),
-            'game_link': f"http://letobasket.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
+            'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
         }
     
     async def get_schedule(self, tag: str = "reg-78-ll-pl") -> List[Dict]:

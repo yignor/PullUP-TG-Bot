@@ -29,9 +29,19 @@ async def cleanup_service_sheet():
             for data_type, data in stats_before.items():
                 print(f"   📊 {data_type}: {data['total']} записей")
         
-        # Очищаем старые записи по типам
         cleanup_results = []
         
+        # Универсальная очистка записей старше 30 дней
+        global_cleanup = duplicate_protection.cleanup_expired_records(30)
+        if global_cleanup.get('success'):
+            cleaned_count = global_cleanup.get('cleaned_count', 0)
+            print(f"\n🧽 Общая очистка: удалено {cleaned_count} записей старше 30 дней")
+            if cleaned_count > 0:
+                cleanup_results.append(f"ВСЕ ТИПЫ: {cleaned_count} записей")
+        else:
+            print(f"\n⚠️ Общая очистка не выполнена: {global_cleanup.get('error')}")
+        
+        # Очищаем старые записи по типам
         # Очищаем старые опросы тренировок (старше 30 дней)
         result = duplicate_protection.cleanup_old_records("ОПРОС_ТРЕНИРОВКА", 30)
         if result['success']:

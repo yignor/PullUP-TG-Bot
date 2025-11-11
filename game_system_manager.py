@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Единый модуль для управления системой игр PullUP
+Единый модуль для управления системой игр
 Выполняет последовательно: парсинг → создание опросов → создание анонсов
 """
 
@@ -9,18 +9,23 @@ import asyncio
 import datetime
 import json
 import re
-from typing import Dict, List, Optional
+from urllib.parse import urljoin
+from typing import Any, Dict, List, Optional, Sequence, Set, cast
 from datetime_utils import get_moscow_time, is_today, log_current_time
 from enhanced_duplicate_protection import duplicate_protection
 from info_basket_client import InfoBasketClient
 from infobasket_smart_parser import InfobasketSmartParser
+from comp_names import get_comp_name
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from telegram import Bot
+    import aiohttp
 
 # Переменные окружения (загружаются из системы или .env файла)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
-# Команды для поиска (жестко закодированы в find_target_teams_in_text)
-TARGET_TEAMS = ["PullUP", "Pull Up-Фарм"]  # Для отображения в логах
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
 
 # Файлы для истории
@@ -92,78 +97,39 @@ def get_day_of_week(date_str: str) -> str:
     except:
         return ""
 
-def get_team_category(team_name: str, opponent: str = "", game_time: str = "") -> str:
-    """Определяет категорию команды по названию команды в расписании"""
-    # Нормализуем название команды для сравнения
-    team_upper = team_name.upper().replace(" ", "").replace("-", "").replace("_", "")
-    opponent_upper = opponent.upper().replace(" ", "").replace("-", "").replace("_", "")
-    
-    # Варианты написания для состава развития (команды с "Фарм")
-    development_variants = [
-        "PULLUPФАРМ",
-        "PULLUP-ФАРМ", 
-        "PULL UPФАРМ",
-        "PULL UP-ФАРМ",
-        "PULL UP ФАРМ",
-        "PULLUP ФАРМ"
-    ]
-    
-    # Проверяем, является ли команда составом развития по названию
-    for variant in development_variants:
-        if variant in team_upper:
-            return "Состав Развития"
-    
-    # Дополнительная логика: если команда называется просто "Pull Up" или "PullUP" (без "Фарм"),
-    # проверяем соперника для определения состава
-    if ("PULLUP" in team_upper or "PULL UP" in team_upper) and "ФАРМ" not in team_upper:
-        # Список соперников, против которых обычно играет состав развития
-        development_opponents = [
-            "BALLERSFROMTHEHOOD",
-            "BALLERS FROM THE HOOD",
-            "BALLERSFROMTHEHOODТОСНО",
-            "BALLERS FROM THE HOOD ТОСНО"
-        ]
-        
-        # Проверяем, является ли соперник командой, против которой играет состав развития
-        for dev_opponent in development_opponents:
-            if dev_opponent in opponent_upper:
-                return "Состав Развития"
-        
-        # По умолчанию - первый состав
-        return "Первый состав"
-    
-    # Если не найден ни один вариант, то это первый состав
-    return "Первый состав"
+def get_team_category_by_type(team_type: Optional[str]) -> str:
+    """Возвращает читаемую категорию команды по типу"""
+    if isinstance(team_type, str) and team_type.strip():
+        normalized = team_type.strip()
+        mapping = {
+            "farm_team": "Команда",
+            "first_team": "Команда",
+        }
+        return mapping.get(normalized, normalized)
+    return "Команда"
 
-def get_team_category_with_declension(team_name: str, opponent: str = "", game_time: str = "") -> str:
-    """Определяет категорию команды с правильным склонением для анонсов"""
-    category = get_team_category(team_name, opponent, game_time)
-    
-    # Правильные склонения для анонсов
-    if category == "Первый состав":
-        return "Первого состава"
-    elif category == "Состав Развития":
-        return "состава Развития"
-    else:
-        return category
 
-def determine_form_color(team1: str, team2: str) -> str:
-    """Определяет цвет формы (светлая или темная)"""
-    # Нормализуем названия команд для сравнения
-    team1_lower = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
-    team2_lower = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
-    
-    # Проверяем, какая из наших команд играет
-    our_team_variants = ['pullup', 'pull up', 'pullupфарм', 'pull upфарм']
-    
-    # Если наша команда первая - светлая форма, если вторая - темная
-    for variant in our_team_variants:
-        if variant in team1_lower:
+def get_team_category_with_declension(team_type: Optional[str]) -> str:
+    """Возвращает категорию команды с правильным склонением"""
+    category = get_team_category_by_type(team_type)
+    if not category:
+        return "команды"
+    lower = category.lower()
+    if lower.endswith('а'):
+        return f"{lower[:-1]}ы"
+    if lower.endswith('я'):
+        return f"{lower[:-1]}и"
+    return lower
+
+
+def determine_form_color(game_info: Dict) -> str:
+    """Определяет цвет формы на основе позиции нашей команды"""
+    our_team_id = game_info.get('our_team_id')
+    if our_team_id:
+        if our_team_id == game_info.get('team1_id'):
             return "светлая"
-        elif variant in team2_lower:
+        if our_team_id == game_info.get('team2_id'):
             return "темная"
-    
-    # По умолчанию - светлая форма
     return "светлая"
 
 def format_date_without_year(date_str: str) -> str:
@@ -183,39 +149,152 @@ class GameSystemManager:
         self.bot: Optional['Bot'] = None
         self.polls_history = load_polls_history()
         self.announcements_history = load_announcements_history()
+        self.team_name_keywords: List[str] = []
+        self.team_names_by_id: Dict[int, str] = {}
+        self.team_configs: Dict[int, Dict[str, Any]] = {}
+        self.training_poll_configs: List[Dict[str, Any]] = []
+        self.fallback_sources: List[Dict[str, Any]] = []
+        
+        config_snapshot = duplicate_protection.get_config_ids()
+        self.config_comp_ids: List[int] = config_snapshot.get('comp_ids', [])
+        self.config_team_ids: List[int] = config_snapshot.get('team_ids', [])
+        self.team_configs = config_snapshot.get('teams', {}) or {}
+        self.training_poll_configs = config_snapshot.get('training_polls', []) or []
+        self.fallback_sources = config_snapshot.get('fallback_sources', []) or []
+        self.config_comp_ids_set = set(self.config_comp_ids)
+        self.config_team_ids_set = set(self.config_team_ids)
+        
+        self._update_team_mappings()
         
         print(f"🔍 Инициализация GameSystemManager:")
         print(f"   📊 История опросов: {len(self.polls_history)} записей")
         print(f"   📊 История анонсов: {len(self.announcements_history)} записей")
+        if self.config_comp_ids or self.config_team_ids:
+            print(f"   ⚙️ Конфигурация соревнований: {self.config_comp_ids}")
+            print(f"   ⚙️ Конфигурация команд: {self.config_team_ids}")
+        else:
+            print("   ⚠️ Конфигурация соревнований и команд не найдена в сервисном листе")
         
         if BOT_TOKEN:
             from telegram import Bot
             self.bot = Bot(token=BOT_TOKEN)
     
+    def _to_int(self, value: Any) -> Optional[int]:
+        """Безопасно конвертирует значение в int"""
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalize_name_for_search(name: str) -> str:
+        """Нормализует имя команды для сравнения"""
+        if not isinstance(name, str):
+            return ""
+        return re.sub(r"[\s\-_/]", "", name.strip().lower())
+
+    def _build_name_variants(self, *names: Optional[str]) -> Set[str]:
+        """Формирует набор уникальных вариантов имени команды"""
+        variants: Set[str] = set()
+        for name in names:
+            if not name or not isinstance(name, str):
+                continue
+            stripped = name.strip()
+            if stripped:
+                variants.add(stripped)
+                normalized = self._normalize_name_for_search(stripped)
+                if normalized:
+                    variants.add(normalized)
+        return variants
+
+    def _find_matching_variant(self, normalized_text: str, variants: Sequence[str]) -> Optional[str]:
+        """Ищет первый вариант имени, встречающийся в нормализованном тексте"""
+        for variant in variants:
+            normalized_variant = self._normalize_name_for_search(variant)
+            if normalized_variant and normalized_variant in normalized_text:
+                return variant
+        return None
+
+    def resolve_team_config(self, team_name: str) -> Optional[Dict[str, Any]]:
+        """Возвращает конфигурацию команды по названию (с учетом альтернатив и алиасов)"""
+        if not team_name:
+            return None
+        normalized = self._normalize_name_for_search(team_name)
+        if not normalized:
+            return None
+        for team_id, data in self.team_configs.items():
+            metadata = data.get('metadata') or {}
+            candidates = set()
+            alt_name = data.get('alt_name')
+            if isinstance(alt_name, str) and alt_name.strip():
+                candidates.add(alt_name.strip())
+            aliases = metadata.get('aliases') if isinstance(metadata, dict) else []
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        candidates.add(alias.strip())
+            for candidate in candidates:
+                if self._normalize_name_for_search(candidate) == normalized:
+                    return {
+                        'team_id': team_id,
+                        'alt_name': alt_name,
+                        'metadata': metadata
+                    }
+        return None
+
+    def _update_team_mappings(self) -> None:
+        self.team_names_by_id = {}
+        for team_id, data in self.team_configs.items():
+            alt_name = data.get('alt_name')
+            if isinstance(alt_name, str) and alt_name.strip():
+                self.team_names_by_id[team_id] = alt_name.strip()
+            metadata = data.get('metadata') or {}
+            aliases = metadata.get('aliases') if isinstance(metadata, dict) else []
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip() and team_id not in self.team_names_by_id:
+                        self.team_names_by_id[team_id] = alias.strip()
+        keyword_sources: Set[str] = set()
+        keyword_sources.update(self.team_names_by_id.values())
+        for data in self.team_configs.values():
+            metadata = data.get('metadata') or {}
+            aliases = metadata.get('aliases') if isinstance(metadata, dict) else []
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        keyword_sources.add(alias.strip())
+        for source in self.fallback_sources:
+            name = source.get('name')
+            if isinstance(name, str) and name.strip():
+                keyword_sources.add(name.strip())
+        self.team_name_keywords = sorted(keyword_sources)
+    
     def find_target_teams_in_text(self, text: str) -> List[str]:
         """Находит целевые команды в тексте"""
-        found_teams = []
-        # Расширенный список команд для поиска (в порядке приоритета)
-        search_teams = [
-            'Pull Up-Фарм',  # Сначала ищем более специфичные варианты
-            'Pull Up Фарм',  # Без дефиса
-            'PullUP-Фарм',   # Без пробела с дефисом
-            'PullUP Фарм',   # Без пробела без дефиса
-            'Pull Up',       # Обычный Pull Up
-            'PullUP'         # Без пробела
-        ]
+        found_teams: List[str] = []
         
-        # Нормализуем текст для поиска
-        text_normalized = text.lower().replace(" ", "").replace("-", "").replace("_", "")
+        search_names = []
+        if self.team_name_keywords:
+            search_names.extend(self.team_name_keywords)
+        if self.team_names_by_id:
+            search_names.extend(self.team_names_by_id.values())
         
-        for team in search_teams:
-            team_normalized = team.lower().replace(" ", "").replace("-", "").replace("_", "")
-            if team_normalized in text_normalized:
-                found_teams.append(team)
-                print(f"   ✅ Найдена команда: {team}")
+        # Удаляем дубликаты и пустые значения
+        search_names = [name for name in {name.strip() for name in search_names} if name]
+        
+        if not search_names:
+            return found_teams
+        
+        text_normalized = re.sub(r"[\s\-_/]", "", text.lower())
+        
+        for name in search_names:
+            normalized_name = re.sub(r"[\s\-_/]", "", name.lower())
+            if normalized_name and normalized_name in text_normalized:
+                found_teams.append(name)
+                print(f"   ✅ Найдена команда по названию: {name}")
         
         if not found_teams:
-            print(f"   ❌ Команды Pull Up не найдены в тексте: {text[:100]}...")
+            print(f"   ❌ Целевые команды не найдены в тексте: {text[:100]}...")
             print(f"   🔍 Нормализованный текст: {text_normalized[:100]}...")
         
         return found_teams
@@ -274,7 +353,11 @@ class GameSystemManager:
             print("🔍 Получение расписания через Infobasket Smart API...")
             
             # Инициализируем умный парсер
-            parser = InfobasketSmartParser()
+            parser = InfobasketSmartParser(
+                comp_ids=self.config_comp_ids,
+                team_ids=self.config_team_ids,
+                team_name_keywords=self.team_name_keywords
+            )
             
             # Получаем игры для всех составов
             all_games = await parser.get_all_team_games()
@@ -283,6 +366,35 @@ class GameSystemManager:
             future_games = []
             for team_type, games in all_games.items():
                 for game in games['future']:
+                    team1_id = self._to_int(game.get('Team1ID'))
+                    team2_id = self._to_int(game.get('Team2ID'))
+                    our_team_id = self._to_int(game.get('ConfiguredTeamID'))
+                    opponent_team_id = self._to_int(game.get('OpponentTeamID'))
+                    
+                    if our_team_id is None and self.config_team_ids_set:
+                        if team1_id in self.config_team_ids_set:
+                            our_team_id = team1_id
+                            opponent_team_id = team2_id
+                        elif team2_id in self.config_team_ids_set:
+                            our_team_id = team2_id
+                            opponent_team_id = team1_id
+                    
+                    our_team_name = None
+                    opponent_team_name = None
+                    
+                    if our_team_id is not None:
+                        if our_team_id == team1_id:
+                            our_team_name = game.get('ShortTeamNameAru')
+                            opponent_team_name = game.get('ShortTeamNameBru')
+                        elif our_team_id == team2_id:
+                            our_team_name = game.get('ShortTeamNameBru')
+                            opponent_team_name = game.get('ShortTeamNameAru')
+                    
+                    if our_team_id is not None and our_team_name:
+                        self.team_names_by_id[our_team_id] = our_team_name
+                        if our_team_name not in self.team_name_keywords:
+                            self.team_name_keywords.append(our_team_name)
+                    
                     formatted_game = {
                         'date': game.get('GameDate'),
                         'time': game.get('GameTimeMsk'),
@@ -290,10 +402,17 @@ class GameSystemManager:
                         'team2': game.get('ShortTeamNameBru'),
                         'venue': game.get('ArenaRu'),
                         'comp_name': game.get('CompNameRu'),
+                        'comp_id': game.get('CompID'),
                         'game_id': game.get('GameID'),
                         'team_type': team_type,
+                        'team1_id': team1_id,
+                        'team2_id': team2_id,
+                        'our_team_id': our_team_id,
+                        'opponent_team_id': opponent_team_id,
+                        'our_team_name': our_team_name,
+                        'opponent_team_name': opponent_team_name,
                         'source': 'infobasket_smart_api',
-                        'game_link': f"http://letobasket.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
+                        'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
                     }
                     future_games.append(formatted_game)
             
@@ -341,11 +460,11 @@ class GameSystemManager:
                         ]
                         
                         # Дополнительный паттерн для строк с несколькими играми подряд
-                        # Пример: "06.09.2025 12.30 (MarvelHall) - IT Basket - Pull Up-Фарм-06.09.2025 14.00 (MarvelHall) - Атомпроект - Pull Up"
+                        # Пример: "06.09.2025 12.30 (MarvelHall) - Team A - Team B-06.09.2025 14.00 (MarvelHall) - Team C - Team D"
                         # Исправленный паттерн для правильного захвата команд с дефсами
                         multi_game_pattern = r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?)(?=-\d{2}\.\d{2}\.\d{4}|$)'
                         
-                        # Дополнительный паттерн для команд с дефсами (например, "Pull Up-Фарм")
+                        # Дополнительный паттерн для команд с дефсами (например, "Team A-Team B")
                         multi_game_pattern_with_dash = r'(\d{2}\.\d{2}\.\d{4})\s+(\d{2}\.\d{2})\s+\(([^)]+)\)\s*-\s*([^-]+?)\s*-\s*([^-]+?-[^-]+?)(?=-\d{2}\.\d{2}\.\d{4}|$)'
                         
                         matches = []
@@ -397,10 +516,7 @@ class GameSystemManager:
                             team2 = team2.strip()
                             
                             # Исправляем неправильно разделенные команды
-                            # Если team1 содержит "Атлант", а team2 содержит "40 - Pull Up", объединяем их
-                            if "Атлант" in team1 and "40" in team2 and "Pull Up" in team2:
-                                team1 = "Атлант 40"
-                                team2 = team2.replace("40 - ", "").strip()
+                            # Здесь можно добавить пользовательские правила корректировки, если необходимо
                             
                             game_text = f"{team1} {team2}"
                             
@@ -465,8 +581,17 @@ class GameSystemManager:
             return False
         
         # Проверяем, есть ли наши команды в игре
-        game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
-        target_teams = self.find_target_teams_in_text(game_text)
+        target_teams: List[str] = []
+        our_team_id = game_info.get('our_team_id')
+        our_team_name = game_info.get('our_team_name')
+        
+        if our_team_id:
+            label = our_team_name or f"Команда {our_team_id}"
+            target_teams.append(label)
+            print(f"✅ Найдена целевая команда по ID: {label} (ID {our_team_id})")
+        else:
+            game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
+            target_teams = self.find_target_teams_in_text(game_text)
         
         if not target_teams:
             print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
@@ -516,30 +641,8 @@ class GameSystemManager:
         except Exception as e:
             print(f"⚠️ Ошибка проверки времени игры: {e}")
         
-        # Жесткий список игр, для которых уже созданы опросы (обновляется вручную)
+        # Ранее существовал ручной список исключений, но теперь вся логика опирается на данные из таблицы
         game_key = create_game_key(game_info)
-        existing_polls_keys = [
-            "27.08.2025_20:30_Кудрово_Pull Up",
-            "27.08.2025_21:45_Old Stars_Pull Up", 
-            "30.08.2025_12:30_Тосно_Pull Up",
-            "06.09.2025_12:30_MarvelHall_Pull Up-Фарм",
-        ]
-        
-        if game_key in existing_polls_keys:
-            print(f"⏭️ Опрос для игры {game_key} уже создан ранее (жесткий список)")
-            return False
-        
-        # Дополнительная проверка: не создаем опросы для игр, которые уже прошли по дате
-        try:
-            game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
-            today = get_moscow_time().date()
-            
-            # Если игра была вчера или раньше, не создаем опрос
-            if game_date < today:
-                print(f"📅 Игра {game_info['date']} уже прошла по дате, пропускаем")
-                return False
-        except Exception as e:
-            print(f"⚠️ Ошибка проверки даты игры: {e}")
         
         print(f"✅ Игра {game_info['date']} подходит для создания опроса")
         return True
@@ -572,8 +675,17 @@ class GameSystemManager:
             return False
         
         # Проверяем, есть ли наши команды в игре
-        game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
-        target_teams = self.find_target_teams_in_text(game_text)
+        our_team_id = game_info.get('our_team_id')
+        our_team_name = game_info.get('our_team_name')
+        target_teams: List[str] = []
+        
+        if our_team_id:
+            label = our_team_name or f"Команда {our_team_id}"
+            target_teams.append(label)
+            print(f"✅ Найдена целевая команда по ID: {label} (ID {our_team_id})")
+        else:
+            game_text = f"{game_info.get('team1', '')} {game_info.get('team2', '')}"
+            target_teams = self.find_target_teams_in_text(game_text)
         
         if not target_teams:
             print(f"ℹ️ Игра без наших команд: {game_info.get('team1', '')} vs {game_info.get('team2', '')}")
@@ -608,71 +720,56 @@ class GameSystemManager:
             return False
         
         try:
+            bot = cast(Any, self.bot)
             # Определяем нашу команду и соперника
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
             
-            # Находим нашу команду (используем расширенный поиск)
-            our_team = None
-            opponent = None
+            # Находим нашу команду и соперника, опираясь на данные API
+            our_team = game_info.get('our_team_name')
+            opponent = game_info.get('opponent_team_name')
+            our_team_id = game_info.get('our_team_id')
             
-            # Список всех возможных названий наших команд
-            our_team_variants = [
-                'Pull Up-Фарм',
-                'Pull Up Фарм', 
-                'PullUP-Фарм',
-                'PullUP Фарм',
-                'Pull Up',
-                'PullUP'
-            ]
+            if not our_team and our_team_id:
+                if our_team_id == game_info.get('team1_id'):
+                    our_team = team1
+                    opponent = opponent or team2
+                elif our_team_id == game_info.get('team2_id'):
+                    our_team = team2
+                    opponent = opponent or team1
             
-            # Нормализуем названия команд для сравнения
-            team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
-            team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
-            
-            # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
-            # Если одна команда содержит "Pull Up" а другая "Фарм", то это наша фарм-команда против Quasar
-            if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
-                # Это случай "Pull Up vs Фарм - Quasar" - наша фарм-команда против Quasar
-                our_team = "Pull Up-Фарм"
-                # Извлекаем название противника после "Фарм - "
-                opponent = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
-                print(f"🔍 Специальная обработка: {our_team} vs {opponent}")
-            elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
-                # Это случай "Фарм - Quasar vs Pull Up" - наша фарм-команда против Quasar
-                our_team = "Pull Up-Фарм"
-                # Извлекаем название противника после "Фарм - "
-                opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
-                print(f"🔍 Специальная обработка: {our_team} vs {opponent}")
-            else:
-                # Обычная логика определения команд
-                for variant in our_team_variants:
-                    variant_normalized = variant.lower().replace(" ", "").replace("-", "").replace("_", "")
-                    if variant_normalized in team1_normalized:
-                        our_team = team1
-                        opponent = team2
-                        break
-                    elif variant_normalized in team2_normalized:
-                        our_team = team2
-                        opponent = team1
-                        break
+            if not our_team:
+                our_team = team1
+                opponent = opponent or team2
             
             if not our_team:
                 print(f"❌ Не удалось определить нашу команду в игре")
                 return False
             
             # Определяем категорию команды
-            team_category = get_team_category(our_team, opponent or "")
+            team_category = get_team_category_by_type(game_info.get('team_type'))
             day_of_week = get_day_of_week(game_info['date'])
             
             # Определяем цвет формы
-            form_color = determine_form_color(game_info['team1'], game_info['team2'])
+            form_color = determine_form_color(game_info)
             
             # Форматируем дату без года
             date_short = format_date_without_year(game_info['date'])
             
+            # Определяем название соревнования (если comp_id передан)
+            comp_suffix = ""
+            comp_id = game_info.get('comp_id')
+            comp_name = get_comp_name(comp_id) if comp_id else ''
+            if comp_name:
+                comp_suffix = f" ({comp_name})"
+
             # Формируем вопрос в новом многострочном формате
-            question = f"🏀 Летняя лига: {team_category} против {opponent}\n📅 {date_short}, {day_of_week}, {game_info['time']}\n👕 {form_color} форма\n📍 {game_info['venue']}"
+            question = (
+                f"🏀 {team_category} против {opponent}{comp_suffix}\n"
+                f"📅 {date_short}, {day_of_week}, {game_info['time']}\n"
+                f"👕 {form_color} форма\n"
+                f"📍 {game_info['venue']}"
+            )
             
             # Варианты ответов с эмодзи
             options = [
@@ -685,7 +782,7 @@ class GameSystemManager:
             try:
                 if GAMES_TOPIC_ID:
                     message_thread_id = int(GAMES_TOPIC_ID)
-                    poll_message = await self.bot.send_poll(
+                    poll_message = await bot.send_poll(
                         chat_id=int(CHAT_ID),
                         question=question,
                         options=options,
@@ -694,7 +791,7 @@ class GameSystemManager:
                         message_thread_id=message_thread_id
                     )
                 else:
-                    poll_message = await self.bot.send_poll(
+                    poll_message = await bot.send_poll(
                         chat_id=int(CHAT_ID),
                         question=question,
                         options=options,
@@ -704,7 +801,7 @@ class GameSystemManager:
             except Exception as e:
                 if "Message thread not found" in str(e):
                     print(f"⚠️ Топик {GAMES_TOPIC_ID} не найден, отправляем в основной чат")
-                    poll_message = await self.bot.send_poll(
+                    poll_message = await bot.send_poll(
                         chat_id=int(CHAT_ID),
                         question=question,
                         options=options,
@@ -762,279 +859,123 @@ class GameSystemManager:
             return False
     
     async def find_game_link(self, team1: str, team2: str) -> Optional[tuple]:
-        """Ищет ссылку на игру по командам в табло"""
+        """Ищет ссылку на игру, используя сервисный лист и fallback-источники"""
         try:
+            sheet_link = duplicate_protection.find_game_link_for_today(team1, team2)
+            if sheet_link:
+                return sheet_link, None
+
             import aiohttp
-            from bs4 import BeautifulSoup
-            
-            # Исправляем команды для случаев типа "Pull Up vs Фарм - Quasar"
-            original_team1, original_team2 = team1, team2
-            
-            # Нормализуем названия команд для проверки
-            team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
-            team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
-            
-            # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
-            if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
-                # Это случай "Pull Up vs Фарм - Quasar" - исправляем на "Pull Up-Фарм vs Quasar"
-                team1 = "Pull Up-Фарм"
-                team2 = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
-                print(f"🔧 Исправляем команды для поиска ссылки: {original_team1} vs {original_team2} -> {team1} vs {team2}")
-            elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
-                # Это случай "Фарм - Quasar vs Pull Up" - исправляем на "Pull Up-Фарм vs Quasar"
-                team1 = "Pull Up-Фарм"
-                team2 = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
-                print(f"🔧 Исправляем команды для поиска ссылки: {original_team1} vs {original_team2} -> {team1} vs {team2}")
-            
-            url = "http://letobasket.ru/"
-            
+
+            sources = self.fallback_sources or [{'url': 'http://letobasket.ru/'}]
+            own_variants = self._build_name_variants(team1, *self.team_name_keywords)
+            opponent_variants = self._build_name_variants(team2)
+
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        content = await response.text()
-                        soup = BeautifulSoup(content, 'html.parser')
-                        
-                        # Ищем все ссылки "СТРАНИЦА ИГРЫ"
-                        game_links = []
-                        for link in soup.find_all('a', href=True):
-                            if "СТРАНИЦА ИГРЫ" in link.get_text():
-                                game_links.append(link['href'])
-                        
-                        print(f"🔗 Найдено ссылок: {len(game_links)}")
-                        
-                        # Парсим каждую ссылку и ищем Pull Up в iframe
-                        for i, game_link in enumerate(game_links, 1):
-                            print(f"🎮 Проверяем ссылку {i}: {game_link}")
-                            
-                            # Извлекаем gameId из ссылки
-                            if 'gameId=' in game_link:
-                                game_id = game_link.split('gameId=')[1].split('&')[0]
-                                print(f"   🔍 GameId: {game_id}")
-                                
-                                # Формируем URL iframe
-                                iframe_url = f"http://ig.russiabasket.ru/online/?id={game_id}&compId=62953&db=reg&tab=0&tv=0&color=5&logo=0&foul=0&white=1&timer24=0&blank=6&short=1&teamA=&teamB="
-                                
-                                try:
-                                    # Загружаем iframe
-                                    async with session.get(iframe_url) as iframe_response:
-                                        if iframe_response.status == 200:
-                                            iframe_content = await iframe_response.text()
-                                            
-                                            # Ищем команды в iframe
-                                            iframe_text = iframe_content.upper()
-                                            team1_upper = team1.upper()
-                                            team2_upper = team2.upper()
-                                            
-                                            print(f"   🔍 Ищем команды: {team1_upper} vs {team2_upper}")
-                                            print(f"   📄 Длина iframe: {len(iframe_content)} символов")
-                                            
-                                            # Проверяем разные варианты написания команд
-                                            team1_found = (team1_upper in iframe_text or 
-                                                          team1_upper.replace(' ', '') in iframe_text or
-                                                          team1_upper.replace('-', ' ') in iframe_text or
-                                                          team1_upper.replace(' ', '-') in iframe_text)
-                                            team2_found = (team2_upper in iframe_text or 
-                                                          team2_upper.replace(' ', '') in iframe_text or
-                                                          team2_upper.replace('-', ' ') in iframe_text or
-                                                          team2_upper.replace(' ', '-') in iframe_text)
-                                            
-                                            # Специальная проверка для Pull Up (включаем и обычный, и фарм)
-                                            if team2_upper == 'PULL UP':
-                                                # Ищем Pull Up (обычный или фарм)
-                                                if 'PULL UP-ФАРМ' in iframe_text or 'PULL UP ФАРМ' in iframe_text:
-                                                    team2_found = True
-                                                    print(f"   ✅ Найден Pull Up-Фарм")
-                                                elif 'PULL UP' in iframe_text:
-                                                    team2_found = True
-                                                    print(f"   ✅ Найден Pull Up (обычный)")
-                                                else:
-                                                    team2_found = False
-                                            
-                                            print(f"   🏀 {team1_upper} найдена: {'✅' if team1_found else '❌'}")
-                                            print(f"   🏀 {team2_upper} найдена: {'✅' if team2_found else '❌'}")
-                                            
-                                            # Показываем часть iframe для отладки
-                                            if 'PULL UP' in iframe_text:
-                                                pull_up_pos = iframe_text.find('PULL UP')
-                                                start = max(0, pull_up_pos - 50)
-                                                end = min(len(iframe_text), pull_up_pos + 100)
-                                                context = iframe_text[start:end]
-                                                print(f"   📄 Контекст Pull Up: {context}")
-                                            
-                                            # Проверяем, что найдены ОБЕ команды из искомой игры
-                                            if team1_found and team2_found:
-                                                print(f"✅ Найдена игра {team1} vs {team2} в ссылке {i}")
-                                                
-                                                # Дополнительная проверка: убеждаемся, что это именно наша игра
-                                                # Ищем заголовок игры в iframe
-                                                title_match = re.search(r'<TITLE>.*?([^-]+)\s*-\s*([^-]+)', iframe_content, re.IGNORECASE)
-                                                if title_match:
-                                                    iframe_team1 = title_match.group(1).strip()
-                                                    iframe_team2 = title_match.group(2).strip()
-                                                    print(f"   📋 Заголовок iframe: {iframe_team1} - {iframe_team2}")
-                                                    
-                                                    # Проверяем, что команды в заголовке соответствуют искомым
-                                                    iframe_team1_upper = iframe_team1.upper()
-                                                    iframe_team2_upper = iframe_team2.upper()
-                                                    
-                                                    # Нормализуем названия команд для сравнения
-                                                    def normalize_team_name(name):
-                                                        return name.upper().replace(' ', '').replace('-', '').replace('_', '')
-                                                    
-                                                    team1_normalized = normalize_team_name(team1)
-                                                    team2_normalized = normalize_team_name(team2)
-                                                    iframe_team1_normalized = normalize_team_name(iframe_team1)
-                                                    iframe_team2_normalized = normalize_team_name(iframe_team2)
-                                                    
-                                                    # Проверяем соответствие команд
-                                                    teams_match = (
-                                                        (team1_normalized in iframe_team1_normalized and team2_normalized in iframe_team2_normalized) or
-                                                        (team1_normalized in iframe_team2_normalized and team2_normalized in iframe_team1_normalized)
-                                                    )
-                                                    
-                                                    if not teams_match:
-                                                        print(f"   ❌ Команды в заголовке не соответствуют искомым: {team1} vs {team2} != {iframe_team1} vs {iframe_team2}")
-                                                        continue
-                                                    else:
-                                                        print(f"   ✅ Команды в заголовке соответствуют искомым")
-                                                else:
-                                                    print(f"   ⚠️ Заголовок не найден, но команды найдены в тексте")
-                                                
-                                                # Определяем найденную команду Pull Up
-                                                found_pull_up_team = None
-                                                if 'PULL UP-ФАРМ' in iframe_text:
-                                                    found_pull_up_team = 'Pull Up-Фарм'
-                                                elif 'PULL UP ФАРМ' in iframe_text:
-                                                    found_pull_up_team = 'Pull Up Фарм'
-                                                elif 'PULL UP' in iframe_text:
-                                                    found_pull_up_team = 'Pull Up'
-                                                
-                                                print(f"   🏷️ Найдена команда в iframe: {found_pull_up_team}")
-                                                
-                                                # Проверяем, что это сегодняшняя игра
-                                                # Ищем дату в iframe
-                                                # Различные паттерны дат
-                                                date_patterns = [
-                                                    r'(\d{2}\.\d{2}\.\d{4})',  # DD.MM.YYYY
-                                                    r'(\d{2}/\d{2}/\d{4})',    # DD/MM/YYYY
-                                                    r'(\d{4}-\d{2}-\d{2})',    # YYYY-MM-DD
-                                                ]
-                                                
-                                                dates = []
-                                                for pattern in date_patterns:
-                                                    found_dates = re.findall(pattern, iframe_content)
-                                                    dates.extend(found_dates)
-                                                
-                                                # Также ищем дату в заголовке
-                                                title_match = re.search(r'<TITLE>.*?(\d{2}\.\d{2}\.\d{4})', iframe_content, re.IGNORECASE)
-                                                if title_match:
-                                                    dates.append(title_match.group(1))
-                                                
-                                                if dates:
-                                                    print(f"   📅 Даты в iframe: {dates}")
-                                                    today_found = False
-                                                    for date in dates:
-                                                        if self.is_game_today({'date': date}):
-                                                            today_found = True
-                                                            print(f"   ✅ Сегодняшняя дата найдена: {date}")
-                                                            break
-                                                    
-                                                    if today_found:
-                                                        print(f"🔗 Ссылка для сегодняшней игры: {game_link}")
-                                                        return game_link, found_pull_up_team
-                                                    else:
-                                                        print(f"   ⏭️ Игра не сегодня, пропускаем")
-                                                else:
-                                                    print(f"   ⚠️ Даты не найдены в iframe, но команды найдены - возвращаем ссылку")
-                                                    print(f"🔗 Ссылка для игры: {game_link}")
-                                                    return game_link, found_pull_up_team
-                                            
-                                        else:
-                                            print(f"   ❌ Ошибка загрузки iframe: {iframe_response.status}")
-                                            
-                                except Exception as e:
-                                    print(f"   ❌ Ошибка парсинга iframe: {e}")
-                        
-                        print(f"⚠️ Игра {team1} vs {team2} не найдена в табло")
-                        return None
-                        
-                    else:
-                        print(f"❌ Ошибка получения страницы: {response.status}")
-                        return None
-                        
+                for source in sources:
+                    url = source.get('url')
+                    if not url:
+                        continue
+                    try:
+                        result = await self._search_fallback_source(session, url, own_variants, opponent_variants)
+                        if result:
+                            return result
+                    except Exception as source_error:
+                        print(f"⚠️ Не удалось обработать fallback-источник {url}: {source_error}")
+
+            print(f"⚠️ Ссылка на игру {team1} vs {team2} не найдена ни в одном fallback-источнике")
+            return None
         except Exception as e:
             print(f"❌ Ошибка поиска ссылки на игру: {e}")
             return None
+
+    async def _search_fallback_source(
+        self,
+        session: "aiohttp.ClientSession",
+        url: str,
+        own_variants: Set[str],
+        opponent_variants: Set[str]
+    ) -> Optional[tuple]:
+        from bs4 import BeautifulSoup
+
+        async with session.get(url) as response:
+            if response.status != 200:
+                print(f"⚠️ Fallback {url} вернул статус {response.status}")
+                return None
+            content = await response.text()
+
+        soup = BeautifulSoup(content, 'html.parser')
+        anchors = soup.find_all('a', href=True)
+        print(f"🔗 {url}: найдено {len(anchors)} ссылок")
+
+        for idx, anchor in enumerate(anchors, 1):
+            href = anchor.get('href')
+            if not href or 'gameId=' not in href:
+                continue
+            full_link = urljoin(url, href)
+            matched_name = await self._verify_game_link(session, full_link, own_variants, opponent_variants)
+            if matched_name:
+                print(f"✅ Найдена подходящая игра в fallback: {full_link}")
+                return full_link, matched_name
+        return None
+
+    async def _verify_game_link(
+        self,
+        session: "aiohttp.ClientSession",
+        link: str,
+        own_variants: Set[str],
+        opponent_variants: Set[str]
+    ) -> Optional[str]:
+        try:
+            async with session.get(link) as response:
+                if response.status != 200:
+                    return None
+                content = await response.text()
+        except Exception as e:
+            print(f"⚠️ Ошибка при проверке fallback ссылки {link}: {e}")
+            return None
+
+        normalized_content = self._normalize_name_for_search(content)
+        own_match = self._find_matching_variant(normalized_content, list(own_variants))
+        opponent_match = self._find_matching_variant(normalized_content, list(opponent_variants))
+
+        if own_match and opponent_match:
+            return own_match
+        return None
     
     def format_announcement_message(self, game_info: Dict, game_link: Optional[str] = None, found_team: Optional[str] = None) -> str:
         """Форматирует сообщение анонса игры"""
-        # Определяем нашу команду и соперника
         team1 = game_info.get('team1', '')
         team2 = game_info.get('team2', '')
+        our_team_id = game_info.get('our_team_id')
         
-        print(f"🔍 Анализируем команды: {team1} vs {team2}")
+        our_team = found_team or game_info.get('our_team_name')
+        opponent = game_info.get('opponent_team_name')
         
-        # Находим нашу команду (используем расширенный поиск)
-        our_team = None
-        opponent = None
-        
-        # Нормализуем названия команд для проверки
-        team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
-        team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
-        
-        # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
-        # Если одна команда содержит "Pull Up" а другая "Фарм", то это наша фарм-команда против Quasar
-        if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
-            # Это случай "Pull Up vs Фарм - Quasar" - наша фарм-команда против Quasar
-            our_team = "Pull Up-Фарм"
-            # Извлекаем название противника после "Фарм - "
-            opponent = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
-            print(f"   🔍 Специальная обработка: {our_team} vs {opponent}")
-        elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
-            # Это случай "Фарм - Quasar vs Pull Up" - наша фарм-команда против Quasar
-            our_team = "Pull Up-Фарм"
-            # Извлекаем название противника после "Фарм - "
-            opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
-            print(f"   🔍 Специальная обработка: {our_team} vs {opponent}")
-        else:
-            # Обычная логика определения команд
-            # Проверяем team1
-            if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
+        if not our_team and our_team_id:
+            if our_team_id == game_info.get('team1_id'):
                 our_team = team1
-                opponent = team2
-                print(f"   ✅ Наша команда найдена в team1: {our_team}")
-                print(f"   🏀 Соперник: {opponent}")
-            # Проверяем team2
-            elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
+                opponent = opponent or team2
+            elif our_team_id == game_info.get('team2_id'):
                 our_team = team2
-                opponent = team1
-                print(f"   ✅ Наша команда найдена в team2: {our_team}")
-                print(f"   🏀 Соперник: {opponent}")
-            else:
-                print(f"   ❌ Наша команда не найдена ни в одной из команд")
-                return f"🏀 Сегодня игра против {team2} в {game_info['venue']}.\n🕐 Время игры: {game_info['time']}."
+                opponent = opponent or team1
         
-        # Определяем категорию команды с правильным склонением
-        # Используем найденную команду из iframe, если она передана, но всегда учитываем соперника
-        if found_team:
-            team_category = get_team_category_with_declension(found_team, opponent)
-            print(f"🏷️ Используем найденную команду для категории: {found_team} vs {opponent} -> {team_category}")
-        else:
-            team_category = get_team_category_with_declension(our_team, opponent)
-            print(f"🏷️ Используем команду из расписания для категории: {our_team} vs {opponent} -> {team_category}")
+        if not our_team:
+            our_team = team1
         
-        # Формируем анонс с правильными склонениями и отдельной строкой для места
-        # Нормализуем время (заменяем точку на двоеточие для ясности)
+        if not opponent:
+            opponent = team2 if our_team == team1 else team1
+        
+        team_category = get_team_category_with_declension(game_info.get('team_type'))
         normalized_time = game_info['time'].replace('.', ':')
-        announcement = f"🏀 Сегодня игра {team_category} против {opponent}.\n"
-        announcement += f"📍 Место проведения: {game_info['venue']}\n"
-        announcement += f"🕐 Время игры: {normalized_time}"
+        announcement = (
+            f"🏀 Сегодня игра {team_category} {our_team} против {opponent}.\n"
+            f"📍 Место проведения: {game_info['venue']}\n"
+            f"🕐 Время игры: {normalized_time}"
+        )
         
         if game_link:
-            if game_link.startswith('game.html?'):
-                full_url = f"http://letobasket.ru/{game_link}"
-            else:
-                full_url = game_link
+            full_url = game_link if game_link.startswith('http') else f"http://letobasket.ru/{game_link}"
             announcement += f"\n🔗 Ссылка на игру: <a href=\"{full_url}\">тут</a>"
         
         return announcement
@@ -1042,48 +983,33 @@ class GameSystemManager:
     def format_game_result_message(self, game_info: Dict, game_link: Optional[str] = None, our_team_leaders: Optional[Dict] = None) -> str:
         """Форматирует сообщение с результатами игры, включая лидеров нашей команды"""
         try:
-            # Определяем нашу команду и соперника
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
+            our_team_id = game_info.get('our_team_id')
             
-            # Находим нашу команду
-            our_team = None
-            opponent = None
+            our_team = game_info.get('our_team_name')
+            opponent = game_info.get('opponent_team_name')
             
-            # Нормализуем названия команд для проверки
-            team1_normalized = team1.lower().replace(" ", "").replace("-", "").replace("_", "")
-            team2_normalized = team2.lower().replace(" ", "").replace("-", "").replace("_", "")
-            
-            # Специальная обработка для случаев типа "Pull Up vs Фарм - Quasar"
-            if ("pullup" in team1_normalized or "pull up" in team1_normalized) and "фарм" in team2_normalized:
-                our_team = "Pull Up-Фарм"
-                opponent = team2.replace("Фарм - ", "").replace("Фарм-", "").strip()
-            elif ("pullup" in team2_normalized or "pull up" in team2_normalized) and "фарм" in team1_normalized:
-                our_team = "Pull Up-Фарм"
-                opponent = team1.replace("Фарм - ", "").replace("Фарм-", "").strip()
-            else:
-                # Обычная логика определения команд (регистронезависимый поиск)
-                team1_upper = team1.upper()
-                team2_upper = team2.upper()
-                
-                if any(target_team.upper() in team1_upper for target_team in ['Pull Up', 'PullUP', 'PULL UP']):
+            if not our_team and our_team_id:
+                if our_team_id == game_info.get('team1_id'):
                     our_team = team1
-                    opponent = team2
-                elif any(target_team.upper() in team2_upper for target_team in ['Pull Up', 'PullUP', 'PULL UP']):
+                    opponent = opponent or team2
+                elif our_team_id == game_info.get('team2_id'):
                     our_team = team2
-                    opponent = team1
+                    opponent = opponent or team1
             
             if not our_team:
-                return f"🏀 Результат игры: {team1} vs {team2}"
+                our_team = team1
+                opponent = opponent or team2
             
-            # Определяем категорию команды
-            team_category = get_team_category_with_declension(our_team, opponent)
+            if not opponent:
+                opponent = team2 if our_team == team1 else team1
             
-            # Получаем счет
+            team_category = get_team_category_with_declension(game_info.get('team_type'))
+            
             our_score = game_info.get('our_score', '?')
             opponent_score = game_info.get('opponent_score', '?')
             
-            # Определяем результат
             if our_score != '?' and opponent_score != '?':
                 try:
                     our_score_int = int(our_score)
@@ -1104,105 +1030,69 @@ class GameSystemManager:
                 result_emoji = "🏀"
                 result_text = "РЕЗУЛЬТАТ"
             
-            # Формируем основное сообщение
-            message = f"{result_emoji} {result_text} игры {team_category}:\n"
-            message += f"🏀 {our_team} {our_score}:{opponent_score} {opponent}\n"
-            message += f"📅 {game_info.get('date', '')} в {game_info.get('time', '').replace('.', ':')}\n"
+            message = (
+                f"{result_emoji} {result_text} игры {team_category}:\n"
+                f"🏀 {our_team} {our_score}:{opponent_score} {opponent}\n"
+                f"📅 {game_info.get('date', '')} в {game_info.get('time', '').replace('.', ':')}\n"
+            )
             
-            # Добавляем ссылку на протокол, если есть
             if game_link:
-                if game_link.startswith('game.html?'):
-                    full_url = f"http://letobasket.ru/{game_link}"
-                else:
-                    full_url = game_link
-                
-                # Убеждаемся, что ссылка содержит #protocol
+                full_url = game_link if game_link.startswith('http') else f"http://letobasket.ru/{game_link}"
                 if '#protocol' not in full_url:
                     if '#' in full_url:
                         full_url = full_url.replace('#', '#protocol')
                     else:
-                        full_url += '#protocol'
-                
+                        full_url = f"{full_url}#protocol"
                 message += f"🔗 <a href=\"{full_url}\">Протокол</a>\n"
             
-            # Добавляем статистику в зависимости от результата игры
             if our_team_leaders:
-                # Определяем результат игры
-                our_score = game_info.get('our_score', '?')
-                opponent_score = game_info.get('opponent_score', '?')
-                
+                our_score_val = game_info.get('our_score', '?')
+                opponent_score_val = game_info.get('opponent_score', '?')
                 is_victory = False
-                if our_score != '?' and opponent_score != '?':
-                    try:
-                        our_score_int = int(our_score)
-                        opponent_score_int = int(opponent_score)
-                        is_victory = our_score_int > opponent_score_int
-                    except ValueError:
-                        pass
+                try:
+                    is_victory = int(our_score_val) > int(opponent_score_val)
+                except (TypeError, ValueError):
+                    is_victory = False
                 
                 if is_victory:
-                    # При победе показываем анти-лидеров (что нужно улучшить)
                     message += "\n😅 ЧТО НУЖНО УЛУЧШИТЬ:\n"
-                    
                     anti_leaders = our_team_leaders.get('anti_leaders', {})
                     if anti_leaders:
-                        # Анти-лидер по штрафным броскам
                         if 'worst_free_throw' in anti_leaders:
-                            worst_ft_leader = anti_leaders['worst_free_throw']
-                            message += f"🏀 Штрафные: {worst_ft_leader['name']} - {worst_ft_leader['value']}%\n"
-                        
-                        # Анти-лидер по двухочковым броскам
+                            data = anti_leaders['worst_free_throw']
+                            message += f"🏀 Штрафные: {data['name']} - {data['value']}%\n"
                         if 'worst_two_point' in anti_leaders:
-                            worst_2p_leader = anti_leaders['worst_two_point']
-                            message += f"🎯 Двухочковые: {worst_2p_leader['name']} - {worst_2p_leader['value']}%\n"
-                        
-                        # Анти-лидер по трехочковым броскам
+                            data = anti_leaders['worst_two_point']
+                            message += f"🎯 Двухочковые: {data['name']} - {data['value']}%\n"
                         if 'worst_three_point' in anti_leaders:
-                            worst_3p_leader = anti_leaders['worst_three_point']
-                            message += f"🎯 Трехочковые: {worst_3p_leader['name']} - {worst_3p_leader['value']}%\n"
-                        
-                        # Анти-лидер по потерям
+                            data = anti_leaders['worst_three_point']
+                            message += f"🎯 Трехочковые: {data['name']} - {data['value']}%\n"
                         if 'turnovers' in anti_leaders:
-                            turnovers_leader = anti_leaders['turnovers']
-                            message += f"💥 Потери: {turnovers_leader['name']} - {turnovers_leader['value']}\n"
-                        
-                        # Анти-лидер по фолам
+                            data = anti_leaders['turnovers']
+                            message += f"💥 Потери: {data['name']} - {data['value']}\n"
                         if 'fouls' in anti_leaders:
-                            fouls_leader = anti_leaders['fouls']
-                            message += f"⚠️ Фолы: {fouls_leader['name']} - {fouls_leader['value']}\n"
-                        
-                        # Анти-лидер по КПИ
+                            data = anti_leaders['fouls']
+                            message += f"⚠️ Фолы: {data['name']} - {data['value']}\n"
                         if 'worst_plus_minus' in anti_leaders:
-                            worst_pm_leader = anti_leaders['worst_plus_minus']
-                            message += f"📉 КПИ: {worst_pm_leader['name']} - {worst_pm_leader['value']}\n"
+                            data = anti_leaders['worst_plus_minus']
+                            message += f"📉 КПИ: {data['name']} - {data['value']}\n"
                 else:
-                    # При поражении показываем лидеров (кто лучше всего играл)
                     message += "\n🏆 ЛУЧШИЕ ИГРОКИ:\n"
-                    
-                    # Лидер по очкам
                     if 'points' in our_team_leaders:
-                        points_leader = our_team_leaders['points']
-                        message += f"🥇 Очки: {points_leader['name']} - {points_leader['value']} ({points_leader.get('percentage', 0)}%)\n"
-                    
-                    # Лидер по подборам
+                        data = our_team_leaders['points']
+                        message += f"🥇 Очки: {data['name']} - {data['value']} ({data.get('percentage', 0)}%)\n"
                     if 'rebounds' in our_team_leaders:
-                        rebounds_leader = our_team_leaders['rebounds']
-                        message += f"🏀 Подборы: {rebounds_leader['name']} - {rebounds_leader['value']}\n"
-                    
-                    # Лидер по передачам
+                        data = our_team_leaders['rebounds']
+                        message += f"🏀 Подборы: {data['name']} - {data['value']}\n"
                     if 'assists' in our_team_leaders:
-                        assists_leader = our_team_leaders['assists']
-                        message += f"🎯 Передачи: {assists_leader['name']} - {assists_leader['value']}\n"
-                    
-                    # Лидер по перехватам
+                        data = our_team_leaders['assists']
+                        message += f"🎯 Передачи: {data['name']} - {data['value']}\n"
                     if 'steals' in our_team_leaders:
-                        steals_leader = our_team_leaders['steals']
-                        message += f"🥷 Перехваты: {steals_leader['name']} - {steals_leader['value']}\n"
-                    
-                    # Лидер по КПИ
+                        data = our_team_leaders['steals']
+                        message += f"🥷 Перехваты: {data['name']} - {data['value']}\n"
                     if 'best_plus_minus' in our_team_leaders:
-                        kpi_leader = our_team_leaders['best_plus_minus']
-                        message += f"📈 КПИ: {kpi_leader['name']} - {kpi_leader['value']}\n"
+                        data = our_team_leaders['best_plus_minus']
+                        message += f"📈 КПИ: {data['name']} - {data['value']}\n"
             
             return message
             
@@ -1217,6 +1107,7 @@ class GameSystemManager:
             return False
         
         try:
+            bot = cast(Any, self.bot)
             # Если game_link не передан, ищем ссылку на игру по командам
             if game_link is None:
                 team1 = game_info.get('team1', '')
@@ -1237,7 +1128,7 @@ class GameSystemManager:
                 print(f"🎮 Мониторинг результатов будет запущен автоматически за 5 минут до игры")
             
             # Отправляем сообщение в основной топик (без указания топика)
-            message = await self.bot.send_message(
+            message = await bot.send_message(
                 chat_id=int(CHAT_ID),
                 text=announcement_text,
                 parse_mode='HTML'
@@ -1300,12 +1191,34 @@ class GameSystemManager:
             print(f"📅 День недели: {time_info['weekday_name']}")
             
             print(f"\n🔧 НАСТРОЙКИ:")
+            latest_config = duplicate_protection.get_config_ids()
+            self.config_comp_ids = latest_config.get('comp_ids', [])
+            self.config_team_ids = latest_config.get('team_ids', [])
+            self.config_comp_ids_set = set(self.config_comp_ids)
+            self.config_team_ids_set = set(self.config_team_ids)
+            self.team_configs = latest_config.get('teams', {}) or {}
+            self.training_poll_configs = latest_config.get('training_polls', []) or []
+            self.fallback_sources = latest_config.get('fallback_sources', []) or []
+            self._update_team_mappings()
             print(f"   CHAT_ID: {CHAT_ID}")
             print(f"   GAMES_TOPIC_ID: {GAMES_TOPIC_ID}")
-            print(f"   TARGET_TEAMS: {TARGET_TEAMS}")
             print(f"   ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
             print(f"   История опросов: {len(self.polls_history)} записей")
             print(f"   История анонсов: {len(self.announcements_history)} записей")
+            print(f"   ⚙️ Соревнования для мониторинга: {self.config_comp_ids or 'не заданы'}")
+            print(f"   ⚙️ Команды (ID): {self.config_team_ids or 'не заданы'}")
+            print(f"   ⚙️ Названия команд: {self.team_name_keywords or 'не заданы'}")
+            print(f"   ⚙️ Конфигурации опросов тренировок: {len(self.training_poll_configs)}")
+            print(f"   ⚙️ Fallback-источники: {len(self.fallback_sources)}")
+            cleanup_result = duplicate_protection.cleanup_expired_records(30)
+            if cleanup_result.get('success'):
+                cleaned_count = cleanup_result.get('cleaned_count', 0)
+                if cleaned_count > 0:
+                    print(f"🧹 Автоочистка сервисного листа: удалено {cleaned_count} записей старше 30 дней")
+                else:
+                    print("🧹 Автоочистка сервисного листа: старые записи не найдены")
+            else:
+                print(f"⚠️ Не удалось выполнить автоочистку сервисного листа: {cleanup_result.get('error')}")
             
             # ШАГ 1: Парсинг расписания
             print(f"\n📊 ШАГ 1: ПАРСИНГ РАСПИСАНИЯ")

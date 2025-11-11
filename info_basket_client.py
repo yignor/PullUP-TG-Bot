@@ -117,7 +117,14 @@ class InfoBasketClient:
         """Создает ссылку на игру по game_id"""
         if not game_id:
             return ""
-        return f"http://letobasket.ru/game.html?gameId={game_id}&apiUrl=https://reg.infobasket.su&lang=ru"
+        return f"https://www.fbp.ru/game.html?gameId={game_id}&apiUrl=https://reg.infobasket.su&lang=ru"
+
+    @staticmethod
+    def create_protocol_link(game_id: str) -> str:
+        """Создает ссылку на протокол игры по game_id"""
+        if not game_id:
+            return ""
+        return f"https://www.fbp.ru/game.html?gameId={game_id}&apiUrl=https://reg.infobasket.su&lang=ru#protocol"
 
     async def check_game_result(self, game_id: str) -> Optional[Dict[str, Any]]:
         """Проверяет результат игры по game_id"""

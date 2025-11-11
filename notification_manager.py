@@ -132,8 +132,19 @@ class NotificationManager:
     
     async def send_game_result_notification(self, game_info: Dict[str, Any], poll_results: Optional[Dict[str, Any]] = None, game_link: Optional[str] = None):
         """Отправляет уведомление о результате игры с количеством участников"""
-        # Создаем уникальный ID для уведомления
-        notification_id = f"game_result_{game_info.get('pullup_team', game_info.get('team1', ''))}_{game_info.get('opponent_team', game_info.get('team2', ''))}_{game_info.get('date', '')}"
+        our_team_id = game_info.get('our_team_id') or game_info.get('team1_id')
+        opponent_team_id = game_info.get('opponent_team_id') or game_info.get('team2_id')
+        our_team_name = game_info.get('our_team_name') or game_info.get('team1', '')
+        opponent_team_name = game_info.get('opponent_team_name') or game_info.get('team2', '')
+        date_key = game_info.get('date', '')
+
+        identifier_parts = [
+            str(our_team_id or '').strip() or our_team_name,
+            str(opponent_team_id or '').strip() or opponent_team_name,
+            date_key,
+        ]
+        safe_identifier_parts = [part for part in identifier_parts if part]
+        notification_id = "game_result_" + "_".join(safe_identifier_parts)
         
         if notification_id in self.sent_game_result_notifications:
             logger.info("Уведомление о результате игры уже отправлено")
@@ -190,7 +201,7 @@ class NotificationManager:
             await self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
             self.sent_game_result_notifications.add(notification_id)
             self._save_sent_notifications()
-            logger.info(f"✅ Отправлено уведомление о результате игры: {score}")
+            logger.info("✅ Отправлено уведомление о результате игры")
             
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления о результате игры: {e}")

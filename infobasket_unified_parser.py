@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
-"""
-Универсальный парсер для Infobasket API - работает с обоими составами:
-1. Первый состав (reg-78-ll-pl)
-2. Фарм состав (reg-78-ll-lr)
-"""
+"""Универсальный парсер для Infobasket API c поддержкой конфигурации команд."""
 
 import asyncio
 import aiohttp
 import json
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
+from enhanced_duplicate_protection import duplicate_protection
+
 
 class InfobasketUnifiedParser:
-    def __init__(self):
+    def __init__(self, tags: Optional[Dict[str, str]] = None):
         self.org_api_url = "https://org.infobasket.su"
         self.reg_api_url = "https://reg.infobasket.su"
-        self.target_teams = ["PULL UP", "PULLUP", "Атлант", "АТЛАНТ", "Атлант 40"]
-        
-        # Теги для разных составов
-        self.tags = {
-            'first_team': 'reg-78-ll-pl',
-            'farm_team': 'reg-78-ll-lr'
-        }
+        self.team_ids: List[int] = []
+        self.team_name_variants: List[str] = []
+        self.tags = tags or {}
+        self._load_config()
+
+        if not self.tags:
+            print("ℹ️ Теги соревнований не заданы. Укажите их при инициализации или в конфигурации.")
         
     async def get_seasons_for_tag(self, tag: str) -> List[Dict]:
         """Получает сезоны по тегу"""
@@ -71,23 +70,64 @@ class InfobasketUnifiedParser:
                 print(f"❌ Исключение при получении календаря: {e}")
                 return []
     
-    def filter_games_by_teams(self, games: List[Dict], team_type: str = "first") -> List[Dict]:
+    def _load_config(self) -> None:
+        config = duplicate_protection.get_config_ids()
+        self.team_ids = config.get("team_ids", []) or []
+
+        name_variants: List[str] = []
+        teams_meta = config.get("teams", {}) or {}
+        for team_info in teams_meta.values():
+            alt_name = team_info.get("alt_name")
+            if isinstance(alt_name, str) and alt_name.strip():
+                name_variants.append(alt_name.strip())
+            metadata = team_info.get("metadata") or {}
+            aliases = metadata.get("aliases") if isinstance(metadata, dict) else []
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        name_variants.append(alias.strip())
+
+            comp_ids = team_info.get("comp_ids") or []
+            for comp_id in comp_ids:
+                if isinstance(comp_id, int):
+                    key = f"team_{comp_id}"
+                    self.tags.setdefault(key, str(comp_id))
+
+        self.team_name_variants = list({name.lower() for name in name_variants if name})
+
+    def filter_games_by_teams(self, games: List[Dict], team_type: str = "team") -> List[Dict]:
         """Фильтрует игры по нашим командам"""
         filtered_games = []
         
         for game in games:
-            # Проверяем названия команд
+            # 1) Предпочитаем фильтрацию по ID
+            team1_id = game.get('Team1ID')
+            team2_id = game.get('Team2ID')
+            if (
+                isinstance(team1_id, int)
+                and team1_id in self.team_ids
+                or isinstance(team2_id, int)
+                and team2_id in self.team_ids
+            ):
+                filtered_games.append(game)
+                print(f"🏀 Найдена игра {team_type} по ID: {game.get('ShortTeamNameAru','')} vs {game.get('ShortTeamNameBru','')} ({game.get('GameDate','Нет даты')})")
+                continue
+
+            # 2) Fallback по названиям
             team_a = game.get('ShortTeamNameAru', '')
             team_b = game.get('ShortTeamNameBru', '')
             team_a_full = game.get('TeamNameAru', '')
             team_b_full = game.get('TeamNameBru', '')
-            
-            # Ищем наши команды
-            for target_team in self.target_teams:
-                if (target_team.upper() in team_a.upper() or 
-                    target_team.upper() in team_b.upper() or
-                    target_team.upper() in team_a_full.upper() or
-                    target_team.upper() in team_b_full.upper()):
+            team_names = " ".join([
+                str(team_a),
+                str(team_b),
+                str(team_a_full),
+                str(team_b_full),
+            ]).lower()
+
+            for target_name in self.team_name_variants:
+                normalized_target = target_name.lower()
+                if normalized_target and normalized_target in team_names:
                     filtered_games.append(game)
                     print(f"🏀 Найдена игра {team_type}: {team_a} vs {team_b} ({game.get('GameDate', 'Нет даты')})")
                     break
@@ -114,7 +154,7 @@ class InfobasketUnifiedParser:
             'league_name': game.get('LeagueNameRu'),
             'display_date': game.get('DisplayDateTimeMsk'),
             'team_type': team_type,
-            'game_link': f"http://letobasket.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
+            'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
         }
     
     async def get_schedule_for_team(self, team_type: str) -> List[Dict]:

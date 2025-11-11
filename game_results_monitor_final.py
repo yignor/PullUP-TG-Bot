@@ -139,66 +139,81 @@ class GameResultsMonitorFinal:
                         
                         # Правильный паттерн для результатов игр на сайте
                         # Формат: дата - команда1 - команда2 счет (четверти)
-                        # Пример: 23.08.2025- Quasar - Pull Up-Фарм 37:58 (0:12 11:10 15:10 11:26)
-                        game_pattern = r'(\d{2}\.\d{2}\.\d{4})-\s*([^-]+)-\s*([^-]+)\s+(\d+):(\d+)\s+\(([^)]+)\)'
+                        # Пример: 23.08.2025- Team A - Team B 37:58 (0:12 11:10 15:10 11:26)
+                        game_pattern = r'(\d{2}\.\д{2}\.\д{4})-\s*([^-]+)-\s*([^-]+)\s+(\д+):(\д+)\s+\(([^)]+)\)'
                         matches = re.findall(game_pattern, full_text)
                         
                         print(f"🔍 Найдено {len(matches)} потенциальных игр в тексте")
                         
                         for match in matches:
-                            date, team1, team2, score1, score2, quarters = match
-                            game_text = f"{team1.strip()} {team2.strip()}"
+                            date, raw_team1, raw_team2, score1, score2, quarters = match
+                            team1 = raw_team1.strip()
+                            team2 = raw_team2.strip()
+                            score1_int = int(score1)
+                            score2_int = int(score2)
+                            game_text = f"{team1} {team2}"
                             
-                            # Проверяем, есть ли наши команды
-                            if self.game_manager.find_target_teams_in_text(game_text):
-                                # Проверяем, что игра сегодняшняя
-                                if self.game_manager.is_game_today({'date': date}):
-                                    # Определяем нашу команду и соперника
-                                    our_team = None
-                                    opponent = None
-                                    team_type = None
+                            # Проверяем, что игра сегодняшняя и содержит нашу команду
+                            if self.game_manager.is_game_today({'date': date}) and self.game_manager.find_target_teams_in_text(game_text):
+                                team1_config = self.game_manager.resolve_team_config(team1)
+                                team2_config = self.game_manager.resolve_team_config(team2)
+                                team1_matches = bool(team1_config) or bool(self.game_manager.find_target_teams_in_text(team1))
+                                team2_matches = bool(team2_config) or bool(self.game_manager.find_target_teams_in_text(team2))
+                                
+                                our_team = None
+                                opponent = None
+                                matched_config = None
+                                
+                                if team1_matches and not team2_matches:
+                                    our_team = team1
+                                    opponent = team2
+                                    matched_config = team1_config
+                                elif team2_matches and not team1_matches:
+                                    our_team = team2
+                                    opponent = team1
+                                    matched_config = team2_config
+                                elif team1_matches and team2_matches:
+                                    if team1_config:
+                                        our_team = team1
+                                        opponent = team2
+                                        matched_config = team1_config
+                                    elif team2_config:
+                                        our_team = team2
+                                        opponent = team1
+                                        matched_config = team2_config
+                                    else:
+                                        # Оба названия совпали по текстовому поиску, выбираем первую команду
+                                        our_team = team1
+                                        opponent = team2
+                                
+                                if our_team:
+                                    metadata = (matched_config or {}).get('metadata') or {}
+                                    team_type = metadata.get('team_type') or metadata.get('type') or 'Команда'
+                                    our_score = score1_int if our_team == team1 else score2_int
+                                    opponent_score = score2_int if our_team == team1 else score1_int
+                                    result = "победа" if our_score > opponent_score else "поражение" if our_score < opponent_score else "ничья"
                                     
-                                    if any(target_team in team1 for target_team in ['Pull Up', 'PullUP']):
-                                        our_team = team1.strip()
-                                        opponent = team2.strip()
-                                    elif any(target_team in team2 for target_team in ['Pull Up', 'PullUP']):
-                                        our_team = team2.strip()
-                                        opponent = team1.strip()
-                                    
-                                    if our_team:
-                                        # Определяем тип команды
-                                        if 'фарм' in our_team.lower():
-                                            team_type = 'Состав Развития'
-                                        else:
-                                            team_type = 'Первый состав'
-                                        
-                                        # Определяем результат
-                                        our_score = int(score1) if our_team == team1.strip() else int(score2)
-                                        opponent_score = int(score2) if our_team == team1.strip() else int(score1)
-                                        result = "победа" if our_score > opponent_score else "поражение" if our_score < opponent_score else "ничья"
-                                        
-                                        game_info = {
-                                            'date': date,
-                                            'team1': team1.strip(),
-                                            'team2': team2.strip(),
-                                            'score1': int(score1),
-                                            'score2': int(score2),
-                                            'quarters': quarters,
-                                            'our_team': our_team,
-                                            'opponent': opponent,
-                                            'team_type': team_type,
-                                            'our_score': our_score,
-                                            'opponent_score': opponent_score,
-                                            'result': result,
-                                            'is_finished': True
-                                        }
-                                        
-                                        games.append(game_info)
-                                        print(f"🏀 Найдена завершенная игра: {team1.strip()} vs {team2.strip()} ({score1}:{score2})")
-                                        print(f"   Дата: {date}, Тип: {team_type}, Результат: {result}")
-                                        print(f"   Четверти: {quarters}")
-                                else:
-                                    print(f"⏭️ Игра {team1.strip()} vs {team2.strip()} не сегодняшняя ({date}), пропускаем")
+                                    game_info = {
+                                        'date': date,
+                                        'team1': team1,
+                                        'team2': team2,
+                                        'score1': score1_int,
+                                        'score2': score2_int,
+                                        'quarters': quarters,
+                                        'our_team': our_team,
+                                        'opponent': opponent,
+                                        'team_type': team_type,
+                                        'our_score': our_score,
+                                        'opponent_score': opponent_score,
+                                        'result': result,
+                                        'is_finished': True
+                                    }
+                                    games.append(game_info)
+                                    print(f"🏀 Найдена завершенная игра: {team1} vs {team2} ({score1}:{score2})")
+                                    print(f"   Дата: {date}, Тип: {team_type}, Результат: {result}")
+                                    print(f"   Четверти: {quarters}")
+                            else:
+                                print(f"⏭️ Игра {team1} vs {team2} не соответствует условиям (дата: {date})")
                         
                         return games
                     else:
@@ -289,7 +304,10 @@ class GameResultsMonitorFinal:
         try:
             from enhanced_game_parser import EnhancedGameParser
             
-            async with EnhancedGameParser() as parser:
+            async with EnhancedGameParser(
+                team_configs=self.game_manager.team_configs,
+                team_keywords=self.game_manager.team_name_keywords,
+            ) as parser:
                 game_info = await parser.parse_game_from_url(game_link)
                 if game_info and game_info.get('result'):
                     # Определяем статус игры
@@ -309,7 +327,7 @@ class GameResultsMonitorFinal:
                         'time': game_info.get('time', ''),
                         'venue': game_info.get('venue', ''),
                         'quarters': game_info.get('quarters', []),
-                        'team_type': 'Первый состав' if 'фарм' not in game_info.get('our_team', '').lower() else 'Состав Развития',
+                        'team_type': game_info.get('team_type') or 'Команда',
                         'game_link': game_link,  # Сохраняем исходную ссылку на игру
                         'our_team_leaders': game_info.get('our_team_leaders', {})  # Добавляем лидеров команды
                     }

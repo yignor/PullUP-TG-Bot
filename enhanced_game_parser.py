@@ -15,8 +15,45 @@ from datetime_utils import get_moscow_time
 class EnhancedGameParser:
     """Улучшенный парсер игр, работающий с API"""
     
-    def __init__(self):
+    def __init__(self, team_configs: Optional[Dict[int, Dict[str, Any]]] = None, team_keywords: Optional[List[str]] = None):
         self.session = None
+        self.team_configs = team_configs or {}
+        self.team_keywords = [name.strip() for name in (team_keywords or []) if isinstance(name, str) and name.strip()]
+    
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        if not isinstance(name, str):
+            return ""
+        return re.sub(r"[\s\-_/]", "", name.strip().lower())
+    
+    def _match_team_config(self, team_name: str) -> Optional[Dict[str, Any]]:
+        normalized = self._normalize_name(team_name)
+        if not normalized:
+            return None
+        for team_id, data in self.team_configs.items():
+            metadata = data.get('metadata') or {}
+            candidates = set()
+            alt_name = data.get('alt_name')
+            if isinstance(alt_name, str) and alt_name.strip():
+                candidates.add(alt_name.strip())
+            aliases = metadata.get('aliases') if isinstance(metadata, dict) else []
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str) and alias.strip():
+                        candidates.add(alias.strip())
+            for candidate in candidates:
+                if self._normalize_name(candidate) == normalized:
+                    return {'team_id': team_id, 'alt_name': alt_name, 'metadata': metadata}
+        return None
+    
+    def _contains_keyword(self, team_name: str) -> bool:
+        normalized_team = self._normalize_name(team_name)
+        if not normalized_team:
+            return False
+        for keyword in self.team_keywords:
+            if self._normalize_name(keyword) == normalized_team:
+                return True
+        return False
     
     async def __aenter__(self):
         # Создаем SSL context с отключенной проверкой сертификатов
@@ -274,46 +311,63 @@ class EnhancedGameParser:
             
             game_info['quarters'] = quarters
             
-            # Определяем результат для команд Pull Up
+            # Определяем результат для наших команд по конфигурации
             if game_info['teams'] and game_info['is_finished']:
                 team1_name = game_info['teams'][0]['name']
                 team2_name = game_info['teams'][1]['name']
                 
                 print(f"🔍 Анализируем команды: '{team1_name}' vs '{team2_name}'")
                 
-                # Проверяем, какая команда Pull Up (более гибкий поиск)
-                pull_up_team = None
-                opponent_team = None
+                team1_config = self._match_team_config(team1_name)
+                team2_config = self._match_team_config(team2_name)
+                team1_matches = bool(team1_config) or self._contains_keyword(team1_name)
+                team2_matches = bool(team2_config) or self._contains_keyword(team2_name)
                 
-                team1_lower = team1_name.lower()
-                team2_lower = team2_name.lower()
+                our_team_entry = None
+                opponent_entry = None
+                matched_config = None
                 
-                if 'pull' in team1_lower or 'фарм' in team1_lower:
-                    pull_up_team = game_info['teams'][0]
-                    opponent_team = game_info['teams'][1]
-                    print(f"✅ Pull Up команда найдена в team1: {team1_name}")
-                elif 'pull' in team2_lower or 'фарм' in team2_lower:
-                    pull_up_team = game_info['teams'][1]
-                    opponent_team = game_info['teams'][0]
-                    print(f"✅ Pull Up команда найдена в team2: {team2_name}")
+                if team1_matches and not team2_matches:
+                    our_team_entry = game_info['teams'][0]
+                    opponent_entry = game_info['teams'][1]
+                    matched_config = team1_config
+                elif team2_matches and not team1_matches:
+                    our_team_entry = game_info['teams'][1]
+                    opponent_entry = game_info['teams'][0]
+                    matched_config = team2_config
+                elif team1_matches and team2_matches:
+                    if team1_config:
+                        our_team_entry = game_info['teams'][0]
+                        opponent_entry = game_info['teams'][1]
+                        matched_config = team1_config
+                    elif team2_config:
+                        our_team_entry = game_info['teams'][1]
+                        opponent_entry = game_info['teams'][0]
+                        matched_config = team2_config
+                    else:
+                        our_team_entry = game_info['teams'][0]
+                        opponent_entry = game_info['teams'][1]
                 
-                if pull_up_team and opponent_team:
-                    if pull_up_team['score'] > opponent_team['score']:
+                if our_team_entry and opponent_entry:
+                    if our_team_entry['score'] > opponent_entry['score']:
                         game_info['result'] = 'победа'
-                    elif pull_up_team['score'] < opponent_team['score']:
+                    elif our_team_entry['score'] < opponent_entry['score']:
                         game_info['result'] = 'поражение'
                     else:
                         game_info['result'] = 'ничья'
                     
-                    game_info['our_team'] = pull_up_team['name']
-                    game_info['opponent'] = opponent_team['name']
-                    game_info['our_score'] = pull_up_team['score']
-                    game_info['opponent_score'] = opponent_team['score']
+                    game_info['our_team'] = our_team_entry['name']
+                    game_info['opponent'] = opponent_entry['name']
+                    game_info['our_score'] = our_team_entry['score']
+                    game_info['opponent_score'] = opponent_entry['score']
+                    
+                    metadata = (matched_config or {}).get('metadata') or {}
+                    game_info['team_type'] = metadata.get('team_type') or metadata.get('type') or 'Команда'
                     
                     print(f"🎯 Результат определен: {game_info['result']}")
                     print(f"📊 Счет: {game_info['our_score']}:{game_info['opponent_score']}")
                 else:
-                    print(f"❌ Pull Up команда не найдена")
+                    print("⚠️ Команда не идентифицирована по конфигурации")
             
             # Извлекаем статистику игроков
             player_stats = self.extract_player_statistics(api_data)
@@ -705,14 +759,20 @@ class EnhancedGameParser:
             return {}
 
     def find_our_team_leaders(self, players_stats: List[Dict], our_team_names: List[str] = None) -> Dict:
-        """Находит лидеров и анти-лидеров нашей команды по различным показателям"""
+        """Находит лидеров нашей команды в статистике"""
+        leaders = {}
+        
         try:
-            if not players_stats:
-                return {}
-
-            # Названия наших команд для поиска
             if our_team_names is None:
-                our_team_names = ["PULL UP", "Pull Up", "PullUP", "PULL UP фарм", "Pull Up-Фарм"]
+                our_team_names = []
+                if self.team_keywords:
+                    our_team_names.extend(self.team_keywords)
+                if self.team_configs:
+                    for data in self.team_configs.values():
+                        alt_name = data.get('alt_name')
+                        if isinstance(alt_name, str) and alt_name.strip():
+                            our_team_names.append(alt_name.strip())
+                our_team_names = list({name for name in our_team_names if isinstance(name, str) and name.strip()})
 
             # Фильтруем игроков нашей команды
             our_team_players = []
@@ -724,7 +784,7 @@ class EnhancedGameParser:
                     continue
                     
                 team_name = player.get('team', '')
-                if any(our_name in team_name for our_name in our_team_names):
+                if any(self._normalize_name(our_name) == self._normalize_name(team_name) for our_name in our_team_names):
                     our_team_players.append(player)
 
             if not our_team_players:
@@ -733,49 +793,35 @@ class EnhancedGameParser:
 
             print(f"🏀 Найдено игроков нашей команды: {len(our_team_players)}")
 
-            leaders = {}
-
-            # Лидер по очкам
-            points_leader = max(our_team_players, key=lambda p: p['points'])
             leaders['points'] = {
-                'name': points_leader['name'],
-                'value': points_leader['points'],
-                'percentage': points_leader.get('field_goal_percentage', 0)
+                'name': max(our_team_players, key=lambda p: p['points'])['name'],
+                'value': max(our_team_players, key=lambda p: p['points'])['points'],
+                'percentage': max(our_team_players, key=lambda p: p['points']).get('field_goal_percentage', 0)
             }
 
-            # Лидер по подборам
-            rebounds_leader = max(our_team_players, key=lambda p: p['rebounds'])
             leaders['rebounds'] = {
-                'name': rebounds_leader['name'],
-                'value': rebounds_leader['rebounds']
+                'name': max(our_team_players, key=lambda p: p['rebounds'])['name'],
+                'value': max(our_team_players, key=lambda p: p['rebounds'])['rebounds']
             }
 
-            # Лидер по передачам
-            assists_leader = max(our_team_players, key=lambda p: p['assists'])
             leaders['assists'] = {
-                'name': assists_leader['name'],
-                'value': assists_leader['assists']
+                'name': max(our_team_players, key=lambda p: p['assists'])['name'],
+                'value': max(our_team_players, key=lambda p: p['assists'])['assists']
             }
 
-            # Лидер по перехватам
-            steals_leader = max(our_team_players, key=lambda p: p['steals'])
             leaders['steals'] = {
-                'name': steals_leader['name'],
-                'value': steals_leader['steals']
+                'name': max(our_team_players, key=lambda p: p['steals'])['name'],
+                'value': max(our_team_players, key=lambda p: p['steals'])['steals']
             }
 
-            # Лидер по блокшотам
-            blocks_leader = max(our_team_players, key=lambda p: p['blocks'])
             leaders['blocks'] = {
-                'name': blocks_leader['name'],
-                'value': blocks_leader['blocks']
+                'name': max(our_team_players, key=lambda p: p['blocks'])['name'],
+                'value': max(our_team_players, key=lambda p: p['blocks'])['blocks']
             }
 
-            # Лидер по КПИ (лучший плюс/минус)
-            best_plus_minus = max(our_team_players, key=lambda p: p['plus_minus'])
             leaders['best_plus_minus'] = {
-                'name': best_plus_minus['name'],
-                'value': best_plus_minus['plus_minus']
+                'name': max(our_team_players, key=lambda p: p['plus_minus'])['name'],
+                'value': max(our_team_players, key=lambda p: p['plus_minus'])['plus_minus']
             }
 
             # Анти-лидеры (худшие показатели)
@@ -1276,7 +1322,7 @@ class EnhancedGameParser:
 
 async def test_parser():
     """Тестирует парсер на реальной игре"""
-    test_url = "http://letobasket.ru/game.html?gameId=934356&apiUrl=https://reg.infobasket.su&lang=ru"
+    test_url = "https://www.fbp.ru/game.html?gameId=934356&apiUrl=https://reg.infobasket.su&lang=ru"
     
     async with EnhancedGameParser() as parser:
         result = await parser.parse_game_from_url(test_url)

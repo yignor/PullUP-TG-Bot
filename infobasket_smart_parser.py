@@ -8,16 +8,32 @@ import asyncio
 import aiohttp
 import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 import pytz
 
 class InfobasketSmartParser:
-    def __init__(self):
+    def __init__(
+        self,
+        comp_ids: Optional[List[int]] = None,
+        team_ids: Optional[List[int]] = None,
+        team_name_keywords: Optional[List[str]] = None
+    ):
         self.org_api_url = "https://org.infobasket.su"
         self.reg_api_url = "https://reg.infobasket.su"
-        self.target_teams = ["PULL UP", "PULLUP", "Атлант", "АТЛАНТ", "Атлант 40"]
         
-        # Теги для разных составов
+        sanitized_keywords = []
+        if team_name_keywords:
+            for name in team_name_keywords:
+                if isinstance(name, str) and name.strip():
+                    sanitized_keywords.append(name.strip())
+        self.target_teams = sanitized_keywords
+        
+        self.custom_comp_ids = self._normalize_id_list(comp_ids)
+        self.team_ids = self._normalize_id_list(team_ids)
+        self.config_mode = bool(self.custom_comp_ids)
+        self.team_ids_set = set(self.team_ids)
+        
+        # Теги для разных составов (fallback)
         self.tags = {
             'first_team': 'reg-78-ll-pl',
             'farm_team': 'reg-78-ll-lr'
@@ -29,6 +45,27 @@ class InfobasketSmartParser:
     def get_moscow_date(self) -> datetime:
         """Получает текущую дату по Москве"""
         return datetime.now(self.moscow_tz)
+    
+    @staticmethod
+    def _normalize_id_list(values: Optional[List[int]]) -> List[int]:
+        """Преобразует входной список в список уникальных целых чисел"""
+        if not values:
+            return []
+        normalized: List[int] = []
+        for value in values:
+            try:
+                normalized.append(int(str(value).strip()))
+            except (TypeError, ValueError):
+                continue
+        return sorted(set(normalized))
+    
+    @staticmethod
+    def _to_int(value: Any) -> Optional[int]:
+        """Безопасно преобразует значение в int"""
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
     
     def parse_game_date(self, date_str: str) -> datetime:
         """Парсит дату игры из строки формата DD.MM.YYYY"""
@@ -102,17 +139,38 @@ class InfobasketSmartParser:
         """Фильтрует игры по нашим командам"""
         filtered_games = []
         
+        if not games:
+            return filtered_games
+        
+        if not self.team_ids_set and not self.target_teams:
+            return games
+        
         for game in games:
+            # 1) Предпочитаем фильтрацию по ID
+            team1_id = self._to_int(game.get('Team1ID'))
+            team2_id = self._to_int(game.get('Team2ID'))
+            if self.team_ids_set and (
+                (team1_id is not None and team1_id in self.team_ids_set) or
+                (team2_id is not None and team2_id in self.team_ids_set)
+            ):
+                if team1_id is not None:
+                    game['Team1ID'] = team1_id
+                if team2_id is not None:
+                    game['Team2ID'] = team2_id
+                filtered_games.append(game)
+                continue
+
+            # 2) Fallback по названиям, если ID отсутствуют
             team_a = game.get('ShortTeamNameAru', '')
             team_b = game.get('ShortTeamNameBru', '')
             team_a_full = game.get('TeamNameAru', '')
             team_b_full = game.get('TeamNameBru', '')
-            
             for target_team in self.target_teams:
-                if (target_team.upper() in team_a.upper() or 
-                    target_team.upper() in team_b.upper() or
-                    target_team.upper() in team_a_full.upper() or
-                    target_team.upper() in team_b_full.upper()):
+                target_upper = target_team.upper()
+                if (target_upper in team_a.upper() or 
+                    target_upper in team_b.upper() or
+                    target_upper in team_a_full.upper() or
+                    target_upper in team_b_full.upper()):
                     filtered_games.append(game)
                     break
         
@@ -161,7 +219,8 @@ class InfobasketSmartParser:
             'team_b': game.get('ShortTeamNameBru'),
             'venue': game.get('ArenaRu'),
             'comp_name': game.get('CompNameRu'),
-            'game_link': f"http://letobasket.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
+            'comp_id': game.get('CompID'),
+            'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
         }
     
     def format_announcement_data(self, game: Dict) -> Dict:
@@ -174,8 +233,9 @@ class InfobasketSmartParser:
             'team_b': game.get('ShortTeamNameBru'),
             'venue': game.get('ArenaRu'),
             'comp_name': game.get('CompNameRu'),
+            'comp_id': game.get('CompID'),
             'display_date': game.get('DisplayDateTimeMsk'),
-            'game_link': f"http://letobasket.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
+            'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
         }
     
     async def get_team_games(self, team_type: str) -> Dict[str, List[Dict]]:
@@ -213,17 +273,64 @@ class InfobasketSmartParser:
         return categorized
     
     async def get_all_team_games(self) -> Dict[str, Dict[str, List[Dict]]]:
-        """Получает игры для всех составов с правильной категоризацией"""
+        """Получает игры с учетом конфигурации или по тегам"""
+        if self.config_mode:
+            return await self._get_games_for_config_ids()
+        
         all_games = {}
         
         for team_type in self.tags.keys():
-            print(f"\\n🔍 Анализ игр для {team_type}...")
+            print(f"\n🔍 Анализ игр для {team_type}...")
             games = await self.get_team_games(team_type)
             all_games[team_type] = games
             
             print(f"✅ {team_type}: {len(games['future'])} будущих, {len(games['today'])} сегодня, {len(games['past'])} прошедших")
         
         return all_games
+    
+    async def _get_games_for_config_ids(self) -> Dict[str, Dict[str, List[Dict]]]:
+        """Получает игры на основе конфигурации ID соревнований"""
+        aggregated_games: List[Dict] = []
+        
+        if not self.custom_comp_ids:
+            print("⚠️ Конфигурация соревнований пуста, возвращаем пустой список игр")
+            return {'configured': {'future': [], 'today': [], 'past': []}}
+        
+        for comp_id in self.custom_comp_ids:
+            print(f"\n🔍 Получаем календарь для соревнования {comp_id}")
+            games = await self.get_calendar_for_comp(comp_id)
+            if not games:
+                print(f"⚠️ Игры не найдены для соревнования {comp_id}")
+                continue
+            
+            for game in games:
+                game.setdefault('CompID', comp_id)
+            
+            filtered = self.filter_games_by_teams(games)
+            
+            if self.team_ids_set:
+                for game in filtered:
+                    team1_id = self._to_int(game.get('Team1ID'))
+                    team2_id = self._to_int(game.get('Team2ID'))
+                    configured_team_id = None
+                    opponent_team_id = None
+                    
+                    if team1_id in self.team_ids_set:
+                        configured_team_id = team1_id
+                        opponent_team_id = team2_id
+                    elif team2_id in self.team_ids_set:
+                        configured_team_id = team2_id
+                        opponent_team_id = team1_id
+                    
+                    if configured_team_id is not None:
+                        game['ConfiguredTeamID'] = configured_team_id
+                    if opponent_team_id is not None:
+                        game['OpponentTeamID'] = opponent_team_id
+            
+            aggregated_games.extend(filtered)
+        
+        categorized = self.categorize_games(aggregated_games)
+        return {'configured': categorized}
     
     def get_polls_to_create(self, all_games: Dict[str, Dict[str, List[Dict]]]) -> List[Dict]:
         """Определяет, какие опросы нужно создать"""
@@ -257,26 +364,26 @@ async def main():
         print("🔍 Получение игр для всех составов...")
         all_games = await parser.get_all_team_games()
         
-        print(f"\\n{'='*60}")
+        print(f"\n{'='*60}")
         print("АНАЛИЗ ИГР ПО ДАТАМ")
         print(f"{'='*60}")
         
         # Определяем опросы для создания
         polls_to_create = parser.get_polls_to_create(all_games)
-        print(f"\\n📊 ОПРОСЫ ДЛЯ СОЗДАНИЯ: {len(polls_to_create)}")
+        print(f"\n📊 ОПРОСЫ ДЛЯ СОЗДАНИЯ: {len(polls_to_create)}")
         for poll in polls_to_create:
             print(f"  🔮 {poll['team_type']}: {poll['team_a']} vs {poll['team_b']} ({poll['date']} {poll['time']})")
             print(f"     Ссылка: {poll['game_link']}")
         
         # Определяем анонсы для отправки
         announcements_to_send = parser.get_announcements_to_send(all_games)
-        print(f"\\n📊 АНОНСЫ ДЛЯ ОТПРАВКИ: {len(announcements_to_send)}")
+        print(f"\n📊 АНОНСЫ ДЛЯ ОТПРАВКИ: {len(announcements_to_send)}")
         for announcement in announcements_to_send:
             print(f"  📅 {announcement['team_type']}: {announcement['team_a']} vs {announcement['team_b']} ({announcement['date']} {announcement['time']})")
             print(f"     Ссылка: {announcement['game_link']}")
         
         # Показываем статистику
-        print(f"\\n📈 СТАТИСТИКА:")
+        print(f"\n📈 СТАТИСТИКА:")
         for team_type, games in all_games.items():
             print(f"  {team_type}: {len(games['future'])} будущих, {len(games['today'])} сегодня, {len(games['past'])} прошедших")
                 

@@ -6,13 +6,37 @@
 
 import os
 import json
-import datetime
-from typing import Dict, List, Optional, Any, Tuple
+import re
+from typing import Any, Dict, List, Optional, Set, Tuple
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime_utils import get_moscow_time
 
+SERVICE_HEADER = [
+    "ТИП ДАННЫХ",
+    "ДАТА И ВРЕМЯ",
+    "УНИКАЛЬНЫЙ КЛЮЧ",
+    "СТАТУС",
+    "ДОПОЛНИТЕЛЬНЫЕ ДАННЫЕ",
+    "ССЫЛКА",
+    "ИД СОРЕВНОВАНИЯ",
+    "ИД КОМАНДЫ",
+    "АЛЬТЕРНАТИВНОЕ ИМЯ",
+    "НАСТРОЙКИ"
+]
+
+# Индексы колонок (0-based)
+TYPE_COL = 0
+DATE_COL = 1
+KEY_COL = 2
+STATUS_COL = 3
+ADDITIONAL_DATA_COL = 4
+LINK_COL = 5
+COMP_ID_COL = 6
+TEAM_ID_COL = 7
+ALT_NAME_COL = 8
+CONFIG_COL = 9
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -56,6 +80,7 @@ class EnhancedDuplicateProtection:
                 try:
                     self.service_worksheet = self.spreadsheet.worksheet("Сервисный")
                     print("✅ Лист 'Сервисный' подключен")
+                    self._ensure_service_header()
                 except gspread.WorksheetNotFound:
                     print("❌ Лист 'Сервисный' не найден")
                     print("💡 Запустите create_service_sheet.py для создания листа")
@@ -65,7 +90,35 @@ class EnhancedDuplicateProtection:
         except Exception as e:
             print(f"❌ Ошибка инициализации Google Sheets: {e}")
     
-    def _get_service_worksheet(self):
+    def _ensure_service_header(self):
+        """Убеждаемся, что заголовок содержит обязательные колонки"""
+        worksheet = self._get_service_worksheet(raw=True)
+        if not worksheet:
+            return
+        
+        try:
+            header = worksheet.row_values(1)
+            if not header:
+                worksheet.update('A1:H1', [SERVICE_HEADER])
+                return
+            
+            desired_length = len(SERVICE_HEADER)
+            if len(header) < desired_length:
+                header.extend([""] * (desired_length - len(header)))
+            
+            updated = False
+            for index, expected in enumerate(SERVICE_HEADER):
+                if not header[index]:
+                    header[index] = expected
+                    updated = True
+            
+            if updated:
+                end_column_letter = chr(ord('A') + len(SERVICE_HEADER) - 1)
+                worksheet.update(f'A1:{end_column_letter}1', [header])
+        except Exception as e:
+            print(f"⚠️ Не удалось обновить заголовок сервисного листа: {e}")
+
+    def _get_service_worksheet(self, raw: bool = False):
         """Получает лист 'Сервисный'"""
         if not self.spreadsheet:
             print("❌ Google Sheets не инициализирован")
@@ -77,6 +130,9 @@ class EnhancedDuplicateProtection:
             except gspread.WorksheetNotFound:
                 print("❌ Лист 'Сервисный' не найден")
                 return None
+        
+        if not raw:
+            self._ensure_service_header()
         return self.service_worksheet
     
     def _create_unique_key(self, data_type: str, identifier: str, **kwargs) -> str:
@@ -177,15 +233,18 @@ class EnhancedDuplicateProtection:
                 game_link
             ]
             
-            # Добавляем запись в конец
-            worksheet.append_row(new_record)
+            if len(new_record) < len(SERVICE_HEADER):
+                new_record.extend([""] * (len(SERVICE_HEADER) - len(new_record)))
+            
+            # Добавляем запись в начало (под заголовком)
+            worksheet.insert_row(new_record, index=2)
             
             print(f"✅ Запись добавлена: {data_type} - {identifier}")
             
             return {
                 'success': True,
                 'unique_key': unique_key,
-                'row': len(worksheet.get_all_values())
+                'row': 2
             }
             
         except Exception as e:
@@ -209,10 +268,10 @@ class EnhancedDuplicateProtection:
             
             # Ищем записи типа АНОНС_ИГРА за сегодня
             for row in all_data:
-                if (len(row) >= 6 and 
-                    row[0] == "АНОНС_ИГРА" and 
-                    today in row[1] and  # Дата в колонке B
-                    row[5]):  # Ссылка в колонке F
+                if (len(row) > LINK_COL and 
+                    row[TYPE_COL] == "АНОНС_ИГРА" and 
+                    today in row[DATE_COL] and  # Дата в колонке B
+                    row[LINK_COL]):  # Ссылка в колонке F
                     
                     # Более точный поиск команд
                     unique_key = row[2].lower()
@@ -220,25 +279,41 @@ class EnhancedDuplicateProtection:
                     team2_lower = team2.lower()
                     
                     # Нормализуем названия команд для сравнения
-                    def normalize_team_name(name):
-                        return name.lower().replace(' ', '_').replace('pull_up', 'pullup').replace('pullup', 'pull_up')
-                    
-                    team1_normalized = normalize_team_name(team1)
-                    team2_normalized = normalize_team_name(team2)
-                    unique_key_normalized = normalize_team_name(unique_key)
-                    
-                    # Проверяем точное соответствие команд
-                    # Ищем комбинации: team1 vs team2 или team2 vs team1
-                    team1_found = any(part in unique_key_normalized for part in team1_normalized.split('_') if len(part) > 2)
-                    team2_found = any(part in unique_key_normalized for part in team2_normalized.split('_') if len(part) > 2)
-                    
-                    # Дополнительная проверка для наших команд
-                    our_team_found = any(keyword in unique_key_normalized for keyword in ['pull_up', 'pullup', 'фарм'])
-                    opponent_found = any(part in unique_key_normalized for part in team2_normalized.split('_') if len(part) > 2)
-                    
-                    # Если найдены обе команды или наша команда + соперник
-                    if (team1_found and team2_found) or (our_team_found and opponent_found):
-                        game_link = row[5]
+                    def _normalize_team_name(name: str) -> str:
+                        import re as _re
+                        return _re.sub(r"[\W_]+", "", name.lower())
+
+                    def _build_variants(name: str) -> Set[str]:
+                        variants: Set[str] = set()
+                        if not name:
+                            return variants
+                        lowered = name.lower()
+                        variants.add(lowered)
+                        variants.add(_normalize_team_name(name))
+                        for part in lowered.replace('-', ' ').replace('_', ' ').split():
+                            if len(part) > 2:
+                                variants.add(part)
+                        return {variant for variant in variants if variant}
+
+                    team1_variants = _build_variants(team1)
+                    team2_variants = _build_variants(team2)
+                    unique_key_lower = unique_key.lower()
+                    unique_key_normalized = _normalize_team_name(unique_key)
+
+                    def _contains_variant(variants: Set[str]) -> bool:
+                        for variant in variants:
+                            if len(variant) <= 2:
+                                continue
+                            if variant in unique_key_lower or variant in unique_key_normalized:
+                                return True
+                        return False
+
+                    team1_found = _contains_variant(team1_variants)
+                    team2_found = _contains_variant(team2_variants)
+
+                    # Если найдены обе команды — возвращаем ссылку
+                    if team1_found and team2_found:
+                        game_link = row[LINK_COL]
                         print(f"✅ Найдена точная ссылка в сервисном листе: {game_link}")
                         print(f"   По ключу: {row[2]}")
                         print(f"   Для команд: {team1} vs {team2}")
@@ -320,30 +395,42 @@ class EnhancedDuplicateProtection:
             return {'success': False, 'error': 'Лист не найден'}
         
         try:
-            all_records = self.get_records_by_type(data_type)
-            current_date = datetime.datetime.now()
-            cleaned_count = 0
+            all_data = worksheet.get_all_values()
+            current_datetime = get_moscow_time()
+            rows_to_delete: List[int] = []
             
-            for record in all_records:
-                try:
-                    # Парсим дату из записи
-                    record_date = datetime.datetime.strptime(record['date'], '%d.%m.%Y %H:%M')
-                    days_diff = (current_date - record_date).days
-                    
-                    if days_diff > days_old:
-                        # Удаляем старую запись
-                        worksheet.delete_rows(record['row'])
-                        cleaned_count += 1
-                        
-                except ValueError:
-                    # Пропускаем записи с некорректной датой
+            for row_index, row in enumerate(all_data[1:], start=2):
+                if len(row) <= max(DATE_COL, TYPE_COL):
                     continue
+                
+                row_type = row[TYPE_COL].upper() if len(row) > TYPE_COL else ''
+                if row_type != data_type.upper():
+                    continue
+                
+                date_value = row[DATE_COL]
+                if not date_value:
+                    continue
+                
+                try:
+                    from datetime import datetime as dt
+                    record_date = dt.strptime(date_value, '%d.%m.%Y %H:%M')
+                except ValueError:
+                    continue
+                
+                record_date = record_date.replace(tzinfo=current_datetime.tzinfo)
+                age_days = (current_datetime - record_date).days
+                
+                if age_days > days_old:
+                    rows_to_delete.append(row_index)
             
-            print(f"✅ Очищено {cleaned_count} старых записей типа {data_type}")
+            for row_index in reversed(rows_to_delete):
+                worksheet.delete_rows(row_index)
+            
+            print(f"✅ Очищено {len(rows_to_delete)} старых записей типа {data_type}")
             
             return {
                 'success': True,
-                'cleaned_count': cleaned_count,
+                'cleaned_count': len(rows_to_delete),
                 'data_type': data_type
             }
             
@@ -382,6 +469,211 @@ class EnhancedDuplicateProtection:
             
         except Exception as e:
             return {'error': str(e)}
+
+    def cleanup_expired_records(self, max_age_days: int = 30) -> Dict[str, Any]:
+        """Удаляет все записи старше указанного количества дней"""
+        worksheet = self._get_service_worksheet()
+        if not worksheet:
+            return {'success': False, 'error': 'Лист не найден'}
+        
+        try:
+            all_data = worksheet.get_all_values()
+            if not all_data:
+                return {'success': True, 'cleaned_count': 0, 'details': []}
+            
+            current_datetime = get_moscow_time()
+            rows_to_delete: List[Tuple[int, str]] = []
+            
+            for row_index, row in enumerate(all_data[1:], start=2):
+                if len(row) <= DATE_COL:
+                    continue
+                
+                date_value = row[DATE_COL]
+                if not date_value:
+                    continue
+                
+                try:
+                    from datetime import datetime as dt
+                    record_date = dt.strptime(date_value, '%d.%m.%Y %H:%M')
+                except ValueError:
+                    continue
+                
+                record_date = record_date.replace(tzinfo=current_datetime.tzinfo)
+                age_days = (current_datetime - record_date).days
+                
+                if age_days > max_age_days:
+                    record_type = row[TYPE_COL] if len(row) > TYPE_COL else ''
+                    rows_to_delete.append((row_index, record_type))
+            
+            for row_index, _ in reversed(rows_to_delete):
+                worksheet.delete_rows(row_index)
+            
+            print(f"✅ Очищено {len(rows_to_delete)} записей старше {max_age_days} дней")
+            
+            return {
+                'success': True,
+                'cleaned_count': len(rows_to_delete),
+                'details': rows_to_delete
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @staticmethod
+    def _parse_ids(cell_value: str) -> List[int]:
+        """Парсит числовые ID из значения ячейки"""
+        if not cell_value:
+            return []
+        
+        normalized = cell_value.replace('\n', ',').replace(';', ',')
+        parts = [part.strip() for part in normalized.split(',') if part.strip()]
+        ids: List[int] = []
+        for part in parts:
+            matches = re.findall(r'\d+', part)
+            for match in matches:
+                try:
+                    ids.append(int(match))
+                except ValueError:
+                    continue
+        return ids
+    
+    @staticmethod
+    def _parse_json_config(cell_value: str) -> Dict[str, Any]:
+        """Парсит JSON из ячейки конфигурации"""
+        if not cell_value:
+            return {}
+        if isinstance(cell_value, dict):
+            return cell_value
+        try:
+            return json.loads(cell_value)
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"⚠️ Некорректный JSON в конфигурации сервисного листа: {e}")
+            return {}
+
+    def get_full_config(self) -> Dict[str, Any]:
+        """Возвращает полную конфигурацию, хранящуюся в сервисном листе"""
+        worksheet = self._get_service_worksheet()
+        if not worksheet:
+            return {
+                'comp_ids': set(),
+                'team_ids': set(),
+                'teams': {},
+                'training_polls': [],
+                'fallback_sources': []
+            }
+        
+        try:
+            all_data = worksheet.get_all_values()
+            if not all_data:
+                return {
+                    'comp_ids': set(),
+                    'team_ids': set(),
+                    'teams': {},
+                    'training_polls': [],
+                    'fallback_sources': []
+                }
+            
+            comp_ids: Set[int] = set()
+            team_ids: Set[int] = set()
+            teams: Dict[int, Dict[str, Any]] = {}
+            training_polls: List[Dict[str, Any]] = []
+            fallback_sources: List[Dict[str, Any]] = []
+            
+            for row in all_data[1:]:
+                if len(row) <= TYPE_COL:
+                    continue
+                
+                row_type = (row[TYPE_COL] or "").strip().upper()
+                if not row_type:
+                    continue
+                
+                row_comp_ids = self._parse_ids(row[COMP_ID_COL]) if len(row) > COMP_ID_COL else []
+                row_team_ids = self._parse_ids(row[TEAM_ID_COL]) if len(row) > TEAM_ID_COL else []
+                alt_name = (row[ALT_NAME_COL] or "").strip() if len(row) > ALT_NAME_COL else ""
+                config_payload = self._parse_json_config(row[CONFIG_COL] if len(row) > CONFIG_COL else "")
+                
+                if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_COMP", "COMP_CONFIG"}:
+                    comp_ids.update(row_comp_ids)
+                
+                if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_TEAM", "TEAM_CONFIG"}:
+                    comp_ids.update(row_comp_ids)
+                    for team_id in row_team_ids:
+                        team_ids.add(team_id)
+                        team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
+                        if alt_name:
+                            team_entry["alt_name"] = alt_name
+                        if row_comp_ids:
+                            team_entry["comp_ids"].update(row_comp_ids)
+                        if config_payload:
+                            team_entry["metadata"].update(config_payload)
+                
+                elif row_type in {"TRAINING_POLL", "TRAINING_CONFIG"}:
+                    training_entry = {
+                        "title": config_payload.get("title") or (row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else ""),
+                        "weekday": config_payload.get("weekday"),
+                        "time": config_payload.get("time") or (row[STATUS_COL] if len(row) > STATUS_COL else ""),
+                        "location": config_payload.get("location") or (row[LINK_COL] if len(row) > LINK_COL else ""),
+                        "topic_id": config_payload.get("topic_id"),
+                        "metadata": config_payload
+                    }
+                    training_polls.append(training_entry)
+                
+                elif row_type in {"FALLBACK", "FALLBACK_SOURCE", "FALLBACK_CONFIG"}:
+                    fallback_entry = {
+                        "name": config_payload.get("name") or alt_name or (row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else ""),
+                        "url": config_payload.get("url") or (row[LINK_COL] if len(row) > LINK_COL else ""),
+                        "metadata": config_payload
+                    }
+                    fallback_sources.append(fallback_entry)
+                
+                else:
+                    # Для прочих типов сохраняем ID, если они указаны
+                    if row_comp_ids:
+                        comp_ids.update(row_comp_ids)
+                    if row_team_ids:
+                        for team_id in row_team_ids:
+                            team_ids.add(team_id)
+                            team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
+                            if alt_name:
+                                team_entry["alt_name"] = alt_name
+                            if config_payload:
+                                team_entry["metadata"].update(config_payload)
+            
+            # Преобразуем множества comp_ids в списки для команд
+            for team in teams.values():
+                if isinstance(team.get("comp_ids"), set):
+                    team["comp_ids"] = sorted(team["comp_ids"])
+                if not team.get("metadata"):
+                    team.pop("metadata", None)
+                if not team.get("alt_name"):
+                    team.pop("alt_name", None)
+            
+            return {
+                'comp_ids': comp_ids,
+                'team_ids': team_ids,
+                'teams': teams,
+                'training_polls': training_polls,
+                'fallback_sources': fallback_sources
+            }
+        except Exception as e:
+            print(f"⚠️ Ошибка чтения конфигурации из сервисного листа: {e}")
+            return {
+                'comp_ids': set(),
+                'team_ids': set(),
+                'teams': {},
+                'training_polls': [],
+                'fallback_sources': []
+            }
+
+    def get_config_ids(self) -> Dict[str, Any]:
+        """Совместимая обёртка вокруг полной конфигурации"""
+        full_config = self.get_full_config()
+        return {
+            'comp_ids': sorted(full_config.get('comp_ids', set())),
+            'team_ids': sorted(full_config.get('team_ids', set())),
+            'teams': full_config.get('teams', {}),
+            'training_polls': full_config.get('training_polls', []),
+            'fallback_sources': full_config.get('fallback_sources', [])
+        }
 
 # Глобальный экземпляр для использования в других модулях
 duplicate_protection = EnhancedDuplicateProtection()

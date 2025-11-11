@@ -51,6 +51,16 @@ TEAM_A_ID_COL = 14
 TEAM_B_ID_COL = 15
 
 END_COLUMN_LETTER = chr(ord('A') + len(SERVICE_HEADER) - 1)
+CONFIG_WORKSHEET_NAME = "Конфиг"
+CONFIG_HEADER = [
+    "ТИП",
+    "ИД СОРЕВНОВАНИЯ",
+    "ИД КОМАНДЫ",
+    "АЛЬТЕРНАТИВНОЕ ИМЯ",
+    "НАСТРОЙКИ",
+    "URL FALLBACK",
+    "НАЗВАНИЕ FALLBACK"
+]
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -72,6 +82,7 @@ class EnhancedDuplicateProtection:
         self.gc = None
         self.spreadsheet = None
         self.service_worksheet = None
+        self.config_worksheet = None
         self._init_google_sheets()
     
     def _init_google_sheets(self):
@@ -94,43 +105,68 @@ class EnhancedDuplicateProtection:
                 try:
                     self.service_worksheet = self.spreadsheet.worksheet("Сервисный")
                     print("✅ Лист 'Сервисный' подключен")
-                    self._ensure_service_header()
+                    self._ensure_service_header(self.service_worksheet)
                 except gspread.WorksheetNotFound:
                     print("❌ Лист 'Сервисный' не найден")
                     print("💡 Запустите create_service_sheet.py для создания листа")
+
+                try:
+                    self.config_worksheet = self.spreadsheet.worksheet(CONFIG_WORKSHEET_NAME)
+                    print(f"✅ Лист '{CONFIG_WORKSHEET_NAME}' подключен")
+                    self._ensure_config_header()
+                except gspread.WorksheetNotFound:
+                    print(f"⚠️ Лист '{CONFIG_WORKSHEET_NAME}' не найден, создаём его")
+                    self.config_worksheet = self.spreadsheet.add_worksheet(title=CONFIG_WORKSHEET_NAME, rows=200, cols=len(CONFIG_HEADER))
+                    self._ensure_config_header()
             else:
                 print("❌ SPREADSHEET_ID не настроен")
                 
         except Exception as e:
             print(f"❌ Ошибка инициализации Google Sheets: {e}")
     
-    def _ensure_service_header(self):
-        """Убеждаемся, что заголовок содержит обязательные колонки"""
-        worksheet = self._get_service_worksheet(raw=True)
+    def _ensure_service_header(self, worksheet) -> None:
         if not worksheet:
             return
-        
         try:
             header = worksheet.row_values(1)
             if not header:
                 worksheet.update(f'A1:{END_COLUMN_LETTER}1', [SERVICE_HEADER])
                 return
-            
             desired_length = len(SERVICE_HEADER)
             if len(header) < desired_length:
                 header.extend([""] * (desired_length - len(header)))
-            
             updated = False
             for index, expected in enumerate(SERVICE_HEADER):
                 if not header[index]:
                     header[index] = expected
                     updated = True
-            
             if updated:
                 worksheet.update(f'A1:{END_COLUMN_LETTER}1', [header])
         except Exception as e:
             print(f"⚠️ Не удалось обновить заголовок сервисного листа: {e}")
 
+    def _ensure_config_header(self) -> None:
+        worksheet = self.config_worksheet
+        if not worksheet:
+            return
+        try:
+            header = worksheet.row_values(1)
+            if not header:
+                worksheet.update(f'A1:{chr(ord("A") + len(CONFIG_HEADER) - 1)}1', [CONFIG_HEADER])
+                return
+            desired_length = len(CONFIG_HEADER)
+            if len(header) < desired_length:
+                header.extend([""] * (desired_length - len(header)))
+            updated = False
+            for index, expected in enumerate(CONFIG_HEADER):
+                if not header[index]:
+                    header[index] = expected
+                    updated = True
+            if updated:
+                worksheet.update(f'A1:{chr(ord("A") + len(CONFIG_HEADER) - 1)}1', [header])
+        except Exception as e:
+            print(f"⚠️ Не удалось обновить заголовок листа '{CONFIG_WORKSHEET_NAME}': {e}")
+ 
     def _get_service_worksheet(self, raw: bool = False):
         """Получает лист 'Сервисный'"""
         if not self.spreadsheet:
@@ -145,9 +181,9 @@ class EnhancedDuplicateProtection:
                 return None
         
         if not raw:
-            self._ensure_service_header()
+            self._ensure_service_header(self.service_worksheet)
         return self.service_worksheet
-    
+
     def _create_unique_key(self, data_type: str, identifier: str, **kwargs) -> str:
         """Создает уникальный ключ для записи"""
         # Базовый ключ
@@ -718,8 +754,7 @@ class EnhancedDuplicateProtection:
             return {}
 
     def get_full_config(self) -> Dict[str, Any]:
-        """Возвращает полную конфигурацию, хранящуюся в сервисном листе"""
-        worksheet = self._get_service_worksheet()
+        worksheet = self.config_worksheet
         if not worksheet:
             return {
                 'comp_ids': set(),
@@ -728,7 +763,7 @@ class EnhancedDuplicateProtection:
                 'training_polls': [],
                 'fallback_sources': []
             }
-        
+
         try:
             all_data = worksheet.get_all_values()
             if not all_data:
@@ -739,31 +774,32 @@ class EnhancedDuplicateProtection:
                     'training_polls': [],
                     'fallback_sources': []
                 }
-            
+
             comp_ids: Set[int] = set()
             team_ids: Set[int] = set()
             teams: Dict[int, Dict[str, Any]] = {}
             training_polls: List[Dict[str, Any]] = []
             fallback_sources: List[Dict[str, Any]] = []
-            
+
             for row in all_data[1:]:
-                if len(row) <= TYPE_COL:
+                if not row or len(row) < 1:
                     continue
-                
-                row_type = (row[TYPE_COL] or "").strip().upper()
-                if not row_type:
-                    continue
-                
-                row_comp_ids = self._parse_ids(row[COMP_ID_COL]) if len(row) > COMP_ID_COL else []
-                row_team_ids = self._parse_ids(row[TEAM_ID_COL]) if len(row) > TEAM_ID_COL else []
-                alt_name = (row[ALT_NAME_COL] or "").strip() if len(row) > ALT_NAME_COL else ""
-                config_payload = self._parse_json_config(row[CONFIG_COL] if len(row) > CONFIG_COL else "")
-                
-                if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_COMP", "COMP_CONFIG"}:
+
+                row_type = (row[0] or "").strip().upper()
+                comp_id_cell = row[1] if len(row) > 1 else ""
+                team_id_cell = row[2] if len(row) > 2 else ""
+                alt_name = (row[3] or "").strip() if len(row) > 3 else ""
+                settings_json = row[4] if len(row) > 4 else ""
+                fallback_url = row[5] if len(row) > 5 else ""
+                fallback_name = row[6] if len(row) > 6 else ""
+
+                row_comp_ids = self._parse_ids(comp_id_cell)
+                row_team_ids = self._parse_ids(team_id_cell)
+                config_payload = self._parse_json_config(settings_json)
+
+                if row_type in {"CONFIG_COMP", "COMP_CONFIG"}:
                     comp_ids.update(row_comp_ids)
-                
-                if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_TEAM", "TEAM_CONFIG"}:
-                    comp_ids.update(row_comp_ids)
+                elif row_type in {"CONFIG_TEAM", "TEAM_CONFIG"}:
                     for team_id in row_team_ids:
                         team_ids.add(team_id)
                         team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
@@ -773,40 +809,24 @@ class EnhancedDuplicateProtection:
                             team_entry["comp_ids"].update(row_comp_ids)
                         if config_payload:
                             team_entry["metadata"].update(config_payload)
-                
                 elif row_type in {"TRAINING_POLL", "TRAINING_CONFIG"}:
                     training_entry = {
-                        "title": config_payload.get("title") or (row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else ""),
+                        "title": config_payload.get("title") or alt_name,
                         "weekday": config_payload.get("weekday"),
-                        "time": config_payload.get("time") or (row[STATUS_COL] if len(row) > STATUS_COL else ""),
-                        "location": config_payload.get("location") or (row[LINK_COL] if len(row) > LINK_COL else ""),
+                        "time": config_payload.get("time"),
+                        "location": config_payload.get("location"),
                         "topic_id": config_payload.get("topic_id"),
                         "metadata": config_payload
                     }
                     training_polls.append(training_entry)
-                
                 elif row_type in {"FALLBACK", "FALLBACK_SOURCE", "FALLBACK_CONFIG"}:
                     fallback_entry = {
-                        "name": config_payload.get("name") or alt_name or (row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else ""),
-                        "url": config_payload.get("url") or (row[LINK_COL] if len(row) > LINK_COL else ""),
+                        "name": fallback_name or alt_name,
+                        "url": fallback_url,
                         "metadata": config_payload
                     }
                     fallback_sources.append(fallback_entry)
-                
-                else:
-                    # Для прочих типов сохраняем ID, если они указаны
-                    if row_comp_ids:
-                        comp_ids.update(row_comp_ids)
-                    if row_team_ids:
-                        for team_id in row_team_ids:
-                            team_ids.add(team_id)
-                            team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
-                            if alt_name:
-                                team_entry["alt_name"] = alt_name
-                            if config_payload:
-                                team_entry["metadata"].update(config_payload)
-            
-            # Преобразуем множества comp_ids в списки для команд
+
             for team in teams.values():
                 if isinstance(team.get("comp_ids"), set):
                     team["comp_ids"] = sorted(team["comp_ids"])
@@ -814,16 +834,16 @@ class EnhancedDuplicateProtection:
                     team.pop("metadata", None)
                 if not team.get("alt_name"):
                     team.pop("alt_name", None)
-            
+
             return {
                 'comp_ids': comp_ids,
                 'team_ids': team_ids,
                 'teams': teams,
                 'training_polls': training_polls,
-                'fallback_sources': fallback_sources
+                'fallback_sources': fallback_sources,
             }
         except Exception as e:
-            print(f"⚠️ Ошибка чтения конфигурации из сервисного листа: {e}")
+            print(f"⚠️ Ошибка чтения конфигурации из листа '{CONFIG_WORKSHEET_NAME}': {e}")
             return {
                 'comp_ids': set(),
                 'team_ids': set(),

@@ -347,86 +347,240 @@ class GameSystemManager:
         
         return games
     
-    async def fetch_infobasket_schedule(self) -> List[Dict]:
+    async def fetch_infobasket_schedule(self) -> Dict[str, List[Dict]]:
         """Получает расписание игр через Infobasket API"""
         try:
             print("🔍 Получение расписания через Infobasket Smart API...")
-            
-            # Инициализируем умный парсер
+            print(f"   ➡️ ID соревнований для запроса: {self.config_comp_ids or 'не заданы'}")
+            print(f"   ➡️ ID команд для фильтрации: {self.config_team_ids or 'не заданы'}")
+
             parser = InfobasketSmartParser(
                 comp_ids=self.config_comp_ids,
                 team_ids=self.config_team_ids,
                 team_name_keywords=self.team_name_keywords
             )
-            
-            # Получаем игры для всех составов
+
             all_games = await parser.get_all_team_games()
-            
-            # Собираем все будущие игры
-            future_games = []
+
+            future_games: List[Dict] = []
+            today_games: List[Dict] = []
+
             for team_type, games in all_games.items():
-                for game in games['future']:
-                    team1_id = self._to_int(game.get('Team1ID'))
-                    team2_id = self._to_int(game.get('Team2ID'))
-                    our_team_id = self._to_int(game.get('ConfiguredTeamID'))
-                    opponent_team_id = self._to_int(game.get('OpponentTeamID'))
-                    
-                    if our_team_id is None and self.config_team_ids_set:
-                        if team1_id in self.config_team_ids_set:
-                            our_team_id = team1_id
-                            opponent_team_id = team2_id
-                        elif team2_id in self.config_team_ids_set:
-                            our_team_id = team2_id
-                            opponent_team_id = team1_id
-                    
-                    our_team_name = None
-                    opponent_team_name = None
-                    
-                    if our_team_id is not None:
-                        if our_team_id == team1_id:
-                            our_team_name = game.get('ShortTeamNameAru')
-                            opponent_team_name = game.get('ShortTeamNameBru')
-                        elif our_team_id == team2_id:
-                            our_team_name = game.get('ShortTeamNameBru')
-                            opponent_team_name = game.get('ShortTeamNameAru')
-                    
-                    if our_team_id is not None and our_team_name:
-                        self.team_names_by_id[our_team_id] = our_team_name
-                        if our_team_name not in self.team_name_keywords:
-                            self.team_name_keywords.append(our_team_name)
-                    
-                    formatted_game = {
-                        'date': game.get('GameDate'),
-                        'time': game.get('GameTimeMsk'),
-                        'team1': game.get('ShortTeamNameAru'),
-                        'team2': game.get('ShortTeamNameBru'),
-                        'venue': game.get('ArenaRu'),
-                        'comp_name': game.get('CompNameRu'),
-                        'comp_id': game.get('CompID'),
-                        'game_id': game.get('GameID'),
-                        'team_type': team_type,
-                        'team1_id': team1_id,
-                        'team2_id': team2_id,
-                        'our_team_id': our_team_id,
-                        'opponent_team_id': opponent_team_id,
-                        'our_team_name': our_team_name,
-                        'opponent_team_name': opponent_team_name,
-                        'source': 'infobasket_smart_api',
-                        'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
-                    }
-                    future_games.append(formatted_game)
-            
-            if future_games:
-                print(f"✅ Infobasket Smart API: найдено {len(future_games)} будущих игр")
-                return future_games
-            else:
-                print("❌ Infobasket Smart API: будущие игры не найдены")
-                return []
-                
+                for category, storage in (("future", future_games), ("today", today_games)):
+                    for game in games[category]:
+                        team1_id = self._to_int(game.get('Team1ID'))
+                        team2_id = self._to_int(game.get('Team2ID'))
+                        our_team_id = self._to_int(game.get('ConfiguredTeamID'))
+                        opponent_team_id = self._to_int(game.get('OpponentTeamID'))
+
+                        if our_team_id is None and self.config_team_ids_set:
+                            if team1_id in self.config_team_ids_set:
+                                our_team_id = team1_id
+                                opponent_team_id = team2_id
+                            elif team2_id in self.config_team_ids_set:
+                                our_team_id = team2_id
+                                opponent_team_id = team1_id
+
+                        our_team_name = None
+                        opponent_team_name = None
+
+                        if our_team_id is not None:
+                            if our_team_id == team1_id:
+                                our_team_name = game.get('ShortTeamNameAru')
+                                opponent_team_name = game.get('ShortTeamNameBru')
+                            elif our_team_id == team2_id:
+                                our_team_name = game.get('ShortTeamNameBru')
+                                opponent_team_name = game.get('ShortTeamNameAru')
+
+                        if our_team_id is not None and our_team_name:
+                            self.team_names_by_id[our_team_id] = our_team_name
+                            if our_team_name not in self.team_name_keywords:
+                                self.team_name_keywords.append(our_team_name)
+
+                        storage.append({
+                            'date': game.get('GameDate'),
+                            'time': game.get('GameTimeMsk'),
+                            'team1': game.get('ShortTeamNameAru'),
+                            'team2': game.get('ShortTeamNameBru'),
+                            'venue': game.get('ArenaRu'),
+                            'comp_name': game.get('CompNameRu'),
+                            'comp_id': game.get('CompID'),
+                            'game_id': game.get('GameID'),
+                            'team_type': team_type,
+                            'team1_id': team1_id,
+                            'team2_id': team2_id,
+                            'our_team_id': our_team_id,
+                            'opponent_team_id': opponent_team_id,
+                            'our_team_name': our_team_name,
+                            'opponent_team_name': opponent_team_name,
+                            'source': 'infobasket_smart_api',
+                            'game_link': f"https://www.fbp.ru/game.html?gameId={game.get('GameID')}&apiUrl=https://reg.infobasket.su&lang=ru"
+                        })
+
+            print(f"✅ Infobasket Smart API: будущих игр {len(future_games)}, игр сегодня {len(today_games)}")
+            return {'future': future_games, 'today': today_games}
+
         except Exception as e:
             print(f"❌ Ошибка Infobasket Smart API: {e}")
-            return []
+            return {'future': [], 'today': []}
+
+    @staticmethod
+    def _normalize_time_string(value: Optional[str]) -> str:
+        if not value:
+            return ""
+        return value.replace('.', ':').strip()
+
+    async def fetch_widget_game_details(self, game_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            import aiohttp
+            url = f"https://reg.infobasket.su/Widget/GetOnline/{game_id}?format=json&lang=ru"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        print(f"⚠️ Widget API вернул статус {response.status} для GameID {game_id}")
+                        return None
+                    data = await response.json()
+
+            game_date = data.get('GameDate') or ''
+            game_time = data.get('GameTimeMsk') or data.get('GameTime') or ''
+            online_block = data.get('Online') or {}
+            arena = online_block.get('Venue2') or online_block.get('Venue1') or data.get('ArenaRu') or ''
+            teams = data.get('GameTeams') or []
+            team_a_id = teams[0].get('TeamID') if len(teams) > 0 else None
+            team_b_id = teams[1].get('TeamID') if len(teams) > 1 else None
+
+            return {
+                'game_date': game_date,
+                'game_time': self._normalize_time_string(game_time),
+                'arena': arena,
+                'team_a_id': team_a_id,
+                'team_b_id': team_b_id,
+            }
+        except Exception as e:
+            print(f"⚠️ Ошибка получения данных Widget для GameID {game_id}: {e}")
+            return None
+
+    def _merge_widget_details(self, game_info: Dict[str, Any], widget_data: Dict[str, Any]) -> None:
+        if not widget_data:
+            return
+        if widget_data.get('game_date'):
+            game_info['date'] = widget_data['game_date']
+        if widget_data.get('game_time'):
+            game_info['time'] = widget_data['game_time']
+        if widget_data.get('arena'):
+            game_info['venue'] = widget_data['arena']
+        if widget_data.get('team_a_id') is not None:
+            game_info['team1_id'] = widget_data['team_a_id']
+        if widget_data.get('team_b_id') is not None:
+            game_info['team2_id'] = widget_data['team_b_id']
+
+    def _game_record_matches(self, record: Dict[str, Any], game_info: Dict[str, Any]) -> bool:
+        if not record:
+            return False
+        record_date = (record.get('game_date') or '').strip()
+        record_time = self._normalize_time_string(record.get('game_time'))
+        record_arena = (record.get('arena') or '').strip()
+        record_team_a = (record.get('team_a_id') or '').strip()
+        record_team_b = (record.get('team_b_id') or '').strip()
+
+        game_date = (game_info.get('date') or '').strip()
+        game_time = self._normalize_time_string(game_info.get('time'))
+        game_arena = (game_info.get('venue') or '').strip()
+        game_team_a = str(game_info.get('team1_id') or '').strip()
+        game_team_b = str(game_info.get('team2_id') or '').strip()
+
+        return (
+            record_date == game_date
+            and record_time == game_time
+            and record_arena == game_arena
+            and record_team_a == game_team_a
+            and record_team_b == game_team_b
+        )
+
+    def _log_game_action(self, data_type: str, game_info: Dict[str, Any], status: str, additional_data: str) -> None:
+        duplicate_protection.upsert_game_record(
+            data_type=data_type,
+            identifier=str(game_info.get('game_id')),
+            status=status,
+            additional_data=additional_data,
+            game_link=game_info.get('game_link', ''),
+            comp_id=game_info.get('comp_id'),
+            team_id=game_info.get('our_team_id'),
+            alt_name=game_info.get('our_team_name', ''),
+            settings="",
+            game_id=game_info.get('game_id'),
+            game_date=game_info.get('date') or '',
+            game_time=self._normalize_time_string(game_info.get('time')),
+            arena=game_info.get('venue') or '',
+            team_a_id=game_info.get('team1_id'),
+            team_b_id=game_info.get('team2_id'),
+        )
     
+    def _should_schedule_future_game(self, game_info: Dict[str, Any]) -> bool:
+        try:
+            game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
+            today = get_moscow_time().date()
+            if game_date <= today:
+                print(f"⏭️ Игра {game_info['game_id']} запланирована на {game_info['date']} — опрос не требуется")
+                return False
+            return True
+        except Exception as e:
+            print(f"⚠️ Не удалось определить дату игры для GameID {game_info.get('game_id')}: {e}")
+            return False
+
+    async def _process_future_game(self, game_info: Dict[str, Any]) -> bool:
+        if not self._is_correct_time_for_polls():
+            return False
+
+        if not self._should_schedule_future_game(game_info):
+            return False
+
+        game_id = game_info.get('game_id')
+        if not game_id:
+            print("⚠️ Нет GameID, пропускаем игру")
+            return False
+
+        widget_data = await self.fetch_widget_game_details(int(game_id))
+        if widget_data:
+            self._merge_widget_details(game_info, widget_data)
+
+        existing_record = duplicate_protection.get_game_record("ОПРОС_ИГРА", str(game_id))
+        if existing_record and self._game_record_matches(existing_record, game_info):
+            print(f"⏭️ Опрос для GameID {game_id} уже есть в сервисном листе")
+            return False
+
+        question = await self.create_game_poll(game_info)
+        if not question:
+            return False
+
+        self._log_game_action("ОПРОС_ИГРА", game_info, "ОПРОС СОЗДАН", question)
+        return True
+
+    async def _process_today_game(self, game_info: Dict[str, Any]) -> bool:
+        if not self._is_correct_time_for_announcements():
+            return False
+
+        game_id = game_info.get('game_id')
+        if not game_id:
+            print("⚠️ Нет GameID для анонса, пропускаем")
+            return False
+
+        widget_data = await self.fetch_widget_game_details(int(game_id))
+        if widget_data:
+            self._merge_widget_details(game_info, widget_data)
+
+        existing_record = duplicate_protection.get_game_record("АНОНС_ИГРА", str(game_id))
+        if existing_record and self._game_record_matches(existing_record, game_info):
+            print(f"⏭️ Анонс для GameID {game_id} уже отправлен")
+            return False
+
+        announcement_sent = await self.send_game_announcement(game_info, game_link=game_info.get('game_link'))
+        if not announcement_sent:
+            return False
+
+        summary = f"{game_info.get('date')} {game_info.get('time')} {game_info.get('team1')} vs {game_info.get('team2')}"
+        self._log_game_action("АНОНС_ИГРА", game_info, "АНОНС ОТПРАВЛЕН", summary)
+        return True
 
     async def fetch_letobasket_schedule(self) -> List[Dict]:
         """Получает расписание игр с сайта letobasket.ru"""
@@ -713,11 +867,11 @@ class GameSystemManager:
     
 
     
-    async def create_game_poll(self, game_info: Dict) -> bool:
-        """Создает опрос для игры в топике 1282"""
+    async def create_game_poll(self, game_info: Dict) -> Optional[str]:
+        """Создает опрос для игры в топике 1282 и возвращает текст вопроса"""
         if not self.bot or not CHAT_ID:
             print("❌ Бот или CHAT_ID не настроены")
-            return False
+            return None
         
         try:
             bot = cast(Any, self.bot)
@@ -744,7 +898,7 @@ class GameSystemManager:
             
             if not our_team:
                 print(f"❌ Не удалось определить нашу команду в игре")
-                return False
+                return None
             
             # Определяем категорию команды
             team_category = get_team_category_by_type(game_info.get('team_type'))
@@ -834,13 +988,6 @@ class GameSystemManager:
             
             # Добавляем запись в сервисный лист для защиты от дублирования
             additional_info = f"{game_info['date']} {game_info['time']} vs {opponent} в {game_info['venue']}"
-            duplicate_protection.add_record(
-                "ОПРОС_ИГРА",
-                game_key,
-                "АКТИВЕН",
-                additional_info
-            )
-            
             print(f"✅ Опрос для игры создан в топике {GAMES_TOPIC_ID}")
             print(f"📊 ID опроса: {poll_info['poll_id']}")
             print(f"📊 ID сообщения: {poll_info['message_id']}")
@@ -852,11 +999,11 @@ class GameSystemManager:
             print(f"👥 Наша команда: {our_team}")
             print(f"👥 Соперник: {opponent}")
             
-            return True
+            return question
             
         except Exception as e:
             print(f"❌ Ошибка создания опроса для игры: {e}")
-            return False
+            return None
     
     async def find_game_link(self, team1: str, team2: str) -> Optional[tuple]:
         """Ищет ссылку на игру, используя сервисный лист и fallback-источники"""
@@ -1110,15 +1257,8 @@ class GameSystemManager:
             bot = cast(Any, self.bot)
             # Если game_link не передан, ищем ссылку на игру по командам
             if game_link is None:
-                team1 = game_info.get('team1', '')
-                team2 = game_info.get('team2', '')
-                result = await self.find_game_link(team1, team2)
-                
-                # Обрабатываем результат (может быть tuple или None)
-                if isinstance(result, tuple):
-                    game_link, found_team = result
-                else:
-                    game_link, found_team = result, None
+                print(f"⚠️ Ссылка на игру для GameID {game_info.get('game_id')} не передана")
+                found_team = None
             
             # Формируем сообщение анонса
             announcement_text = self.format_announcement_message(game_info, game_link, found_team)
@@ -1223,95 +1363,40 @@ class GameSystemManager:
             # ШАГ 1: Парсинг расписания
             print(f"\n📊 ШАГ 1: ПАРСИНГ РАСПИСАНИЯ")
             print("-" * 40)
-            
-            # Получаем расписание через Infobasket Smart API (основной источник)
-            games = await self.fetch_infobasket_schedule()
-            
-            # Если Infobasket API не дал результатов, пробуем letobasket.ru как fallback
-            if not games:
-                print("🔄 Infobasket Smart API не дал результатов, пробуем letobasket.ru...")
-                games = await self.fetch_letobasket_schedule()
-            
-            if not games:
+            games_by_status = await self.fetch_infobasket_schedule()
+            future_games = games_by_status.get('future', [])
+            today_games = games_by_status.get('today', [])
+            total_games = len(future_games) + len(today_games)
+            if total_games == 0:
                 print("⚠️ Игры не найдены, завершаем работу")
                 return
-            
-            print(f"✅ Найдено {len(games)} игр")
-            for i, game in enumerate(games, 1):
-                # Формируем описание игры в зависимости от источника
-                if game.get('source') == 'infobasket_smart_api':
-                    game_desc = f"{game.get('date')} {game.get('time')} ({game.get('venue', 'Место TBD')}) - {game.get('team1')} vs {game.get('team2')}"
-                else:
-                    game_desc = game.get('full_text', f"{game.get('date')} {game.get('time')} - {game.get('team1')} vs {game.get('team2')}")
-                print(f"   {i}. {game_desc}")
+            print(f"✅ Найдено {total_games} игр (будущие: {len(future_games)}, сегодня: {len(today_games)})")
             
             # ШАГ 2: Создание опросов
             print(f"\n📊 ШАГ 2: СОЗДАНИЕ ОПРОСОВ")
             print("-" * 40)
             created_polls = 0
-            for game in games:
-                print(f"\n🏀 Проверка игры: {game.get('team1', '')} vs {game.get('team2', '')}")
-                
-                if self.should_create_poll(game):
-                    print(f"📊 Создаю опрос для игры...")
-                    if await self.create_game_poll(game):
-                        created_polls += 1
-            
+            for game in future_games:
+                print(f"\n🏀 Проверка игры (будущая): {game.get('team1', '')} vs {game.get('team2', '')}")
+                if await self._process_future_game(game):
+                    created_polls += 1
             print(f"✅ Создано {created_polls} опросов")
             
             # ШАГ 3: Создание анонсов
             print(f"\n📢 ШАГ 3: СОЗДАНИЕ АНОНСОВ")
             print("-" * 40)
             sent_announcements = 0
-            current_date = get_moscow_time().strftime('%d.%m.%Y')
-            
-            for game in games:
-                print(f"\n🏀 Проверка игры: {game.get('team1', '')} vs {game.get('team2', '')}")
-                
-                # Проверяем, что это сегодняшняя игра
-                if game.get('date') != current_date:
-                    print(f"📅 Игра не сегодня ({game.get('date')}), пропускаем")
-                    continue
-                
-                if self.should_send_announcement(game):
-                    print(f"📢 Отправляю анонс для игры...")
-                    
-                    # Используем готовую ссылку из Infobasket API, если есть
-                    if game.get('source') == 'infobasket' and game.get('game_link'):
-                        game_link = game.get('game_link')
-                        found_team = None  # Для Infobasket API не определяем команду отдельно
-                        print(f"✅ Используем ссылку из Infobasket API: {game_link}")
-                    else:
-                        # Для letobasket.ru ищем ссылку в табло
-                        team1 = game.get('team1', '')
-                        team2 = game.get('team2', '')
-                        game_link_result = await self.find_game_link(team1, team2)
-                        
-                        if game_link_result and isinstance(game_link_result, tuple):
-                            game_link, found_team = game_link_result
-                            print(f"✅ Игра найдена в табло, отправляем анонс с ссылкой")
-                        else:
-                            game_link = None
-                            found_team = None
-                            print(f"⚠️ Игра не найдена в табло, отправляем анонс без ссылки")
-                    
-                    if await self.send_game_announcement(game, game_link=game_link, found_team=found_team):
-                        sent_announcements += 1
-                        print(f"✅ Анонс отправлен успешно")
-                else:
-                    print(f"⏭️ Анонс для этой игры уже отправлен или не требуется")
-            
-            # Делаем break после обработки всех сегодняшних игр
-            if sent_announcements > 0:
-                print(f"✅ Обработаны все игры на сегодня, завершаем работу")
-            
+            for game in today_games:
+                print(f"\n🏀 Проверка игры (сегодня): {game.get('team1', '')} vs {game.get('team2', '')}")
+                if await self._process_today_game(game):
+                    sent_announcements += 1
             print(f"✅ Отправлено {sent_announcements} анонсов")
             
             # Итоги
             print(f"\n📊 ИТОГИ РАБОТЫ:")
             print(f"   📊 Создано опросов: {created_polls}")
             print(f"   📢 Отправлено анонсов: {sent_announcements}")
-            print(f"   📋 Всего игр обработано: {len(games)}")
+            print(f"   📋 Всего игр обработано: {total_games}")
             
         except Exception as e:
             print(f"❌ Ошибка выполнения системы: {e}")

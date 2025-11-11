@@ -23,7 +23,13 @@ SERVICE_HEADER = [
     "ИД СОРЕВНОВАНИЯ",
     "ИД КОМАНДЫ",
     "АЛЬТЕРНАТИВНОЕ ИМЯ",
-    "НАСТРОЙКИ"
+    "НАСТРОЙКИ",
+    "GAME ID",
+    "GAME DATE",
+    "GAME TIME",
+    "АРЕНА",
+    "TEAM A ID",
+    "TEAM B ID",
 ]
 
 # Индексы колонок (0-based)
@@ -37,6 +43,14 @@ COMP_ID_COL = 6
 TEAM_ID_COL = 7
 ALT_NAME_COL = 8
 CONFIG_COL = 9
+GAME_ID_COL = 10
+GAME_DATE_COL = 11
+GAME_TIME_COL = 12
+ARENA_COL = 13
+TEAM_A_ID_COL = 14
+TEAM_B_ID_COL = 15
+
+END_COLUMN_LETTER = chr(ord('A') + len(SERVICE_HEADER) - 1)
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -99,7 +113,7 @@ class EnhancedDuplicateProtection:
         try:
             header = worksheet.row_values(1)
             if not header:
-                worksheet.update('A1:H1', [SERVICE_HEADER])
+                worksheet.update(f'A1:{END_COLUMN_LETTER}1', [SERVICE_HEADER])
                 return
             
             desired_length = len(SERVICE_HEADER)
@@ -113,8 +127,7 @@ class EnhancedDuplicateProtection:
                     updated = True
             
             if updated:
-                end_column_letter = chr(ord('A') + len(SERVICE_HEADER) - 1)
-                worksheet.update(f'A1:{end_column_letter}1', [header])
+                worksheet.update(f'A1:{END_COLUMN_LETTER}1', [header])
         except Exception as e:
             print(f"⚠️ Не удалось обновить заголовок сервисного листа: {e}")
 
@@ -199,8 +212,25 @@ class EnhancedDuplicateProtection:
         except Exception as e:
             return {'exists': False, 'error': str(e)}
     
-    def add_record(self, data_type: str, identifier: str, status: str = "АКТИВЕН", 
-                   additional_data: str = "", game_link: str = "", **kwargs) -> Dict[str, Any]:
+    def add_record(
+        self,
+        data_type: str,
+        identifier: str,
+        status: str = "АКТИВЕН",
+        additional_data: str = "",
+        game_link: str = "",
+        comp_id: Optional[int] = None,
+        team_id: Optional[int] = None,
+        alt_name: str = "",
+        settings: str = "",
+        game_id: Optional[int] = None,
+        game_date: str = "",
+        game_time: str = "",
+        arena: str = "",
+        team_a_id: Optional[int] = None,
+        team_b_id: Optional[int] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
         """Добавляет новую запись в сервисный лист"""
         worksheet = self._get_service_worksheet()
         if not worksheet:
@@ -230,7 +260,17 @@ class EnhancedDuplicateProtection:
                 unique_key,
                 status,
                 additional_data,
-                game_link
+                game_link,
+                str(comp_id) if comp_id is not None else "",
+                str(team_id) if team_id is not None else "",
+                alt_name,
+                settings,
+                str(game_id) if game_id is not None else "",
+                game_date,
+                game_time,
+                arena,
+                str(team_a_id) if team_a_id is not None else "",
+                str(team_b_id) if team_b_id is not None else "",
             ]
             
             if len(new_record) < len(SERVICE_HEADER):
@@ -370,11 +410,22 @@ class EnhancedDuplicateProtection:
                 if len(row) >= 1 and row[0].upper() == data_type.upper():
                     records.append({
                         'row': i + 1,
-                        'type': row[0],
-                        'date': row[1] if len(row) > 1 else '',
-                        'unique_key': row[2] if len(row) > 2 else '',
-                        'status': row[3] if len(row) > 3 else '',
-                        'additional_data': row[4] if len(row) > 4 else ''
+                        'type': row[TYPE_COL] if len(row) > TYPE_COL else '',
+                        'date': row[DATE_COL] if len(row) > DATE_COL else '',
+                        'unique_key': row[KEY_COL] if len(row) > KEY_COL else '',
+                        'status': row[STATUS_COL] if len(row) > STATUS_COL else '',
+                        'additional_data': row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else '',
+                        'link': row[LINK_COL] if len(row) > LINK_COL else '',
+                        'comp_id': row[COMP_ID_COL] if len(row) > COMP_ID_COL else '',
+                        'team_id': row[TEAM_ID_COL] if len(row) > TEAM_ID_COL else '',
+                        'alt_name': row[ALT_NAME_COL] if len(row) > ALT_NAME_COL else '',
+                        'settings': row[CONFIG_COL] if len(row) > CONFIG_COL else '',
+                        'game_id': row[GAME_ID_COL] if len(row) > GAME_ID_COL else '',
+                        'game_date': row[GAME_DATE_COL] if len(row) > GAME_DATE_COL else '',
+                        'game_time': row[GAME_TIME_COL] if len(row) > GAME_TIME_COL else '',
+                        'arena': row[ARENA_COL] if len(row) > ARENA_COL else '',
+                        'team_a_id': row[TEAM_A_ID_COL] if len(row) > TEAM_A_ID_COL else '',
+                        'team_b_id': row[TEAM_B_ID_COL] if len(row) > TEAM_B_ID_COL else ''
                     })
             
             return records
@@ -382,6 +433,123 @@ class EnhancedDuplicateProtection:
         except Exception as e:
             print(f"❌ Ошибка получения записей: {e}")
             return []
+    
+    def get_game_record(self, data_type: str, game_id: Any) -> Optional[Dict[str, Any]]:
+        """Возвращает запись об игре по GameID"""
+        worksheet = self._get_service_worksheet()
+        if not worksheet:
+            return None
+        
+        try:
+            game_id_str = str(game_id)
+            all_data = worksheet.get_all_values()
+            for row_index, row in enumerate(all_data[1:], start=2):
+                if len(row) <= max(GAME_ID_COL, TYPE_COL):
+                    continue
+                if row[TYPE_COL].upper() != data_type.upper():
+                    continue
+                if row[GAME_ID_COL] == game_id_str:
+                    return {
+                        'row': row_index,
+                        'type': row[TYPE_COL],
+                        'date': row[DATE_COL],
+                        'unique_key': row[KEY_COL],
+                        'status': row[STATUS_COL],
+                        'additional_data': row[ADDITIONAL_DATA_COL],
+                        'link': row[LINK_COL],
+                        'comp_id': row[COMP_ID_COL],
+                        'team_id': row[TEAM_ID_COL],
+                        'alt_name': row[ALT_NAME_COL],
+                        'settings': row[CONFIG_COL],
+                        'game_id': row[GAME_ID_COL],
+                        'game_date': row[GAME_DATE_COL],
+                        'game_time': row[GAME_TIME_COL],
+                        'arena': row[ARENA_COL],
+                        'team_a_id': row[TEAM_A_ID_COL],
+                        'team_b_id': row[TEAM_B_ID_COL],
+                    }
+            return None
+        except Exception as e:
+            print(f"⚠️ Ошибка поиска записи игры: {e}")
+            return None
+    
+    def upsert_game_record(
+        self,
+        data_type: str,
+        identifier: str,
+        status: str,
+        additional_data: str,
+        game_link: str,
+        comp_id: Optional[int],
+        team_id: Optional[int],
+        alt_name: str,
+        settings: str,
+        game_id: Any,
+        game_date: str,
+        game_time: str,
+        arena: str,
+        team_a_id: Optional[int],
+        team_b_id: Optional[int],
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Создает или обновляет запись об игре"""
+        worksheet = self._get_service_worksheet()
+        if not worksheet:
+            return {'success': False, 'error': 'Лист не найден'}
+        
+        try:
+            game_id_str = str(game_id) if game_id is not None else ""
+            existing = self.get_game_record(data_type, game_id_str) if game_id_str else None
+            unique_key = existing.get('unique_key') if existing else self._create_unique_key(data_type, identifier, **kwargs)
+            current_datetime = self._get_current_datetime()
+            
+            row_values = [
+                data_type.upper(),
+                current_datetime,
+                unique_key,
+                status,
+                additional_data,
+                game_link,
+                str(comp_id) if comp_id is not None else "",
+                str(team_id) if team_id is not None else "",
+                alt_name,
+                settings,
+                game_id_str,
+                game_date,
+                game_time,
+                arena,
+                str(team_a_id) if team_a_id is not None else "",
+                str(team_b_id) if team_b_id is not None else "",
+            ]
+            
+            if existing:
+                row_index = existing['row']
+                worksheet.update(f"A{row_index}:{END_COLUMN_LETTER}{row_index}", [row_values])
+                print(f"🔄 Обновлена запись {data_type} для GameID {game_id_str}")
+                return {'success': True, 'action': 'updated', 'row': row_index}
+            
+            result = self.add_record(
+                data_type=data_type,
+                identifier=identifier,
+                status=status,
+                additional_data=additional_data,
+                game_link=game_link,
+                comp_id=comp_id,
+                team_id=team_id,
+                alt_name=alt_name,
+                settings=settings,
+                game_id=game_id,
+                game_date=game_date,
+                game_time=game_time,
+                arena=arena,
+                team_a_id=team_a_id,
+                team_b_id=team_b_id,
+                **kwargs,
+            )
+            result['action'] = 'inserted' if result.get('success') else 'error'
+            return result
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
     
     def get_active_records(self, data_type: str) -> List[Dict[str, Any]]:
         """Получает активные записи определенного типа"""

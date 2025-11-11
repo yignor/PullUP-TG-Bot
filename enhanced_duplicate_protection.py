@@ -754,26 +754,29 @@ class EnhancedDuplicateProtection:
             return {}
 
     def get_full_config(self) -> Dict[str, Any]:
+        config_data = self._read_config_from_config_sheet()
+        if config_data.get('has_data'):
+            return config_data['payload']
+
+        print(f"⚠️ Лист '{CONFIG_WORKSHEET_NAME}' пуст — читаем настройки из 'Сервисного' (временный режим)")
+        return self._read_config_from_service_sheet()
+
+    def _read_config_from_config_sheet(self) -> Dict[str, Any]:
         worksheet = self.config_worksheet
+        payload = {
+            'comp_ids': set(),
+            'team_ids': set(),
+            'teams': {},
+            'training_polls': [],
+            'fallback_sources': []
+        }
         if not worksheet:
-            return {
-                'comp_ids': set(),
-                'team_ids': set(),
-                'teams': {},
-                'training_polls': [],
-                'fallback_sources': []
-            }
+            return {'has_data': False, 'payload': payload}
 
         try:
             all_data = worksheet.get_all_values()
-            if not all_data:
-                return {
-                    'comp_ids': set(),
-                    'team_ids': set(),
-                    'teams': {},
-                    'training_polls': [],
-                    'fallback_sources': []
-                }
+            if not all_data or len(all_data) <= 1:
+                return {'has_data': False, 'payload': payload}
 
             comp_ids: Set[int] = set()
             team_ids: Set[int] = set()
@@ -825,7 +828,116 @@ class EnhancedDuplicateProtection:
                         "url": fallback_url,
                         "metadata": config_payload
                     }
+                    if fallback_entry["url"] or fallback_entry["name"]:
+                        fallback_sources.append(fallback_entry)
+
+            for team in teams.values():
+                if isinstance(team.get("comp_ids"), set):
+                    team["comp_ids"] = sorted(team["comp_ids"])
+                if not team.get("metadata"):
+                    team.pop("metadata", None)
+                if not team.get("alt_name"):
+                    team.pop("alt_name", None)
+
+            has_data = bool(comp_ids or team_ids or teams or training_polls or fallback_sources)
+            payload.update({
+                'comp_ids': comp_ids,
+                'team_ids': team_ids,
+                'teams': teams,
+                'training_polls': training_polls,
+                'fallback_sources': fallback_sources,
+            })
+            return {'has_data': has_data, 'payload': payload}
+        except Exception as e:
+            print(f"⚠️ Ошибка чтения конфигурации из листа '{CONFIG_WORKSHEET_NAME}': {e}")
+            return {'has_data': False, 'payload': payload}
+
+    def _read_config_from_service_sheet(self) -> Dict[str, Any]:
+        worksheet = self._get_service_worksheet()
+        if not worksheet:
+            return {
+                'comp_ids': set(),
+                'team_ids': set(),
+                'teams': {},
+                'training_polls': [],
+                'fallback_sources': []
+            }
+
+        try:
+            all_data = worksheet.get_all_values()
+            if not all_data:
+                return {
+                    'comp_ids': set(),
+                    'team_ids': set(),
+                    'teams': {},
+                    'training_polls': [],
+                    'fallback_sources': []
+                }
+
+            comp_ids: Set[int] = set()
+            team_ids: Set[int] = set()
+            teams: Dict[int, Dict[str, Any]] = {}
+            training_polls: List[Dict[str, Any]] = []
+            fallback_sources: List[Dict[str, Any]] = []
+
+            for row in all_data[1:]:
+                if len(row) <= TYPE_COL:
+                    continue
+
+                row_type = (row[TYPE_COL] or "").strip().upper()
+                if not row_type:
+                    continue
+
+                row_comp_ids = self._parse_ids(row[COMP_ID_COL]) if len(row) > COMP_ID_COL else []
+                row_team_ids = self._parse_ids(row[TEAM_ID_COL]) if len(row) > TEAM_ID_COL else []
+                alt_name = (row[ALT_NAME_COL] or "").strip() if len(row) > ALT_NAME_COL else ""
+                config_payload = self._parse_json_config(row[CONFIG_COL] if len(row) > CONFIG_COL else "")
+
+                if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_COMP", "COMP_CONFIG"}:
+                    comp_ids.update(row_comp_ids)
+
+                if row_type in {"CONFIG", "CONFIG_IDS", "CONFIG_ROW", "CONFIG_TEAM", "TEAM_CONFIG"}:
+                    comp_ids.update(row_comp_ids)
+                    for team_id in row_team_ids:
+                        team_ids.add(team_id)
+                        team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
+                        if alt_name:
+                            team_entry["alt_name"] = alt_name
+                        if row_comp_ids:
+                            team_entry["comp_ids"].update(row_comp_ids)
+                        if config_payload:
+                            team_entry["metadata"].update(config_payload)
+
+                elif row_type in {"TRAINING_POLL", "TRAINING_CONFIG"}:
+                    training_entry = {
+                        "title": config_payload.get("title") or (row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else ""),
+                        "weekday": config_payload.get("weekday"),
+                        "time": config_payload.get("time") or (row[STATUS_COL] if len(row) > STATUS_COL else ""),
+                        "location": config_payload.get("location") or (row[LINK_COL] if len(row) > LINK_COL else ""),
+                        "topic_id": config_payload.get("topic_id"),
+                        "metadata": config_payload
+                    }
+                    training_polls.append(training_entry)
+
+                elif row_type in {"FALLBACK", "FALLBACK_SOURCE", "FALLBACK_CONFIG"}:
+                    fallback_entry = {
+                        "name": config_payload.get("name") or alt_name or (row[ADDITIONAL_DATA_COL] if len(row) > ADDITIONAL_DATA_COL else ""),
+                        "url": config_payload.get("url") or (row[LINK_COL] if len(row) > LINK_COL else ""),
+                        "metadata": config_payload
+                    }
                     fallback_sources.append(fallback_entry)
+
+                else:
+                    if row_comp_ids:
+                        comp_ids.update(row_comp_ids)
+                    if row_team_ids:
+                        for team_id in row_team_ids:
+                            team_ids.add(team_id)
+                            team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
+                            if alt_name:
+                                team_entry["alt_name"] = alt_name
+                            if config_payload:
+                                team_entry["metadata"].update(config_payload)
 
             for team in teams.values():
                 if isinstance(team.get("comp_ids"), set):
@@ -840,10 +952,10 @@ class EnhancedDuplicateProtection:
                 'team_ids': team_ids,
                 'teams': teams,
                 'training_polls': training_polls,
-                'fallback_sources': fallback_sources,
+                'fallback_sources': fallback_sources
             }
         except Exception as e:
-            print(f"⚠️ Ошибка чтения конфигурации из листа '{CONFIG_WORKSHEET_NAME}': {e}")
+            print(f"⚠️ Ошибка чтения конфигурации из сервисного листа: {e}")
             return {
                 'comp_ids': set(),
                 'team_ids': set(),

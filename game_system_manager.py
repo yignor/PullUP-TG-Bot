@@ -107,8 +107,9 @@ def get_team_category_by_type(team_type: Optional[str]) -> str:
         mapping = {
             "farm_team": "Команда",
             "first_team": "Команда",
+            "configured": "Команда",
         }
-        return mapping.get(normalized, normalized)
+        return mapping.get(normalized, normalized if normalized else "Команда")
     return "Команда"
 
 

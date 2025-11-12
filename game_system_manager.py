@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import json
 import re
+import uuid
 from urllib.parse import urljoin
 from typing import Any, Dict, List, Optional, Sequence, Set, cast
 from datetime_utils import get_moscow_time, is_today, log_current_time
@@ -17,6 +18,7 @@ from info_basket_client import InfoBasketClient
 from infobasket_smart_parser import InfobasketSmartParser
 from comp_names import get_comp_name
 from typing import TYPE_CHECKING
+import io
 
 if TYPE_CHECKING:
     from telegram import Bot
@@ -284,6 +286,79 @@ class GameSystemManager:
                     return display_name.strip()
         return fallback.strip() if isinstance(fallback, str) else fallback
     
+    @staticmethod
+    def _escape_ics_text(text: Optional[str]) -> str:
+        if not text:
+            return ""
+        escaped = str(text).replace('\\', '\\\\').replace('\n', '\\n')
+        escaped = escaped.replace('\r', '').replace(',', '\\,').replace(';', '\\;')
+        return escaped
+
+    @staticmethod
+    def _sanitize_filename(text: Optional[str]) -> str:
+        if not text:
+            return "event"
+        sanitized = re.sub(r"[^0-9A-Za-zА-Яа-я\-_]+", "_", text.strip())
+        return sanitized or "event"
+
+    def _build_game_calendar_payload(
+        self,
+        game_info: Dict[str, Any],
+        team_label: str,
+        opponent: str,
+        form_color: str,
+    ) -> Optional[tuple]:
+        date_str = game_info.get('date')
+        time_raw = self._normalize_time_string(game_info.get('time'))
+        if not date_str or not time_raw:
+            return None
+        try:
+            start_dt = datetime.datetime.strptime(f"{date_str} {time_raw}", "%d.%m.%Y %H:%M")
+        except ValueError:
+            try:
+                start_dt = datetime.datetime.strptime(f"{date_str} {time_raw}", "%d.%m.%Y %H.%M")
+            except ValueError:
+                print(f"⚠️ Не удалось разобрать дату/время для iCal: {date_str} {time_raw}")
+                return None
+        end_dt = start_dt + datetime.timedelta(hours=2)
+        summary = f"{team_label} vs {opponent}".strip()
+        location = game_info.get('venue') or ''
+        description_parts = [f"Форма: {form_color}"]
+        game_link = game_info.get('game_link')
+        if isinstance(game_link, str) and game_link.strip():
+            description_parts.append(f"Ссылка: {game_link.strip()}")
+        description = "\n".join(description_parts)
+        uid_source = game_info.get('game_id') or uuid.uuid4()
+        uid = f"{uid_source}@telegram-game-bot"
+        dtstamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        start_str = start_dt.strftime("%Y%m%dT%H%M%S")
+        end_str = end_dt.strftime("%Y%m%dT%H%M%S")
+
+        ics_lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//Telegram Game Bot//Calendar//RU",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART;TZID=Europe/Moscow:{start_str}",
+            f"DTEND;TZID=Europe/Moscow:{end_str}",
+            f"SUMMARY:{self._escape_ics_text(summary)}",
+            f"LOCATION:{self._escape_ics_text(location)}",
+            f"DESCRIPTION:{self._escape_ics_text(description)}",
+            "END:VEVENT",
+            "END:VCALENDAR",
+            "",
+        ]
+
+        content = "\r\n".join(ics_lines)
+        filename_base = self._sanitize_filename(summary)
+        filename = f"{start_dt.strftime('%Y%m%d')}-{filename_base}.ics"
+        caption = f"Добавьте игру {summary} в календарь"
+        return io.BytesIO(content.encode('utf-8')), filename, caption
+    
     def find_target_teams_in_text(self, text: str) -> List[str]:
         """Находит целевые команды в тексте"""
         found_teams: List[str] = []
@@ -531,6 +606,45 @@ class GameSystemManager:
             team_b_id=game_info.get('team2_id'),
         )
     
+    async def _send_calendar_event(
+        self,
+        bot: Any,
+        game_info: Dict[str, Any],
+        team_label: str,
+        opponent: str,
+        form_color: str,
+    ) -> None:
+        if not CHAT_ID:
+            print("⚠️ CHAT_ID отсутствует, пропускаем отправку календаря")
+            return
+
+        game_id = str(game_info.get('game_id') or '')
+        if game_id:
+            existing_calendar = duplicate_protection.get_game_record("КАЛЕНДАРЬ_ИГРА", game_id)
+            if existing_calendar and self._game_record_matches(existing_calendar, game_info):
+                print(f"⏭️ Календарное событие для GameID {game_id} уже отправлено")
+                return
+
+        payload = self._build_game_calendar_payload(game_info, team_label, opponent, form_color)
+        if not payload:
+            print("⚠️ Не удалось сформировать данные для календаря")
+            return
+
+        stream, filename, caption = payload
+        stream.seek(0)
+
+        try:
+            await bot.send_document(
+                chat_id=int(CHAT_ID),
+                document=stream,
+                filename=filename,
+                caption=caption,
+            )
+            print(f"📆 Отправлено календарное событие {filename}")
+            self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
+        except Exception as e:
+            print(f"⚠️ Ошибка отправки календарного события: {e}")
+
     def _should_schedule_future_game(self, game_info: Dict[str, Any]) -> bool:
         try:
             game_date = datetime.datetime.strptime(game_info['date'], '%d.%m.%Y').date()
@@ -1003,6 +1117,8 @@ class GameSystemManager:
                     )
                 else:
                     raise e
+            
+            await self._send_calendar_event(bot, game_info, team_label, opponent, form_color)
             
             # Сохраняем информацию об опросе
             poll_info = {

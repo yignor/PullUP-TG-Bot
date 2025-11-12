@@ -4,6 +4,7 @@
 Выполняет последовательно: парсинг → создание опросов → создание анонсов
 """
 
+import io
 import os
 import asyncio
 import datetime
@@ -12,13 +13,13 @@ import re
 import uuid
 from urllib.parse import urljoin
 from typing import Any, Dict, List, Optional, Sequence, Set, cast
+from zoneinfo import ZoneInfo
 from datetime_utils import get_moscow_time, is_today, log_current_time
 from enhanced_duplicate_protection import duplicate_protection
 from info_basket_client import InfoBasketClient
 from infobasket_smart_parser import InfobasketSmartParser
 from comp_names import get_comp_name
 from typing import TYPE_CHECKING
-import io
 
 if TYPE_CHECKING:
     from telegram import Bot
@@ -313,13 +314,15 @@ class GameSystemManager:
         if not date_str or not time_raw:
             return None
         try:
-            start_dt = datetime.datetime.strptime(f"{date_str} {time_raw}", "%d.%m.%Y %H:%M")
+            naive_start = datetime.datetime.strptime(f"{date_str} {time_raw}", "%d.%m.%Y %H:%M")
         except ValueError:
             try:
-                start_dt = datetime.datetime.strptime(f"{date_str} {time_raw}", "%d.%m.%Y %H.%M")
+                naive_start = datetime.datetime.strptime(f"{date_str} {time_raw}", "%d.%m.%Y %H.%M")
             except ValueError:
                 print(f"⚠️ Не удалось разобрать дату/время для iCal: {date_str} {time_raw}")
                 return None
+        moscow_tz = ZoneInfo('Europe/Moscow')
+        start_dt = naive_start.replace(tzinfo=moscow_tz)
         end_dt = start_dt + datetime.timedelta(hours=2)
         summary = f"{team_label} vs {opponent}".strip()
         location = game_info.get('venue') or ''
@@ -340,6 +343,17 @@ class GameSystemManager:
             "PRODID:-//Telegram Game Bot//Calendar//RU",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
+            "X-WR-TIMEZONE:Europe/Moscow",
+            "BEGIN:VTIMEZONE",
+            "TZID:Europe/Moscow",
+            "X-LIC-LOCATION:Europe/Moscow",
+            "BEGIN:STANDARD",
+            "TZOFFSETFROM:+0300",
+            "TZOFFSETTO:+0300",
+            "TZNAME:MSK",
+            "DTSTART:19700101T000000",
+            "END:STANDARD",
+            "END:VTIMEZONE",
             "BEGIN:VEVENT",
             f"UID:{uid}",
             f"DTSTAMP:{dtstamp}",
@@ -348,6 +362,7 @@ class GameSystemManager:
             f"SUMMARY:{self._escape_ics_text(summary)}",
             f"LOCATION:{self._escape_ics_text(location)}",
             f"DESCRIPTION:{self._escape_ics_text(description)}",
+            "STATUS:CONFIRMED",
             "END:VEVENT",
             "END:VCALENDAR",
             "",

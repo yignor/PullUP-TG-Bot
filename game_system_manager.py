@@ -646,25 +646,29 @@ class GameSystemManager:
             return
 
         stream, filename, caption = payload
+        ics_bytes = stream.getvalue()
         deep_link = None
         try:
             import urllib.parse
 
-            encoded = urllib.parse.quote(payload[0].getvalue().decode('utf-8'), safe='')
+            encoded = urllib.parse.quote(ics_bytes.decode('utf-8'), safe='')
             deep_link = f"https://calendar.google.com/calendar/render?cid=data:text/calendar,{encoded}"
-            caption = f"{caption}\nДобавить через браузер: {deep_link}"
-            # Пересоздаем поток, так как getvalue() мог перемотать позицию
-            stream = io.BytesIO(payload[0].getvalue())
-            stream.seek(0)
         except Exception as e:
             print(f"⚠️ Не удалось подготовить глубокую ссылку для календаря: {e}")
-            stream.seek(0)
 
+        stream = io.BytesIO(ics_bytes)
+        stream.name = filename
+        try:
+            from telegram import InputFile
+
+            document = InputFile(stream, filename=filename)
+        except Exception:
+            document = stream
+ 
         try:
             send_kwargs: Dict[str, Any] = {
                 "chat_id": int(CHAT_ID),
-                "document": stream,
-                "filename": filename,
+                "document": document,
                 "caption": caption,
             }
             if GAMES_TOPIC_ID:
@@ -676,6 +680,18 @@ class GameSystemManager:
             await bot.send_document(**send_kwargs)
             print(f"📆 Отправлено календарное событие {filename}")
             self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
+
+            if deep_link:
+                link_kwargs: Dict[str, Any] = {
+                    "chat_id": int(CHAT_ID),
+                    "text": f"Добавить через браузер: {deep_link}",
+                }
+                if GAMES_TOPIC_ID:
+                    try:
+                        link_kwargs["message_thread_id"] = int(GAMES_TOPIC_ID)
+                    except ValueError:
+                        pass
+                await bot.send_message(**link_kwargs)
         except Exception as e:
             print(f"⚠️ Ошибка отправки календарного события: {e}")
 

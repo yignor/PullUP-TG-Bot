@@ -646,7 +646,19 @@ class GameSystemManager:
             return
 
         stream, filename, caption = payload
-        stream.seek(0)
+        deep_link = None
+        try:
+            import urllib.parse
+
+            encoded = urllib.parse.quote(payload[0].getvalue().decode('utf-8'), safe='')
+            deep_link = f"https://calendar.google.com/calendar/render?cid=data:text/calendar,{encoded}"
+            caption = f"{caption}\nДобавить через браузер: {deep_link}"
+            # Пересоздаем поток, так как getvalue() мог перемотать позицию
+            stream = io.BytesIO(payload[0].getvalue())
+            stream.seek(0)
+        except Exception as e:
+            print(f"⚠️ Не удалось подготовить глубокую ссылку для календаря: {e}")
+            stream.seek(0)
 
         try:
             send_kwargs: Dict[str, Any] = {

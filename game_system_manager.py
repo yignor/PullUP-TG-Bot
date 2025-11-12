@@ -1475,7 +1475,7 @@ class GameSystemManager:
         team_category = get_team_category_with_declension(game_info.get('team_type'))
         normalized_time = game_info['time'].replace('.', ':')
         announcement = (
-            f"🏀 Сегодня игра {team_category} {our_team} против {opponent}.\n"
+            f"🏀 Сегодня игра {our_team} против {opponent}.\n"
             f"📍 Место проведения: {game_info['venue']}\n"
             f"🕐 Время игры: {normalized_time}"
         )

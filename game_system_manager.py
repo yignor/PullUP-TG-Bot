@@ -1537,7 +1537,7 @@ class GameSystemManager:
                 result_text = "РЕЗУЛЬТАТ"
             
             message = (
-                f"{result_emoji} {result_text} игры {team_category}:\n"
+                f"{result_emoji} {result_text}: {our_team} против {opponent}\n"
                 f"🏀 {our_team} {our_score}:{opponent_score} {opponent}\n"
                 f"📅 {game_info.get('date', '')} в {game_info.get('time', '').replace('.', ':')}\n"
             )

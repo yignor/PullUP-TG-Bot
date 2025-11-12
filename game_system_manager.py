@@ -700,7 +700,7 @@ class GameSystemManager:
                         link_kwargs.pop("message_thread_id", None)
                         await bot.send_message(**link_kwargs)
                     else:
-                        print(f"⚠️ Не удалось отправить ссылку на Shortcut: {secondary_error}")
+                        raise secondary_error
  
         except Exception as e:
             print(f"⚠️ Ошибка отправки календарного события: {e}")

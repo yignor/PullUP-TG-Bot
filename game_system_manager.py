@@ -30,6 +30,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
+IOS_SHORTCUT_URL = os.getenv("IOS_SHORTCUT_URL")
 
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
@@ -647,15 +648,6 @@ class GameSystemManager:
 
         stream, filename, caption = payload
         ics_bytes = stream.getvalue()
-        deep_link = None
-        try:
-            import urllib.parse
-
-            encoded = urllib.parse.quote(ics_bytes.decode('utf-8'), safe='')
-            deep_link = f"https://calendar.google.com/calendar/render?cid=data:text/calendar,{encoded}"
-        except Exception as e:
-            print(f"⚠️ Не удалось подготовить глубокую ссылку для календаря: {e}")
-
         stream = io.BytesIO(ics_bytes)
         stream.name = filename
         try:
@@ -665,6 +657,9 @@ class GameSystemManager:
         except Exception:
             document = stream
  
+        if IOS_SHORTCUT_URL:
+            caption = f"{caption}\nДобавить в iOS через Shortcut: {IOS_SHORTCUT_URL}"
+
         try:
             send_kwargs: Dict[str, Any] = {
                 "chat_id": int(CHAT_ID),
@@ -680,18 +675,6 @@ class GameSystemManager:
             await bot.send_document(**send_kwargs)
             print(f"📆 Отправлено календарное событие {filename}")
             self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
-
-            if deep_link:
-                link_kwargs: Dict[str, Any] = {
-                    "chat_id": int(CHAT_ID),
-                    "text": f"Добавить через браузер: {deep_link}",
-                }
-                if GAMES_TOPIC_ID:
-                    try:
-                        link_kwargs["message_thread_id"] = int(GAMES_TOPIC_ID)
-                    except ValueError:
-                        pass
-                await bot.send_message(**link_kwargs)
         except Exception as e:
             print(f"⚠️ Ошибка отправки календарного события: {e}")
 

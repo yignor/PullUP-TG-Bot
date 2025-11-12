@@ -269,6 +269,21 @@ class GameSystemManager:
                 keyword_sources.add(name.strip())
         self.team_name_keywords = sorted(keyword_sources)
     
+    def _resolve_team_name(self, team_id: Optional[int], fallback: Optional[str] = None) -> Optional[str]:
+        if team_id is None:
+            return fallback
+        config = self.team_configs.get(team_id) if isinstance(self.team_configs, dict) else None
+        if isinstance(config, dict):
+            alt_name = config.get('alt_name')
+            if isinstance(alt_name, str) and alt_name.strip():
+                return alt_name.strip()
+            metadata = config.get('metadata') if isinstance(config, dict) else {}
+            if isinstance(metadata, dict):
+                display_name = metadata.get('display_name')
+                if isinstance(display_name, str) and display_name.strip():
+                    return display_name.strip()
+        return fallback.strip() if isinstance(fallback, str) else fallback
+    
     def find_target_teams_in_text(self, text: str) -> List[str]:
         """Находит целевые команды в тексте"""
         found_teams: List[str] = []
@@ -386,11 +401,11 @@ class GameSystemManager:
 
                         if our_team_id is not None:
                             if our_team_id == team1_id:
-                                our_team_name = game.get('ShortTeamNameAru')
-                                opponent_team_name = game.get('ShortTeamNameBru')
+                                our_team_name = self._resolve_team_name(our_team_id, game.get('ShortTeamNameAru'))
+                                opponent_team_name = self._resolve_team_name(opponent_team_id, game.get('ShortTeamNameBru'))
                             elif our_team_id == team2_id:
-                                our_team_name = game.get('ShortTeamNameBru')
-                                opponent_team_name = game.get('ShortTeamNameAru')
+                                our_team_name = self._resolve_team_name(our_team_id, game.get('ShortTeamNameBru'))
+                                opponent_team_name = self._resolve_team_name(opponent_team_id, game.get('ShortTeamNameAru'))
 
                         if our_team_id is not None and our_team_name:
                             self.team_names_by_id[our_team_id] = our_team_name
@@ -878,17 +893,20 @@ class GameSystemManager:
             # Определяем нашу команду и соперника
             team1 = game_info.get('team1', '')
             team2 = game_info.get('team2', '')
+            team1_id = self._to_int(game_info.get('team1_id'))
+            team2_id = self._to_int(game_info.get('team2_id'))
             
             # Находим нашу команду и соперника, опираясь на данные API
             our_team = game_info.get('our_team_name')
             opponent = game_info.get('opponent_team_name')
-            our_team_id = game_info.get('our_team_id')
+            our_team_id = self._to_int(game_info.get('our_team_id'))
+            opponent_team_id = self._to_int(game_info.get('opponent_team_id'))
             
             if not our_team and our_team_id:
-                if our_team_id == game_info.get('team1_id'):
+                if our_team_id == team1_id:
                     our_team = team1
                     opponent = opponent or team2
-                elif our_team_id == game_info.get('team2_id'):
+                elif our_team_id == team2_id:
                     our_team = team2
                     opponent = opponent or team1
             
@@ -896,12 +914,33 @@ class GameSystemManager:
                 our_team = team1
                 opponent = opponent or team2
             
+            if our_team_id is not None:
+                if our_team_id == team1_id:
+                    fallback_name = team1
+                elif our_team_id == team2_id:
+                    fallback_name = team2
+                else:
+                    fallback_name = our_team
+                our_team = self._resolve_team_name(our_team_id, fallback_name)
+
+            if opponent_team_id is not None:
+                if opponent_team_id == team1_id:
+                    fallback_opponent = team1
+                elif opponent_team_id == team2_id:
+                    fallback_opponent = team2
+                else:
+                    fallback_opponent = opponent
+                opponent = self._resolve_team_name(opponent_team_id, fallback_opponent)
+
+            if not opponent:
+                opponent = team2 if our_team == team1 else team1
+
             if not our_team:
                 print(f"❌ Не удалось определить нашу команду в игре")
                 return None
             
-            # Определяем категорию команды
-            team_category = get_team_category_by_type(game_info.get('team_type'))
+            # Определяем название команды для заголовка
+            team_label = our_team.strip() if isinstance(our_team, str) and our_team.strip() else get_team_category_by_type(game_info.get('team_type'))
             day_of_week = get_day_of_week(game_info['date'])
             
             # Определяем цвет формы
@@ -919,7 +958,7 @@ class GameSystemManager:
 
             # Формируем вопрос в новом многострочном формате
             question = (
-                f"🏀 {team_category} против {opponent}{comp_suffix}\n"
+                f"🏀 {team_label} против {opponent}{comp_suffix}\n"
                 f"📅 {date_short}, {day_of_week}, {game_info['time']}\n"
                 f"👕 {form_color} форма\n"
                 f"📍 {game_info['venue']}"
@@ -974,7 +1013,7 @@ class GameSystemManager:
                 'game_info': game_info,
                 'our_team': our_team,
                 'opponent': opponent,
-                'team_category': team_category,
+                'team_category': team_label,
                 'day_of_week': day_of_week,
                 'date': get_moscow_time().isoformat(),
                 'chat_id': CHAT_ID,
@@ -995,7 +1034,7 @@ class GameSystemManager:
             print(f"📅 Дата: {game_info['date']}")
             print(f"🕐 Время: {game_info['time']}")
             print(f"📍 Место: {game_info['venue']}")
-            print(f"👥 Категория: {team_category}")
+            print(f"👥 Категория: {team_label}")
             print(f"👥 Наша команда: {our_team}")
             print(f"👥 Соперник: {opponent}")
             

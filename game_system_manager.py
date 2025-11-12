@@ -666,13 +666,24 @@ class GameSystemManager:
                 "document": document,
                 "caption": caption,
             }
+            message_thread_id: Optional[int] = None
             if GAMES_TOPIC_ID:
                 try:
-                    send_kwargs["message_thread_id"] = int(GAMES_TOPIC_ID)
+                    message_thread_id = int(GAMES_TOPIC_ID)
+                    send_kwargs["message_thread_id"] = message_thread_id
                 except ValueError:
                     pass
-
-            await bot.send_document(**send_kwargs)
+ 
+            try:
+                await bot.send_document(**send_kwargs)
+            except Exception as primary_error:
+                if message_thread_id is not None and "Message thread not found" in str(primary_error):
+                    print(f"⚠️ Топик {message_thread_id} не найден, отправляем календарь в основной чат")
+                    send_kwargs.pop("message_thread_id", None)
+                    await bot.send_document(**send_kwargs)
+                else:
+                    raise primary_error
+ 
             print(f"📆 Отправлено календарное событие {filename}")
             self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
         except Exception as e:

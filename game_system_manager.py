@@ -30,8 +30,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
-IOS_SHORTCUT_URL = os.getenv("IOS_SHORTCUT_URL")
-IOS_SHORTCUT_NAME = os.getenv("IOS_SHORTCUT_NAME")
 
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
@@ -374,7 +372,7 @@ class GameSystemManager:
         filename_base = self._sanitize_filename(summary)
         filename = f"{start_dt.strftime('%Y%m%d')}-{filename_base}.ics"
         caption = f"Добавьте игру {summary} в календарь"
-        return io.BytesIO(content.encode('utf-8')), filename, caption, content
+        return io.BytesIO(content.encode('utf-8')), filename, caption
     
     def find_target_teams_in_text(self, text: str) -> List[str]:
         """Находит целевые команды в тексте"""
@@ -647,7 +645,7 @@ class GameSystemManager:
             print("⚠️ Не удалось сформировать данные для календаря")
             return
 
-        stream, filename, caption, ics_text = payload
+        stream, filename, caption = payload
         ics_bytes = stream.getvalue()
         stream = io.BytesIO(ics_bytes)
         stream.name = filename
@@ -657,7 +655,7 @@ class GameSystemManager:
             document = InputFile(stream, filename=filename)
         except Exception:
             document = stream
- 
+
         try:
             send_kwargs: Dict[str, Any] = {
                 "chat_id": int(CHAT_ID),
@@ -671,7 +669,7 @@ class GameSystemManager:
                     send_kwargs["message_thread_id"] = message_thread_id
                 except ValueError:
                     pass
- 
+
             try:
                 await bot.send_document(**send_kwargs)
             except Exception as primary_error:
@@ -681,46 +679,13 @@ class GameSystemManager:
                     await bot.send_document(**send_kwargs)
                 else:
                     raise primary_error
- 
+
             print(f"📆 Отправлено календарное событие {filename}")
             self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
- 
-            link_targets: List[tuple[str, str]] = []
-            if IOS_SHORTCUT_URL:
-                link_targets.append(("Инструкция по Shortcut", IOS_SHORTCUT_URL))
 
-            if IOS_SHORTCUT_NAME and ics_text:
-                try:
-                    import urllib.parse
-
-                    encoded_shortcut_name = urllib.parse.quote(IOS_SHORTCUT_NAME)
-                    encoded_ics = urllib.parse.quote(ics_text, safe='')
-                    shortcut_deep_link = (
-                        f"shortcuts://run-shortcut?name={encoded_shortcut_name}&input=text&text={encoded_ics}"
-                    )
-                    link_targets.append(("Запустить Shortcut", shortcut_deep_link))
-                except Exception as e:
-                    print(f"⚠️ Не удалось подготовить Shortcut глубокую ссылку: {e}")
-
-            for link_label, link_url in link_targets:
-                link_kwargs: Dict[str, Any] = {
-                    "chat_id": int(CHAT_ID),
-                    "text": f"{link_label}: {link_url}",
-                }
-                if message_thread_id is not None:
-                    link_kwargs["message_thread_id"] = message_thread_id
-                try:
-                    await bot.send_message(**link_kwargs)
-                except Exception as secondary_error:
-                    if message_thread_id is not None and "Message thread not found" in str(secondary_error):
-                        print(f"⚠️ Топик {message_thread_id} не найден, отправляем Shortcut в основной чат")
-                        link_kwargs.pop("message_thread_id", None)
-                        await bot.send_message(**link_kwargs)
-                    else:
-                        print(f"⚠️ Не удалось отправить Shortcut ссылку ({link_label}): {secondary_error}")
- 
         except Exception as e:
             print(f"⚠️ Ошибка отправки календарного события: {e}")
+
 
     def _should_schedule_future_game(self, game_info: Dict[str, Any]) -> bool:
         try:

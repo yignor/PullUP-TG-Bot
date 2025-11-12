@@ -12,7 +12,7 @@ import json
 import re
 import uuid
 from urllib.parse import urljoin
-from typing import Any, Dict, List, Optional, Sequence, Set, cast
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 from zoneinfo import ZoneInfo
 from datetime_utils import get_moscow_time, is_today, log_current_time
 from enhanced_duplicate_protection import duplicate_protection
@@ -286,6 +286,16 @@ class GameSystemManager:
                 if isinstance(display_name, str) and display_name.strip():
                     return display_name.strip()
         return fallback.strip() if isinstance(fallback, str) else fallback
+    
+    def _get_team_display_name(self, team_id: Optional[int], fallback: Optional[str] = None) -> str:
+        resolved = self._resolve_team_name(team_id, fallback)
+        if resolved:
+            return resolved
+        if isinstance(fallback, str) and fallback.strip():
+            return fallback.strip()
+        if team_id is None:
+            return ""
+        return str(team_id)
     
     @staticmethod
     def _escape_ics_text(text: Optional[str]) -> str:
@@ -602,6 +612,83 @@ class GameSystemManager:
             and record_team_b == game_team_b
         )
 
+    def _detect_game_changes(
+        self,
+        existing_record: Dict[str, Any],
+        game_info: Dict[str, Any]
+    ) -> Dict[str, Tuple[str, str]]:
+        changes: Dict[str, Tuple[str, str]] = {}
+
+        old_date = (existing_record.get('game_date') or '').strip()
+        new_date = (game_info.get('date') or '').strip()
+        if new_date and old_date != new_date:
+            changes['date'] = (old_date, new_date)
+
+        old_time = self._normalize_time_string(existing_record.get('game_time'))
+        new_time = self._normalize_time_string(game_info.get('time'))
+        if new_time and old_time != new_time:
+            changes['time'] = (old_time, new_time)
+
+        old_arena = (existing_record.get('arena') or '').strip()
+        new_arena = (game_info.get('venue') or '').strip()
+        if new_arena and old_arena != new_arena:
+            changes['arena'] = (old_arena, new_arena)
+
+        our_old_id = self._to_int(existing_record.get('team_id'))
+        old_team_a = self._to_int(existing_record.get('team_a_id'))
+        old_team_b = self._to_int(existing_record.get('team_b_id'))
+
+        old_opponent_id: Optional[int] = None
+        if our_old_id is not None:
+            if old_team_a == our_old_id:
+                old_opponent_id = old_team_b
+            elif old_team_b == our_old_id:
+                old_opponent_id = old_team_a
+        if old_opponent_id is None:
+            old_opponent_id = old_team_b if old_team_a == our_old_id else old_team_a
+
+        new_opponent_id = self._to_int(game_info.get('opponent_team_id'))
+        if new_opponent_id is None:
+            new_our_id = self._to_int(game_info.get('our_team_id'))
+            team1_id = self._to_int(game_info.get('team1_id'))
+            team2_id = self._to_int(game_info.get('team2_id'))
+            if new_our_id is not None:
+                if team1_id == new_our_id:
+                    new_opponent_id = team2_id
+                elif team2_id == new_our_id:
+                    new_opponent_id = team1_id
+            if new_opponent_id is None:
+                new_opponent_id = team2_id if team1_id == new_our_id else team1_id
+
+        if (
+            old_opponent_id is not None
+            and new_opponent_id is not None
+            and old_opponent_id != new_opponent_id
+        ):
+            old_name = self._get_team_display_name(old_opponent_id)
+            new_name = self._get_team_display_name(new_opponent_id, game_info.get('opponent_team_name'))
+            changes['opponent'] = (
+                old_name or (f"ID {old_opponent_id}" if old_opponent_id is not None else ""),
+                new_name or (f"ID {new_opponent_id}" if new_opponent_id is not None else "")
+            )
+
+        return changes
+
+    def _format_changes_summary(self, changes: Dict[str, Tuple[str, str]]) -> str:
+        labels = {
+            'opponent': 'Соперник',
+            'date': 'Дата',
+            'time': 'Время',
+            'arena': 'Арена',
+        }
+        parts: List[str] = []
+        for key in ['opponent', 'date', 'time', 'arena']:
+            if key in changes:
+                old, new = changes[key]
+                label = labels.get(key, key)
+                parts.append(f"{label}: {old or '—'} → {new or '—'}")
+        return '; '.join(parts)
+
     def _log_game_action(self, data_type: str, game_info: Dict[str, Any], status: str, additional_data: str) -> None:
         duplicate_protection.upsert_game_record(
             data_type=data_type,
@@ -686,6 +773,74 @@ class GameSystemManager:
         except Exception as e:
             print(f"⚠️ Ошибка отправки календарного события: {e}")
 
+    async def _notify_game_update(
+        self,
+        changes: Dict[str, Tuple[str, str]],
+        game_info: Dict[str, Any]
+    ) -> None:
+        if not self.bot or not CHAT_ID:
+            print("⚠️ Бот или CHAT_ID не настроены, уведомление об изменениях не отправлено")
+            return
+
+        bot = cast(Any, self.bot)
+        opponent_id = self._to_int(game_info.get('opponent_team_id'))
+        opponent_name = game_info.get('opponent_team_name')
+        opponent_display = self._get_team_display_name(opponent_id, opponent_name)
+
+        if 'opponent' in changes:
+            opponent_display = changes['opponent'][1] or opponent_display
+
+        our_team_display = self._get_team_display_name(
+            self._to_int(game_info.get('our_team_id')),
+            game_info.get('our_team_name')
+        )
+
+        labels = {
+            'opponent': 'Соперник',
+            'date': 'Дата',
+            'time': 'Время',
+            'arena': 'Арена',
+        }
+
+        lines = [
+            f"⚠️ В игре против {opponent_display or 'неизвестного соперника'} обнаружены изменения:",
+        ]
+
+        for key in ['opponent', 'date', 'time', 'arena']:
+            if key in changes:
+                old, new = changes[key]
+                label = labels.get(key, key)
+                if key == 'opponent':
+                    lines.append(f"• {label}: {old or '—'} → {new or '—'}")
+                else:
+                    lines.append(f"• {label}: {old or '—'} → {new or '—'}")
+
+        message = "\n".join(lines)
+
+        send_kwargs: Dict[str, Any] = {
+            "chat_id": int(CHAT_ID),
+            "text": message,
+        }
+        message_thread_id: Optional[int] = None
+        if GAMES_TOPIC_ID:
+            try:
+                message_thread_id = int(GAMES_TOPIC_ID)
+                send_kwargs["message_thread_id"] = message_thread_id
+            except ValueError:
+                pass
+
+        try:
+            try:
+                await bot.send_message(**send_kwargs)
+            except Exception as primary_error:
+                if message_thread_id is not None and "Message thread not found" in str(primary_error):
+                    print(f"⚠️ Топик {message_thread_id} не найден, отправляем обновление в основной чат")
+                    send_kwargs.pop("message_thread_id", None)
+                    await bot.send_message(**send_kwargs)
+                else:
+                    raise primary_error
+        except Exception as e:
+            print(f"⚠️ Ошибка отправки уведомления об изменениях: {e}")
 
     def _should_schedule_future_game(self, game_info: Dict[str, Any]) -> bool:
         try:
@@ -716,8 +871,14 @@ class GameSystemManager:
             self._merge_widget_details(game_info, widget_data)
 
         existing_record = duplicate_protection.get_game_record("ОПРОС_ИГРА", str(game_id))
-        if existing_record and self._game_record_matches(existing_record, game_info):
-            print(f"⏭️ Опрос для GameID {game_id} уже есть в сервисном листе")
+        if existing_record:
+            changes = self._detect_game_changes(existing_record, game_info)
+            if changes:
+                await self._notify_game_update(changes, game_info)
+                summary = self._format_changes_summary(changes)
+                self._log_game_action("ОПРОС_ИГРА", game_info, "ДАННЫЕ ОБНОВЛЕНЫ", summary)
+            else:
+                print(f"⏭️ Опрос для GameID {game_id} уже есть в сервисном листе")
             return False
 
         question = await self.create_game_poll(game_info)

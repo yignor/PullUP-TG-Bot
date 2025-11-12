@@ -147,8 +147,10 @@ class InfobasketSmartParser:
         
         for game in games:
             # 1) Предпочитаем фильтрацию по ID
-            team1_id = self._to_int(game.get('Team1ID'))
-            team2_id = self._to_int(game.get('Team2ID'))
+            team1_raw = game.get('Team1ID', game.get('TeamAid'))
+            team2_raw = game.get('Team2ID', game.get('TeamBid'))
+            team1_id = self._to_int(team1_raw)
+            team2_id = self._to_int(team2_raw)
             if self.team_ids_set and (
                 (team1_id is not None and team1_id in self.team_ids_set) or
                 (team2_id is not None and team2_id in self.team_ids_set)

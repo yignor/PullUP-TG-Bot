@@ -634,12 +634,19 @@ class GameSystemManager:
         stream.seek(0)
 
         try:
-            await bot.send_document(
-                chat_id=int(CHAT_ID),
-                document=stream,
-                filename=filename,
-                caption=caption,
-            )
+            send_kwargs: Dict[str, Any] = {
+                "chat_id": int(CHAT_ID),
+                "document": stream,
+                "filename": filename,
+                "caption": caption,
+            }
+            if GAMES_TOPIC_ID:
+                try:
+                    send_kwargs["message_thread_id"] = int(GAMES_TOPIC_ID)
+                except ValueError:
+                    pass
+
+            await bot.send_document(**send_kwargs)
             print(f"📆 Отправлено календарное событие {filename}")
             self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
         except Exception as e:

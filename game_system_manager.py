@@ -686,6 +686,22 @@ class GameSystemManager:
  
             print(f"📆 Отправлено календарное событие {filename}")
             self._log_game_action("КАЛЕНДАРЬ_ИГРА", game_info, "ICS ОТПРАВЛЁН", filename)
+            if IOS_SHORTCUT_URL:
+                link_kwargs: Dict[str, Any] = {
+                    "chat_id": int(CHAT_ID),
+                    "text": f"Добавить в iOS календарь через Shortcut: {IOS_SHORTCUT_URL}",
+                }
+                if message_thread_id is not None:
+                    link_kwargs["message_thread_id"] = message_thread_id
+                try:
+                    await bot.send_message(**link_kwargs)
+                except Exception as secondary_error:
+                    if message_thread_id is not None and "Message thread not found" in str(secondary_error):
+                        link_kwargs.pop("message_thread_id", None)
+                        await bot.send_message(**link_kwargs)
+                    else:
+                        print(f"⚠️ Не удалось отправить ссылку на Shortcut: {secondary_error}")
+ 
         except Exception as e:
             print(f"⚠️ Ошибка отправки календарного события: {e}")
 

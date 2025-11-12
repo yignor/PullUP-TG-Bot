@@ -8,6 +8,7 @@ import aiohttp
 import json
 import re
 import ssl
+from collections import defaultdict
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from datetime_utils import get_moscow_time
@@ -305,9 +306,12 @@ class EnhancedGameParser:
                             'total': f"{score_a}:{score_b}"
                         })
             
-            # Если данные о четвертях недоступны, создаем заглушку
             if not quarters:
-                quarters = ['Данные недоступны']
+                computed_quarters = self._compute_quarter_scores(online_data)
+                if computed_quarters:
+                    quarters = computed_quarters
+                else:
+                    quarters = ['Данные недоступны']
             
             game_info['quarters'] = quarters
             
@@ -1319,6 +1323,67 @@ class EnhancedGameParser:
         except Exception as e:
             print(f"❌ Ошибка парсинга игры: {e}")
             return None
+
+    def _compute_quarter_scores(self, online_data: Dict[str, Any]) -> List[str]:
+        """Рассчитывает счет по четвертям на основе OnlinePlays"""
+        try:
+            plays: List[Dict[str, Any]] = online_data.get('OnlinePlays') or []
+            starts: List[Dict[str, Any]] = online_data.get('OnlineStarts') or []
+            if not plays or not starts:
+                return []
+
+            start_map: Dict[Any, Dict[str, Any]] = {}
+            for start in starts:
+                start_id = start.get('StartID')
+                if start_id is not None:
+                    start_map[start_id] = start
+
+            online_meta: Dict[str, Any] = online_data.get('Online') or {}
+            scoring_values: Dict[int, int] = {
+                1: int(online_meta.get('FreeThrowValue') or 1),
+                2: int(online_meta.get('FieldGoalValue') or 2),
+                3: int(online_meta.get('LongShotValue') or 3),
+            }
+
+            quarter_totals: Dict[int, Dict[int, int]] = defaultdict(lambda: {1: 0, 2: 0})
+
+            def _sort_key(play: Dict[str, Any]) -> Any:
+                return (
+                    play.get('PlayPeriod') or 0,
+                    play.get('PlaySecond') or 0,
+                    play.get('PlaySortOrder') or 0,
+                    play.get('PlayID') or 0,
+                )
+
+            for play in sorted(plays, key=_sort_key):
+                if play.get('SysStatus') not in (None, 1):
+                    continue
+
+                points = scoring_values.get(play.get('PlayTypeID'))
+                if not points:
+                    continue
+
+                start_data = start_map.get(play.get('StartID'))
+                team_number = start_data.get('TeamNumber') if start_data else None
+                if team_number not in (1, 2):
+                    continue
+
+                period = play.get('PlayPeriod')
+                if period is None:
+                    continue
+
+                entry = quarter_totals[period]
+                entry[team_number] = entry.get(team_number, 0) + int(points)
+
+            if not quarter_totals:
+                return []
+
+            ordered_periods = sorted(quarter_totals.items())
+            return [f"{period_scores.get(1, 0)}:{period_scores.get(2, 0)}" for _, period_scores in ordered_periods]
+
+        except Exception as error:
+            print(f"⚠️ Не удалось вычислить счет по четвертям: {error}")
+            return []
 
 async def test_parser():
     """Тестирует парсер на реальной игре"""

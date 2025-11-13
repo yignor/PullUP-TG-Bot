@@ -104,7 +104,7 @@ async def check_birthdays():
             # Отправляем каждое сообщение
             for i, message in enumerate(birthday_messages, 1):
                 try:
-                    await current_bot.send_message(chat_id=chat_id, text=message)
+                    await current_bot.send_message(chat_id=chat_id, text=message)  # type: ignore[reportCallIssue]
                     print(f"✅ Отправлено уведомление {i}: {message[:50]}...")
                     
                     # Добавляем запись в сервисный лист для защиты от дублирования

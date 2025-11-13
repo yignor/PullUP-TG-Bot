@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportGeneralTypeIssues=false, reportMissingModuleSource=false, reportReturnType=false
 """
 Умный парсер для Infobasket API с правильной логикой дат
 Сравнивает даты игр с текущей датой по Москве для определения будущих/прошедших игр

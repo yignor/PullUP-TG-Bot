@@ -74,6 +74,8 @@ class NotificationManager:
         if not self.bot or not self.chat_id:
             logger.error("Бот или CHAT_ID не настроены")
             return
+        bot = self.bot
+        assert bot is not None
         
         # Создаем уникальный ID для уведомления
         notification_id = f"game_end_{game_url}"
@@ -94,7 +96,7 @@ class NotificationManager:
                 f"Ссылка на статистику: {game_url}"
             )
             
-            await self.bot.send_message(chat_id=self.chat_id, text=message)
+            await bot.send_message(chat_id=self.chat_id, text=message)  # type: ignore[reportCallIssue]
             self.sent_game_end_notifications.add(notification_id)
             self._save_sent_notifications()
             logger.info(f"✅ Отправлено уведомление о завершении игры: {score}")
@@ -107,6 +109,8 @@ class NotificationManager:
         if not self.bot or not self.chat_id:
             logger.error("Бот или CHAT_ID не настроены")
             return
+        bot = self.bot
+        assert bot is not None
         
         # Создаем уникальный ID для уведомления
         notification_id = f"game_start_{game_url}"
@@ -122,7 +126,7 @@ class NotificationManager:
             
             message = f"🏀 Игра {team1} против {team2} начинается в {game_time}!\n\nСсылка на игру: {game_url}"
             
-            await self.bot.send_message(chat_id=self.chat_id, text=message)
+            await bot.send_message(chat_id=self.chat_id, text=message)  # type: ignore[reportCallIssue]
             self.sent_game_start_notifications.add(notification_id)
             self._save_sent_notifications()
             logger.info(f"✅ Отправлено уведомление о начале игры: {team1} vs {team2} в {game_time}")
@@ -156,6 +160,8 @@ class NotificationManager:
             self.sent_game_result_notifications.add(notification_id)
             self._save_sent_notifications()
             return
+        bot = self.bot
+        assert bot is not None
         
         try:
             # Используем новую функцию форматирования с лидерами команды
@@ -198,7 +204,7 @@ class NotificationManager:
             else:
                 message += f"\n\n📊 Статистика голосования: Недоступна"
             
-            await self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
+            await bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')  # type: ignore[reportCallIssue]
             self.sent_game_result_notifications.add(notification_id)
             self._save_sent_notifications()
             logger.info("✅ Отправлено уведомление о результате игры")
@@ -211,6 +217,8 @@ class NotificationManager:
         if not self.bot or not self.chat_id:
             logger.error("Бот или CHAT_ID не настроены")
             return
+        bot = self.bot
+        assert bot is not None
         
         # Создаем уникальный ID для уведомления
         notification_id = f"morning_{date}"
@@ -237,7 +245,7 @@ class NotificationManager:
                     message += f"   🔗 Ссылка: {game_url}\n"
                 message += "\n"
             
-            await self.bot.send_message(chat_id=self.chat_id, text=message)
+            await bot.send_message(chat_id=self.chat_id, text=message)  # type: ignore[reportCallIssue]
             self.sent_morning_notifications.add(notification_id)
             self._save_sent_notifications()
             logger.info(f"✅ Отправлено утреннее уведомление для {len(games)} игр")

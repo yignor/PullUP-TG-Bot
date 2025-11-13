@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportGeneralTypeIssues=false, reportOptionalMemberAccess=false, reportArgumentType=false, reportUndefinedVariable=false, reportOptionalIterable=false
 """
 Улучшенный парсер игр, который работает с API напрямую
 """
@@ -9,7 +10,7 @@ import json
 import re
 import ssl
 from collections import defaultdict
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from datetime import datetime
 from datetime_utils import get_moscow_time
 
@@ -317,6 +318,7 @@ class EnhancedGameParser:
             
             # Определяем результат для наших команд по конфигурации
             if game_info['teams'] and game_info['is_finished']:
+                our_team_name_candidates: Set[str] = set()
                 team1_name = game_info['teams'][0]['name']
                 team2_name = game_info['teams'][1]['name']
                 
@@ -352,22 +354,132 @@ class EnhancedGameParser:
                         our_team_entry = game_info['teams'][0]
                         opponent_entry = game_info['teams'][1]
                 
+                configured_team_ids: Set[int] = set()
+                def _to_int(value: Any) -> Optional[int]:
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        return None
+
+                def _get_config_for_team(team_id_value: Optional[int]) -> Optional[Dict[str, Any]]:
+                    if team_id_value is None:
+                        return None
+                    configs = self.team_configs or {}
+                    for key in (team_id_value, str(team_id_value)):
+                        if key in configs:
+                            return configs[key]
+                    return None
+
+                if self.team_configs:
+                    for cfg_key in self.team_configs.keys():
+                        cfg_id = _to_int(cfg_key)
+                        if cfg_id is not None:
+                            configured_team_ids.add(cfg_id)
+
+                team1_entry = game_info['teams'][0] if len(game_info['teams']) > 0 else None
+                team2_entry = game_info['teams'][1] if len(game_info['teams']) > 1 else None
+                team1_id_value = _to_int(team1_entry.get('id')) if team1_entry else None
+                team2_id_value = _to_int(team2_entry.get('id')) if team2_entry else None
+                current_team_id = _to_int(our_team_entry.get('id')) if our_team_entry else None
+
+                if configured_team_ids:
+                    if team1_entry and team1_id_value in configured_team_ids and current_team_id != team1_id_value:
+                        config_lookup = _get_config_for_team(team1_id_value) or {}
+                        our_team_entry = team1_entry
+                        opponent_entry = team2_entry
+                        matched_config = {
+                            'team_id': team1_id_value,
+                            'alt_name': config_lookup.get('alt_name'),
+                            'metadata': config_lookup.get('metadata') or {}
+                        }
+                    elif team2_entry and team2_id_value in configured_team_ids and current_team_id != team2_id_value:
+                        config_lookup = _get_config_for_team(team2_id_value) or {}
+                        our_team_entry = team2_entry
+                        opponent_entry = team1_entry
+                        matched_config = {
+                            'team_id': team2_id_value,
+                            'alt_name': config_lookup.get('alt_name'),
+                            'metadata': config_lookup.get('metadata') or {}
+                        }
+
                 if our_team_entry and opponent_entry:
+                    def _normalize_name_value(name_value: Optional[str]) -> Optional[str]:
+                        if isinstance(name_value, str):
+                            stripped = name_value.strip()
+                            return stripped if stripped else None
+                        return None
+
+                    our_team_id_value = _to_int(our_team_entry.get('id'))
+                    opponent_team_id_value = _to_int(opponent_entry.get('id'))
+
+                    potential_configs = []
+                    if isinstance(matched_config, dict):
+                        potential_configs.append(matched_config)
+                    our_config_data = _get_config_for_team(our_team_id_value)
+                    if isinstance(our_config_data, dict) and our_config_data not in potential_configs:
+                        potential_configs.append(our_config_data)
+                    opponent_config_data = _get_config_for_team(opponent_team_id_value)
+
+                    our_display_name = _normalize_name_value(our_team_entry.get('name'))
+                    if our_display_name:
+                        our_team_name_candidates.add(our_display_name)
+
+                    for config_source in potential_configs:
+                        if not isinstance(config_source, dict):
+                            continue
+                        alt_name = _normalize_name_value(config_source.get('alt_name'))
+                        if alt_name:
+                            our_display_name = alt_name
+                            our_team_name_candidates.add(alt_name)
+                        metadata_source = config_source.get('metadata') if isinstance(config_source.get('metadata'), dict) else {}
+                        display_name = _normalize_name_value(metadata_source.get('display_name'))
+                        if display_name:
+                            our_display_name = display_name
+                            our_team_name_candidates.add(display_name)
+                        aliases = metadata_source.get('aliases') if isinstance(metadata_source.get('aliases'), list) else []
+                        for alias in aliases:
+                            alias_name = _normalize_name_value(alias)
+                            if alias_name:
+                                our_team_name_candidates.add(alias_name)
+
+                    opponent_display_name = _normalize_name_value(opponent_entry.get('name'))
+                    if isinstance(opponent_config_data, dict):
+                        alt_name = _normalize_name_value(opponent_config_data.get('alt_name'))
+                        if alt_name:
+                            opponent_display_name = alt_name
+
+                    resolved_our_name = our_display_name or _normalize_name_value(our_team_entry.get('name')) or our_team_entry.get('name')
+                    resolved_opponent_name = opponent_display_name or _normalize_name_value(opponent_entry.get('name')) or opponent_entry.get('name')
+
+                    if resolved_our_name:
+                        our_team_entry['name'] = resolved_our_name
+                    if resolved_opponent_name:
+                        opponent_entry['name'] = resolved_opponent_name
+
                     if our_team_entry['score'] > opponent_entry['score']:
                         game_info['result'] = 'победа'
                     elif our_team_entry['score'] < opponent_entry['score']:
                         game_info['result'] = 'поражение'
                     else:
                         game_info['result'] = 'ничья'
-                    
-                    game_info['our_team'] = our_team_entry['name']
-                    game_info['opponent'] = opponent_entry['name']
+
+                    game_info['our_team_id'] = our_team_id_value
+                    game_info['opponent_team_id'] = opponent_team_id_value
+                    game_info['our_team'] = resolved_our_name
+                    game_info['opponent'] = resolved_opponent_name
+                    game_info['our_team_name'] = resolved_our_name
+                    game_info['opponent_team_name'] = resolved_opponent_name
                     game_info['our_score'] = our_team_entry['score']
                     game_info['opponent_score'] = opponent_entry['score']
-                    
-                    metadata = (matched_config or {}).get('metadata') or {}
-                    game_info['team_type'] = metadata.get('team_type') or metadata.get('type') or 'Команда'
-                    
+
+                    team_metadata = {}
+                    for config_source in potential_configs:
+                        metadata_source = config_source.get('metadata') if isinstance(config_source.get('metadata'), dict) else {}
+                        if metadata_source:
+                            team_metadata = metadata_source
+                            break
+                    game_info['team_type'] = team_metadata.get('team_type') or team_metadata.get('type') or 'Команда'
+
                     print(f"🎯 Результат определен: {game_info['result']}")
                     print(f"📊 Счет: {game_info['our_score']}:{game_info['opponent_score']}")
                 else:
@@ -380,7 +492,10 @@ class EnhancedGameParser:
                 print(f"📊 Статистика игроков извлечена через API: {len(player_stats.get('players', []))} игроков")
                 
                 # Извлекаем лидеров нашей команды
-                our_team_leaders = self.find_our_team_leaders(player_stats.get('players', []))
+                our_team_leaders = self.find_our_team_leaders(
+                    player_stats.get('players', []),
+                    list(our_team_name_candidates) if our_team_name_candidates else None
+                )
                 if our_team_leaders:
                     game_info['our_team_leaders'] = our_team_leaders
                     print(f"🏆 Лидеры нашей команды извлечены: {len(our_team_leaders)} категорий")
@@ -393,7 +508,10 @@ class EnhancedGameParser:
                     print(f"📊 Статистика игроков извлечена через protocol: {len(protocol_stats.get('players', []))} игроков")
                     
                     # Извлекаем лидеров нашей команды
-                    our_team_leaders = self.find_our_team_leaders(protocol_stats.get('players', []))
+                    our_team_leaders = self.find_our_team_leaders(
+                        protocol_stats.get('players', []),
+                        list(our_team_name_candidates) if our_team_name_candidates else None
+                    )
                     if our_team_leaders:
                         game_info['our_team_leaders'] = our_team_leaders
                         print(f"🏆 Лидеры нашей команды извлечены: {len(our_team_leaders)} категорий")
@@ -594,7 +712,8 @@ class EnhancedGameParser:
                    stats['steals'] + stats['blocks'] + opponent_fouls - 
                    misses - stats['turnovers'] - stats['fouls'])
             
-            stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+            original_plus_minus = player_data.get('PlusMinus', 0) or 0
+            stats['plus_minus'] = original_plus_minus  # Сохраняем оригинальный плюс/минус
             stats['kpi'] = kpi  # Добавляем отдельное поле КПИ
             stats['opponent_fouls'] = opponent_fouls  # Сохраняем фолы соперника
             
@@ -663,7 +782,8 @@ class EnhancedGameParser:
                    stats['steals'] + stats['blocks'] + opponent_fouls - 
                    misses - stats['turnovers'] - stats['fouls'])
             
-            stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+            original_plus_minus = player_data.get('PlusMinus', 0) or 0
+            stats['plus_minus'] = original_plus_minus  # Сохраняем оригинальный плюс/минус
             stats['kpi'] = kpi  # Добавляем отдельное поле КПИ
             
             return stats
@@ -797,36 +917,71 @@ class EnhancedGameParser:
 
             print(f"🏀 Найдено игроков нашей команды: {len(our_team_players)}")
 
-            leaders['points'] = {
-                'name': max(our_team_players, key=lambda p: p['points'])['name'],
-                'value': max(our_team_players, key=lambda p: p['points'])['points'],
-                'percentage': max(our_team_players, key=lambda p: p['points']).get('field_goal_percentage', 0)
-            }
+            def _filter_players(attr: str) -> List[Dict[str, Any]]:
+                return [player for player in our_team_players if player.get(attr) is not None]
 
-            leaders['rebounds'] = {
-                'name': max(our_team_players, key=lambda p: p['rebounds'])['name'],
-                'value': max(our_team_players, key=lambda p: p['rebounds'])['rebounds']
-            }
+            def _best_player(attr: str, default: float = float('-inf')) -> Optional[Dict[str, Any]]:
+                candidates = _filter_players(attr)
+                if not candidates:
+                    return None
+                return max(candidates, key=lambda p: p.get(attr, default))
 
-            leaders['assists'] = {
-                'name': max(our_team_players, key=lambda p: p['assists'])['name'],
-                'value': max(our_team_players, key=lambda p: p['assists'])['assists']
-            }
+            def _worst_player(attr: str, default: float = float('inf')) -> Optional[Dict[str, Any]]:
+                candidates = _filter_players(attr)
+                if not candidates:
+                    return None
+                return min(candidates, key=lambda p: p.get(attr, default))
 
-            leaders['steals'] = {
-                'name': max(our_team_players, key=lambda p: p['steals'])['name'],
-                'value': max(our_team_players, key=lambda p: p['steals'])['steals']
-            }
+            # Лучшие показатели
+            best_points_player = _best_player('points')
+            if best_points_player:
+                leaders['points'] = {
+                    'name': best_points_player['name'],
+                    'value': best_points_player.get('points', 0),
+                    'percentage': best_points_player.get('field_goal_percentage')
+                }
 
-            leaders['blocks'] = {
-                'name': max(our_team_players, key=lambda p: p['blocks'])['name'],
-                'value': max(our_team_players, key=lambda p: p['blocks'])['blocks']
-            }
+            best_rebounds_player = _best_player('rebounds')
+            if best_rebounds_player:
+                leaders['rebounds'] = {
+                    'name': best_rebounds_player['name'],
+                    'value': best_rebounds_player.get('rebounds', 0)
+                }
 
-            leaders['best_plus_minus'] = {
-                'name': max(our_team_players, key=lambda p: p['plus_minus'])['name'],
-                'value': max(our_team_players, key=lambda p: p['plus_minus'])['plus_minus']
-            }
+            best_assists_player = _best_player('assists')
+            if best_assists_player:
+                leaders['assists'] = {
+                    'name': best_assists_player['name'],
+                    'value': best_assists_player.get('assists', 0)
+                }
+
+            best_steals_player = _best_player('steals')
+            if best_steals_player:
+                leaders['steals'] = {
+                    'name': best_steals_player['name'],
+                    'value': best_steals_player.get('steals', 0)
+                }
+
+            best_blocks_player = _best_player('blocks')
+            if best_blocks_player:
+                leaders['blocks'] = {
+                    'name': best_blocks_player['name'],
+                    'value': best_blocks_player.get('blocks', 0)
+                }
+
+            best_kpi_player = _best_player('kpi')
+            if best_kpi_player:
+                leaders['best_kpi'] = {
+                    'name': best_kpi_player['name'],
+                    'value': best_kpi_player.get('kpi', 0)
+                }
+
+            best_plus_minus_player = _best_player('plus_minus')
+            if best_plus_minus_player:
+                leaders['best_plus_minus'] = {
+                    'name': best_plus_minus_player['name'],
+                    'value': best_plus_minus_player.get('plus_minus', 0)
+                }
 
             # Анти-лидеры (худшие показатели)
             anti_leaders = {}
@@ -862,32 +1017,41 @@ class EnhancedGameParser:
                         'value': best_3p.get('three_point_percentage', 0)
                     }
 
-                worst_shooting_leader = min(valid_players, key=lambda p: p.get('field_goal_percentage', 100))
-                anti_leaders['worst_shooting'] = {
-                    'name': worst_shooting_leader['name'],
-                    'value': worst_shooting_leader.get('field_goal_percentage', 0)
-                }
+                worst_shooting_leader = _worst_player('field_goal_percentage', default=100)
+                if worst_shooting_leader:
+                    anti_leaders['worst_shooting'] = {
+                        'name': worst_shooting_leader['name'],
+                        'value': worst_shooting_leader.get('field_goal_percentage', 0)
+                    }
 
-                # Анти-лидер по потерям
-                turnovers_leader = max(valid_players, key=lambda p: p.get('turnovers', 0))
-                anti_leaders['turnovers'] = {
-                    'name': turnovers_leader['name'],
-                    'value': turnovers_leader.get('turnovers', 0)
-                }
+                turnovers_leader = _best_player('turnovers')
+                if turnovers_leader:
+                    anti_leaders['turnovers'] = {
+                        'name': turnovers_leader['name'],
+                        'value': turnovers_leader.get('turnovers', 0)
+                    }
 
-                # Анти-лидер по фолам
-                fouls_leader = max(valid_players, key=lambda p: p.get('fouls', 0))
-                anti_leaders['fouls'] = {
-                    'name': fouls_leader['name'],
-                    'value': fouls_leader.get('fouls', 0)
-                }
+                fouls_leader = _best_player('fouls')
+                if fouls_leader:
+                    anti_leaders['fouls'] = {
+                        'name': fouls_leader['name'],
+                        'value': fouls_leader.get('fouls', 0)
+                    }
 
-                # Анти-лидер по КПИ (самый низкий плюс/минус)
-                worst_plus_minus = min(valid_players, key=lambda p: p.get('plus_minus', 0))
-                anti_leaders['worst_plus_minus'] = {
-                    'name': worst_plus_minus['name'],
-                    'value': worst_plus_minus.get('plus_minus', 0)
-                }
+                # Анти-лидер по КПИ (минимальный KPI)
+                worst_kpi_player = _worst_player('kpi')
+                if worst_kpi_player:
+                    anti_leaders['worst_kpi'] = {
+                        'name': worst_kpi_player['name'],
+                        'value': worst_kpi_player.get('kpi', 0)
+                    }
+
+                worst_plus_minus_player = _worst_player('plus_minus')
+                if worst_plus_minus_player:
+                    anti_leaders['worst_plus_minus'] = {
+                        'name': worst_plus_minus_player['name'],
+                        'value': worst_plus_minus_player.get('plus_minus', 0)
+                    }
                 
                 # Анти-лидер по штрафным броскам (самый низкий процент среди бросавших)
                 ft_players = [p for p in valid_players if p.get('free_throws_attempted', 0) > 0]
@@ -940,10 +1104,14 @@ class EnhancedGameParser:
             print(f"   Блокшоты: {leaders['blocks']['name']} ({leaders['blocks']['value']})")
 
             print(f"😅 Анти-лидеры нашей команды:")
-            print(f"   Процент попаданий: {anti_leaders['worst_shooting']['name']} ({anti_leaders['worst_shooting']['value']}%)")
-            print(f"   Потери: {anti_leaders['turnovers']['name']} ({anti_leaders['turnovers']['value']})")
-            print(f"   Фолы: {anti_leaders['fouls']['name']} ({anti_leaders['fouls']['value']})")
-            print(f"   КПИ: {anti_leaders['worst_plus_minus']['name']} ({anti_leaders['worst_plus_minus']['value']})")
+            if 'worst_shooting' in anti_leaders:
+                print(f"   Процент попаданий: {anti_leaders['worst_shooting']['name']} ({anti_leaders['worst_shooting']['value']}%)")
+            if 'turnovers' in anti_leaders:
+                print(f"   Потери: {anti_leaders['turnovers']['name']} ({anti_leaders['turnovers']['value']})")
+            if 'fouls' in anti_leaders:
+                print(f"   Фолы: {anti_leaders['fouls']['name']} ({anti_leaders['fouls']['value']})")
+            if 'worst_kpi' in anti_leaders:
+                print(f"   КПИ: {anti_leaders['worst_kpi']['name']} ({anti_leaders['worst_kpi']['value']})")
 
             return leaders
 
@@ -1109,8 +1277,10 @@ class EnhancedGameParser:
                        player_stats['steals'] + player_stats['blocks'] + opponent_fouls - 
                        misses - player_stats['turnovers'] - player_stats['fouls'])
                 
-                player_stats['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+                original_plus_minus = player_data.get('PlusMinus', 0) or 0
+                player_stats['plus_minus'] = original_plus_minus  # Сохраняем оригинальный плюс/минус
                 player_stats['kpi'] = kpi  # Добавляем отдельное поле КПИ
+                player_stats['opponent_fouls'] = opponent_fouls  # Сохраняем фолы соперника
                 
                 # Определяем команду игрока
                 team_pattern = r'protocol\.team(\d+)\.player' + player_num
@@ -1272,8 +1442,10 @@ class EnhancedGameParser:
                        player_data['steals'] + player_data['blocks'] + opponent_fouls - 
                        misses - player_data['turnovers'] - player_data['fouls'])
                 
-                player_data['plus_minus'] = kpi  # Заменяем plus_minus на КПИ
+                original_plus_minus = player_data.get('PlusMinus', 0) or 0
+                player_data['plus_minus'] = original_plus_minus  # Сохраняем оригинальный плюс/минус
                 player_data['kpi'] = kpi  # Добавляем отдельное поле КПИ
+                player_data['opponent_fouls'] = opponent_fouls  # Сохраняем фолы соперника
                 
                 players_stats.append(player_data)
                 print(f"   📊 {player_name}: {player_data['points']} очков, {player_data['rebounds']} подборов, {player_data['steals']} перехватов")

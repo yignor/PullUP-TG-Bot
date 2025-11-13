@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportGeneralTypeIssues=false, reportArgumentType=false, reportCallIssue=false
 """
 Финальная система мониторинга результатов игр
 Production версия для ежедневного запуска
@@ -9,7 +10,7 @@ import os
 import json
 import re
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Any
 from dotenv import load_dotenv
 from telegram import Bot
 from datetime_utils import get_moscow_time
@@ -312,13 +313,30 @@ class GameResultsMonitorFinal:
                 if game_info and game_info.get('result'):
                     # Определяем статус игры
                     status = 'Завершена' if game_info.get('result') in ['победа', 'поражение', 'ничья'] else 'В процессе'
-                    
-                    # Преобразуем в формат, ожидаемый системой
+
+                    extracted_game_id = parser.extract_game_id_from_url(game_link)
+                    teams = game_info.get('teams') or []
+                    team1_entry = teams[0] if len(teams) > 0 else {}
+                    team2_entry = teams[1] if len(teams) > 1 else {}
+
+                    team1_id = team1_entry.get('id')
+                    team2_id = team2_entry.get('id')
+                    team1_name = team1_entry.get('name')
+                    team2_name = team2_entry.get('name')
+
                     return {
-                        'team1': game_info.get('our_team', ''),
-                        'team2': game_info.get('opponent', ''),
+                        'team1': game_info.get('our_team', '') or team1_name or '',
+                        'team2': game_info.get('opponent', '') or team2_name or '',
+                        'team1_id': team1_id,
+                        'team2_id': team2_id,
+                        'team1_name': team1_name or game_info.get('our_team', ''),
+                        'team2_name': team2_name or game_info.get('opponent', ''),
                         'our_team': game_info.get('our_team', ''),
                         'opponent': game_info.get('opponent', ''),
+                        'our_team_id': game_info.get('our_team_id'),
+                        'opponent_team_id': game_info.get('opponent_team_id'),
+                        'our_team_name': game_info.get('our_team_name') or game_info.get('our_team', ''),
+                        'opponent_team_name': game_info.get('opponent_team_name') or game_info.get('opponent', ''),
                         'our_score': game_info.get('our_score', 0),
                         'opponent_score': game_info.get('opponent_score', 0),
                         'result': game_info.get('result', ''),
@@ -329,13 +347,90 @@ class GameResultsMonitorFinal:
                         'quarters': game_info.get('quarters', []),
                         'team_type': game_info.get('team_type') or 'Команда',
                         'game_link': game_link,  # Сохраняем исходную ссылку на игру
+                        'game_id': extracted_game_id or game_info.get('game_id'),
+                        'comp_id': game_info.get('comp_id') or game_info.get('competition_id'),
+                        'league': game_info.get('league'),
                         'our_team_leaders': game_info.get('our_team_leaders', {})  # Добавляем лидеров команды
                     }
                 return None
         except Exception as e:
             print(f"❌ Ошибка парсинга игры по ссылке: {e}")
             return None
-    
+
+    async def _compute_leaders_via_parser(self, game_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Пробует вычислить лидеров команды, если они отсутствуют"""
+        game_link = game_info.get('game_link')
+        if not game_link:
+            return None
+
+        try:
+            from enhanced_game_parser import EnhancedGameParser
+
+            async with EnhancedGameParser(
+                team_configs=self.game_manager.team_configs,
+                team_keywords=self.game_manager.team_name_keywords,
+            ) as parser:
+                game_id = parser.extract_game_id_from_url(game_link)
+                api_url = parser.extract_api_url_from_url(game_link)
+                if not game_id:
+                    return None
+
+                api_data = await parser.get_game_data_from_api(game_id, api_url)
+                if not api_data:
+                    return None
+
+                player_stats = parser.extract_player_statistics(api_data)
+                if not player_stats:
+                    return None
+
+                candidate_names: Set[str] = set()
+
+                for key in ['our_team', 'our_team_name']:
+                    value = game_info.get(key)
+                    if isinstance(value, str) and value.strip():
+                        candidate_names.add(value.strip())
+
+                if not candidate_names:
+                    for key in ['team1', 'team1_name', 'team2', 'team2_name']:
+                        value = game_info.get(key)
+                        if isinstance(value, str) and value.strip():
+                            candidate_names.add(value.strip())
+
+                configured_ids = set(self.game_manager.config_team_ids or [])
+                online_teams = api_data.get('online', {}).get('OnlineTeams') or []
+                for team in online_teams:
+                    team_id = team.get('TeamID')
+                    if team_id in configured_ids:
+                        for key in ('TeamName2', 'TeamName1', 'ShortName2', 'ShortName1'):
+                            value = team.get(key)
+                            if isinstance(value, str) and value.strip():
+                                candidate_names.add(value.strip())
+
+                game_teams = api_data.get('online', {}).get('GameTeams') or api_data.get('game', {}).get('GameTeams') or []
+                for idx, team in enumerate(game_teams):
+                    team_id = team.get('TeamID') or team.get('team_id')
+                    if team_id in configured_ids:
+                        value = team.get('TeamName', {}).get('CompTeamNameRu') if isinstance(team.get('TeamName'), dict) else None
+                        if isinstance(value, str) and value.strip():
+                            candidate_names.add(value.strip())
+
+                for team_id in self.game_manager.config_team_ids:
+                    resolved = self.game_manager._resolve_team_name(team_id)
+                    if isinstance(resolved, str) and resolved.strip():
+                        candidate_names.add(resolved.strip())
+
+                candidate_names.update(self.game_manager.team_name_keywords or [])
+
+                if not candidate_names:
+                    return None
+
+                leaders = parser.find_our_team_leaders(player_stats.get('players', []), list(candidate_names))
+                return leaders or None
+
+        except Exception as e:
+            print(f"⚠️ Не удалось вычислить лидеров через парсер: {e}")
+            return None
+
     def find_link_in_announcements(self, team1: str, team2: str, game_date: str = None) -> Optional[str]:
         """Ищет ссылку на игру в сохраненных анонсах"""
         try:
@@ -422,18 +517,19 @@ class GameResultsMonitorFinal:
             if not game_link:
                 print(f"🔍 Ссылка не найдена в game_info, ищем заново...")
                 game_link = await self.find_game_link(game_info['team1'], game_info['team2'], game_info.get('date'))
-            
+
+            if not our_team_leaders:
+                computed_leaders = await self._compute_leaders_via_parser(game_info)
+                if computed_leaders:
+                    our_team_leaders = computed_leaders
+                    game_info['our_team_leaders'] = computed_leaders
+
             # Формируем сообщение используя новую функцию
             message = self.game_manager.format_game_result_message(
                 game_info=game_info,
                 game_link=game_link,
                 our_team_leaders=our_team_leaders
             )
-            
-            # Добавляем четверти только если есть реальные данные
-            quarters = game_info.get('quarters', [])
-            if quarters and quarters != ['Данные недоступны']:
-                message += f"\n📈 Четверти: {quarters}"
             
             if game_link:
                 print(f"🔗 Используется ссылка: {game_link}")
@@ -442,11 +538,34 @@ class GameResultsMonitorFinal:
             
             # Сначала добавляем запись в Google Sheets для защиты от дублирования
             additional_info = f"{game_info['date']} {game_info['our_team']} vs {game_info['opponent']} ({game_info['our_score']}:{game_info['opponent_score']}) - {game_info['result']}"
+            comp_id_value = self.game_manager._to_int(game_info.get('comp_id')) if hasattr(self.game_manager, '_to_int') else None
+            if comp_id_value is None:
+                comp_id_value = self.game_manager._to_int(game_info.get('competition_id')) if hasattr(self.game_manager, '_to_int') else None
+            our_team_id = self.game_manager._to_int(game_info.get('our_team_id')) if hasattr(self.game_manager, '_to_int') else None
+            opponent_team_id = self.game_manager._to_int(game_info.get('opponent_team_id')) if hasattr(self.game_manager, '_to_int') else None
+            team_a_id = self.game_manager._to_int(game_info.get('team1_id')) if hasattr(self.game_manager, '_to_int') else None
+            team_b_id = self.game_manager._to_int(game_info.get('team2_id')) if hasattr(self.game_manager, '_to_int') else None
+            game_id_value = self.game_manager._to_int(game_info.get('game_id')) if hasattr(self.game_manager, '_to_int') else None
+
+            our_team_label = self.game_manager._get_team_display_name(our_team_id, game_info.get('our_team')) if hasattr(self.game_manager, '_get_team_display_name') else game_info.get('our_team')
+            opponent_label = self.game_manager._get_team_display_name(opponent_team_id, game_info.get('opponent')) if hasattr(self.game_manager, '_get_team_display_name') else game_info.get('opponent')
+
             protection_result = duplicate_protection.add_record(
                 "РЕЗУЛЬТАТ_ИГРА",
                 result_key,
                 "ОТПРАВЛЯЕТСЯ",  # Временный статус
-                additional_info
+                additional_info,
+                game_link or '',
+                comp_id=comp_id_value,
+                team_id=our_team_id,
+                alt_name=our_team_label or '',
+                settings='',
+                game_id=game_id_value,
+                game_date=game_info.get('date', ''),
+                game_time=game_info.get('time', ''),
+                arena=game_info.get('venue', ''),
+                team_a_id=team_a_id,
+                team_b_id=team_b_id
             )
             
             if not protection_result.get('success'):

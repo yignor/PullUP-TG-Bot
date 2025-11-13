@@ -157,6 +157,7 @@ class GameSystemManager:
         self.team_names_by_id: Dict[int, str] = {}
         self.team_configs: Dict[int, Dict[str, Any]] = {}
         self.training_poll_configs: List[Dict[str, Any]] = []
+        self.voting_configs: List[Dict[str, Any]] = []
         self.fallback_sources: List[Dict[str, Any]] = []
         
         config_snapshot = duplicate_protection.get_config_ids()
@@ -164,6 +165,7 @@ class GameSystemManager:
         self.config_team_ids: List[int] = config_snapshot.get('team_ids', [])
         self.team_configs = config_snapshot.get('teams', {}) or {}
         self.training_poll_configs = config_snapshot.get('training_polls', []) or []
+        self.voting_configs = config_snapshot.get('voting_polls', []) or []
         self.fallback_sources = config_snapshot.get('fallback_sources', []) or []
         self.config_comp_ids_set = set(self.config_comp_ids)
         self.config_team_ids_set = set(self.config_team_ids)
@@ -1449,7 +1451,133 @@ class GameSystemManager:
             return own_match
         return None
     
-    def format_announcement_message(self, game_info: Dict, game_link: Optional[str] = None, found_team: Optional[str] = None) -> str:
+
+    async def _fetch_opponent_highlights(self, game_info: Dict[str, Any]) -> List[str]:
+        highlights: List[str] = []
+        try:
+            import aiohttp
+
+            game_id = self._to_int(game_info.get('game_id') or game_info.get('GameID'))
+            opponent_team_id = self._to_int(game_info.get('opponent_team_id') or game_info.get('opponentTeamId'))
+            if not game_id or not opponent_team_id:
+                return highlights
+
+            url = f"https://reg.infobasket.su/Comp/GetTeamStatsForPreview/{game_id}?compId=0"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        print(f"⚠️ Не удалось получить превью статистику соперника: {response.status}")
+                        return highlights
+                    data = await response.json()
+
+            if not isinstance(data, list):
+                return highlights
+
+            def safe_float(value: Any) -> float:
+                if value is None:
+                    return 0.0
+                if isinstance(value, (int, float)):
+                    return float(value)
+                if isinstance(value, str):
+                    value = value.replace(',', '.')
+                    try:
+                        return float(value)
+                    except ValueError:
+                        return 0.0
+                return 0.0
+
+            opponent_data: Optional[Dict[str, Any]] = None
+            for team in data:
+                if self._to_int(team.get('TeamID')) == opponent_team_id:
+                    opponent_data = team
+                    break
+
+            if opponent_data is None and len(data) == 2:
+                our_team_id = self._to_int(game_info.get('our_team_id'))
+                for team in data:
+                    if self._to_int(team.get('TeamID')) != our_team_id:
+                        opponent_data = team
+                        break
+
+            if not opponent_data:
+                return highlights
+
+            players = opponent_data.get('Players') or []
+            if not players:
+                return highlights
+
+            def build_name(player: Dict[str, Any]) -> str:
+                person = player.get('PersonInfo') or {}
+                last_name = person.get('PersonLastNameRu') or person.get('PersonLastNameEn') or ''
+                first_name = person.get('PersonFirstNameRu') or person.get('PersonFirstNameEn') or ''
+                full_name = (last_name + ' ' + first_name).strip()
+                if not full_name:
+                    full_name = player.get('PlayerName') or 'Игрок'
+                return full_name
+
+            def player_number(player: Dict[str, Any]) -> str:
+                number = player.get('DisplayNumber') or player.get('PlayerNumber')
+                if number in (None, ''):
+                    return '--'
+                return str(number)
+
+            metrics = [
+                ('AvgPoints', 'очки', 'очков'),
+                ('AvgRebound', 'подборы', 'подборов'),
+                ('AvgAssist', 'передачи', 'передач'),
+                ('AvgSteal', 'перехваты', 'перехватов'),
+                ('AvgKPI', 'КПИ', 'ед. КПИ'),
+            ]
+
+            player_entries: Dict[str, Dict[str, Any]] = {}
+            player_order: List[str] = []
+
+            for field, descriptor, unit in metrics:
+                leader = None
+                best_value = -1.0
+                for player in players:
+                    value = safe_float(player.get(field))
+                    if value > best_value:
+                        best_value = value
+                        leader = player
+                if not leader or best_value <= 0:
+                    continue
+
+                leader_id = (
+                    leader.get('PersonID')
+                    or leader.get('PlayerID')
+                    or (leader.get('PersonInfo') or {}).get('PersonID')
+                )
+                if leader_id is None:
+                    leader_id = f"{player_number(leader)}-{descriptor}"
+
+                leader_key = str(leader_id)
+                if leader_key not in player_entries:
+                    player_entries[leader_key] = {
+                        'name': build_name(leader),
+                        'number': player_number(leader),
+                        'entries': []
+                    }
+                    player_order.append(leader_key)
+
+                player_entries[leader_key]['entries'].append(
+                    f"{descriptor} ({best_value:.1f} {unit} за игру)"
+                )
+
+            for key in player_order:
+                info = player_entries[key]
+                entries_text = ', '.join(info['entries'])
+                highlights.append(
+                    f"• №{info['number']} {info['name']} — {entries_text}"
+                )
+
+            return highlights
+        except Exception as error:
+            print(f"⚠️ Не удалось подготовить подсказки по сопернику: {error}")
+            return highlights
+
+
+    def format_announcement_message(self, game_info: Dict, game_link: Optional[str] = None, found_team: Optional[str] = None, opponent_highlights: Optional[List[str]] = None) -> str:
         """Форматирует сообщение анонса игры"""
         team1 = game_info.get('team1', '')
         team2 = game_info.get('team2', '')
@@ -1472,18 +1600,26 @@ class GameSystemManager:
         if not opponent:
             opponent = team2 if our_team == team1 else team1
         
-        team_category = get_team_category_with_declension(game_info.get('team_type'))
-        normalized_time = game_info['time'].replace('.', ':')
+        form_color = determine_form_color(game_info)
+        normalized_time = (game_info.get('time') or '').replace('.', ':')
+        venue = game_info.get('venue') or 'Место уточняется'
+
         announcement = (
             f"🏀 Сегодня игра {our_team} против {opponent}.\n"
-            f"📍 Место проведения: {game_info['venue']}\n"
+            f"👕 {form_color} форма\n"
+            f"📍 Место проведения: {venue}\n"
             f"🕐 Время игры: {normalized_time}"
         )
         
         if game_link:
             full_url = game_link if game_link.startswith('http') else f"http://letobasket.ru/{game_link}"
             announcement += f"\n🔗 Ссылка на игру: <a href=\"{full_url}\">тут</a>"
-        
+
+        if opponent_highlights:
+            announcement += "\n\n⚠️ Лидеры соперника:\n"
+            for highlight in opponent_highlights:
+                announcement += f"{highlight}\n"
+
         return announcement
     
     def format_game_result_message(self, game_info: Dict, game_link: Optional[str] = None, our_team_leaders: Optional[Dict] = None) -> str:
@@ -1539,9 +1675,36 @@ class GameSystemManager:
             message = (
                 f"{result_emoji} {result_text}: {our_team} против {opponent}\n"
                 f"🏀 {our_team} {our_score}:{opponent_score} {opponent}\n"
-                f"📅 {game_info.get('date', '')} в {game_info.get('time', '').replace('.', ':')}\n"
             )
-            
+
+            quarters_data = game_info.get('quarters')
+            quarter_scores: List[str] = []
+            if isinstance(quarters_data, list):
+                for entry in quarters_data:
+                    if isinstance(entry, dict):
+                        score = entry.get('total')
+                        if not score:
+                            score1 = entry.get('score1')
+                            score2 = entry.get('score2')
+                            if score1 is not None and score2 is not None:
+                                score = f"{score1}:{score2}"
+                        if score:
+                            quarter_scores.append(str(score))
+                    elif entry is not None:
+                        score = str(entry).strip()
+                        if score:
+                            quarter_scores.append(score)
+            elif isinstance(quarters_data, str):
+                cleaned = quarters_data.strip()
+                if cleaned:
+                    quarter_scores.append(cleaned)
+
+            if quarter_scores:
+                message += f"📈 Четверти: {' · '.join(quarter_scores)}\n"
+
+            normalized_time = (game_info.get('time', '') or '').replace('.', ':')
+            date_line = f"📅 {game_info.get('date', '')} в {normalized_time}\n"
+
             if game_link:
                 full_url = game_link if game_link.startswith('http') else f"http://letobasket.ru/{game_link}"
                 if '#protocol' not in full_url:
@@ -1550,6 +1713,9 @@ class GameSystemManager:
                     else:
                         full_url = f"{full_url}#protocol"
                 message += f"🔗 <a href=\"{full_url}\">Протокол</a>\n"
+                message += date_line
+            else:
+                message += date_line
             
             if our_team_leaders:
                 our_score_val = game_info.get('our_score', '?')
@@ -1619,20 +1785,25 @@ class GameSystemManager:
                 print(f"⚠️ Ссылка на игру для GameID {game_info.get('game_id')} не передана")
                 found_team = None
             
+            form_color = determine_form_color(game_info)
+            game_info.setdefault('form_color', form_color)
+
+            opponent_highlights = await self._fetch_opponent_highlights(game_info)
+
             # Формируем сообщение анонса
-            announcement_text = self.format_announcement_message(game_info, game_link, found_team)
-            
+            announcement_text = self.format_announcement_message(game_info, game_link, found_team, opponent_highlights)
+
             # Мониторинг результатов будет запущен автоматически за 5 минут до игры через отдельный workflow
             if game_link:
-                print(f"🎮 Мониторинг результатов будет запущен автоматически за 5 минут до игры")
-            
+                print("🎮 Мониторинг результатов будет запущен автоматически за 5 минут до игры")
+
             # Отправляем сообщение в основной топик (без указания топика)
             message = await bot.send_message(
                 chat_id=int(CHAT_ID),
                 text=announcement_text,
                 parse_mode='HTML'
             )
-            
+
             # Сохраняем информацию об анонсе
             announcement_key = create_announcement_key(game_info)
             announcement_info = {
@@ -1645,31 +1816,49 @@ class GameSystemManager:
                 'chat_id': CHAT_ID,
                 'topic_id': 'main'  # Основной топик
             }
-            
+
             # Сохраняем в историю (для обратной совместимости)
             self.announcements_history[announcement_key] = announcement_info
             save_announcements_history(self.announcements_history)
             print(f"💾 Анонс добавлен в историю с ключом: {announcement_key}")
-            
-            # Добавляем запись в сервисный лист для защиты от дублирования
-            additional_info = f"{game_info['date']} {game_info['time']} vs {game_info.get('team2', 'соперник')} в {game_info['venue']}"
+
+            our_team_label = self._get_team_display_name(self._to_int(game_info.get('our_team_id')), game_info.get('our_team_name') or game_info.get('team1'))
+            opponent_label = self._get_team_display_name(self._to_int(game_info.get('opponent_team_id')), game_info.get('opponent_team_name') or game_info.get('team2'))
+            additional_info = " | ".join(filter(None, [
+                f"{game_info.get('date', '')} {game_info.get('time', '')}".strip(),
+                f"{our_team_label} vs {opponent_label}".strip(),
+                f"Форма: {form_color}" if form_color else '',
+                f"Место: {game_info.get('venue', '')}".strip()
+            ]))
+
             duplicate_protection.add_record(
                 "АНОНС_ИГРА",
                 announcement_key,
                 "ОТПРАВЛЕН",
                 additional_info,
-                game_link or ""  # Передаем ссылку на игру
+                game_link or '',
+                comp_id=self._to_int(game_info.get('comp_id')),
+                team_id=self._to_int(game_info.get('our_team_id')),
+                alt_name=our_team_label,
+                settings='',
+                game_id=self._to_int(game_info.get('game_id')),
+                game_date=game_info.get('date', ''),
+                game_time=game_info.get('time', ''),
+                arena=game_info.get('venue', ''),
+                team_a_id=self._to_int(game_info.get('team1_id')),
+                team_b_id=self._to_int(game_info.get('team2_id'))
             )
-            
-            print(f"✅ Анонс игры отправлен в основной топик")
+
+            print("✅ Анонс игры отправлен в основной топик")
             print(f"📊 ID сообщения: {message.message_id}")
-            print(f"📅 Дата: {game_info['date']}")
-            print(f"🕐 Время: {game_info['time']}")
-            print(f"📍 Место: {game_info['venue']}")
+            print(f"📅 Дата: {game_info.get('date', '')}")
+            print(f"🕐 Время: {game_info.get('time', '')}")
+            print(f"👕 Форма: {form_color}")
+            print(f"📍 Место: {game_info.get('venue', '')}")
             print(f"🎯 Позиция в табло: {game_position}")
             if game_link:
                 print(f"🔗 Ссылка: {game_link}")
-            
+
             return True
             
         except Exception as e:
@@ -1697,6 +1886,7 @@ class GameSystemManager:
             self.config_team_ids_set = set(self.config_team_ids)
             self.team_configs = latest_config.get('teams', {}) or {}
             self.training_poll_configs = latest_config.get('training_polls', []) or []
+            self.voting_configs = latest_config.get('voting_polls', []) or []
             self.fallback_sources = latest_config.get('fallback_sources', []) or []
             self._update_team_mappings()
             print(f"   CHAT_ID: {CHAT_ID}")
@@ -1708,6 +1898,7 @@ class GameSystemManager:
             print(f"   ⚙️ Команды (ID): {self.config_team_ids or 'не заданы'}")
             print(f"   ⚙️ Названия команд: {self.team_name_keywords or 'не заданы'}")
             print(f"   ⚙️ Конфигурации опросов тренировок: {len(self.training_poll_configs)}")
+            print(f"   ⚙️ Конфигурации голосований: {len(self.voting_configs)}")
             print(f"   ⚙️ Fallback-источники: {len(self.fallback_sources)}")
             cleanup_result = duplicate_protection.cleanup_expired_records(30)
             if cleanup_result.get('success'):

@@ -54,12 +54,52 @@ END_COLUMN_LETTER = chr(ord('A') + len(SERVICE_HEADER) - 1)
 CONFIG_WORKSHEET_NAME = "Конфиг"
 CONFIG_HEADER = [
     "ТИП",
-    "ИД СОРЕВНОВАНИЯ",
-    "ИД КОМАНДЫ",
-    "АЛЬТЕРНАТИВНОЕ ИМЯ",
-    "НАСТРОЙКИ",
+    "ИД (СОРЕВНОВАНИЯ / ГОЛОСОВАНИЯ)",
+    "ИД КОМАНДЫ / ПОРЯДОК",
+    "АЛЬТЕРНАТИВНОЕ ИМЯ / ТЕКСТ",
+    "НАСТРОЙКИ (JSON)",
+    "ДНИ НЕДЕЛИ",
     "URL FALLBACK",
     "НАЗВАНИЕ FALLBACK"
+]
+CONFIG_SECTION_END_MARKERS = {
+    "END",
+    "END_CONFIG",
+    "CONFIG_END",
+    "END OF CONFIG",
+    "КОНЕЦ",
+    "--- END ---",
+    "=== END ===",
+}
+DEFAULT_END_MARKER = "--- END ---"
+VOTING_SECTION_END_MARKER = "--- END VOTING ---"
+VOTING_SECTION_HEADER = [
+    "ID голосования",
+    "Тема",
+    "Вариант ответа",
+    "Дни запуска",
+    "Параметры (JSON)",
+    "Комментарий",
+]
+VOTING_JSON_GUIDE_ROW = [
+    "",
+    "",
+    "",
+    "",
+    "# JSON: is_anonymous; allows_multiple_answers; open_period_minutes; close_date; topic_id",
+    ""
+]
+LEGACY_VOTING_HEADERS = [
+    [
+        "ТИП (ГОЛОСОВАНИЯ)",
+        "ИД голосования",
+        "Порядок / вспомогательное значение",
+        "Тема или вариант",
+        "Доп. настройки (JSON)",
+        "Дни недели (через запятую)",
+        "URL / резерв",
+        "Комментарий / резерв",
+    ]
 ]
 # Загружаем переменные окружения
 load_dotenv()
@@ -164,9 +204,152 @@ class EnhancedDuplicateProtection:
                     updated = True
             if updated:
                 worksheet.update(f'A1:{chr(ord("A") + len(CONFIG_HEADER) - 1)}1', [header])
+            self._ensure_voting_section_structure(worksheet)
         except Exception as e:
             print(f"⚠️ Не удалось обновить заголовок листа '{CONFIG_WORKSHEET_NAME}': {e}")
  
+    def _ensure_voting_section_structure(self, worksheet) -> None:
+        """Гарантирует наличие раздела для конфигурации голосований"""
+        try:
+            all_data = worksheet.get_all_values()
+            end_row_index: Optional[int] = None
+            end_marker_value: Optional[str] = None
+            for idx, row in enumerate(all_data, start=1):
+                if row and row[0].strip() in CONFIG_SECTION_END_MARKERS:
+                    end_row_index = idx
+                    end_marker_value = row[0].strip()
+                    break
+
+            total_columns = len(CONFIG_HEADER)
+            empty_row = [""] * total_columns
+
+            if end_row_index is None:
+                end_row_index = len(all_data) + 1
+                worksheet.append_row(
+                    [DEFAULT_END_MARKER] + [""] * (total_columns - 1),
+                    value_input_option="USER_ENTERED",
+                )
+                all_data.append([DEFAULT_END_MARKER] + [""] * (total_columns - 1))
+            elif end_marker_value and end_marker_value != DEFAULT_END_MARKER:
+                worksheet.update(
+                    f"A{end_row_index}",
+                    [[DEFAULT_END_MARKER]],
+                )
+                if end_row_index - 1 < len(all_data):
+                    all_data[end_row_index - 1][0] = DEFAULT_END_MARKER
+
+            header_row_index = end_row_index + 1
+            existing_row = all_data[header_row_index - 1] if header_row_index - 1 < len(all_data) else []
+            normalized_existing = [cell.strip() for cell in existing_row] if existing_row else []
+
+            legacy_header_detected = any(
+                normalized_existing[:len(legacy)] == [cell.strip() for cell in legacy]
+                for legacy in LEGACY_VOTING_HEADERS
+            )
+
+            if not normalized_existing or not any(normalized_existing) or legacy_header_detected:
+                padded_header = VOTING_SECTION_HEADER + [""] * (total_columns - len(VOTING_SECTION_HEADER))
+                if header_row_index - 1 < len(all_data):
+                    worksheet.update(
+                        f"A{header_row_index}:{chr(ord('A') + total_columns - 1)}{header_row_index}",
+                        [padded_header],
+                    )
+                    all_data[header_row_index - 1] = padded_header
+                else:
+                    worksheet.append_row(
+                        padded_header,
+                        value_input_option="USER_ENTERED",
+                    )
+                    all_data.append(padded_header)
+            elif normalized_existing[:len(VOTING_SECTION_HEADER)] != VOTING_SECTION_HEADER:
+                print("ℹ️ Пропускаем обновление заголовка раздела голосований: обнаружены пользовательские значения")
+
+            has_voting_end_marker = False
+            for row in all_data[header_row_index:]:
+                if row and row[0].strip() == VOTING_SECTION_END_MARKER:
+                    has_voting_end_marker = True
+                    break
+            if not has_voting_end_marker:
+                worksheet.append_row(
+                    [VOTING_SECTION_END_MARKER] + [""] * (total_columns - 1),
+                    value_input_option="USER_ENTERED",
+                )
+
+            json_instruction_exists = False
+            for row in worksheet.get_all_values():
+                if len(row) > 4 and isinstance(row[4], str) and row[4].strip().startswith("# Параметры JSON"):
+                    json_instruction_exists = True
+                    break
+            if not json_instruction_exists:
+                padded_instruction = VOTING_JSON_GUIDE_ROW + [""] * (total_columns - len(VOTING_JSON_GUIDE_ROW))
+                worksheet.append_row(
+                    padded_instruction,
+                    value_input_option="USER_ENTERED",
+                )
+        except Exception as error:
+            print(f"⚠️ Не удалось гарантировать структуру раздела голосований: {error}")
+
+    @staticmethod
+    def _normalize_cell_text(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        return str(value).strip()
+
+    @staticmethod
+    def _try_parse_int(value: Any) -> Optional[int]:
+        if value in (None, ""):
+            return None
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _parse_weekday_value(value: Any) -> Optional[int]:
+        text = EnhancedDuplicateProtection._normalize_cell_text(value).lower()
+        if not text:
+            return None
+        mapping = {
+            "0": 0,
+            "1": 1,
+            "2": 2,
+            "3": 3,
+            "4": 4,
+            "5": 5,
+            "6": 6,
+            "mon": 0,
+            "tue": 1,
+            "wed": 2,
+            "thu": 3,
+            "fri": 4,
+            "sat": 5,
+            "sun": 6,
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6,
+            "понедельник": 0,
+            "вторник": 1,
+            "среда": 2,
+            "четверг": 3,
+            "пятница": 4,
+            "суббота": 5,
+            "воскресенье": 6,
+            "пн": 0,
+            "вт": 1,
+            "ср": 2,
+            "чт": 3,
+            "пт": 4,
+            "сб": 5,
+            "вс": 6,
+        }
+        return mapping.get(text)
+
     def _get_service_worksheet(self, raw: bool = False):
         """Получает лист 'Сервисный'"""
         if not self.spreadsheet:
@@ -768,7 +951,8 @@ class EnhancedDuplicateProtection:
             'team_ids': set(),
             'teams': {},
             'training_polls': [],
-            'fallback_sources': []
+            'fallback_sources': [],
+            'voting_polls': []
         }
         if not worksheet:
             return {'has_data': False, 'payload': payload}
@@ -783,60 +967,150 @@ class EnhancedDuplicateProtection:
             teams: Dict[int, Dict[str, Any]] = {}
             training_polls: List[Dict[str, Any]] = []
             fallback_sources: List[Dict[str, Any]] = []
+            voting_entries: Dict[str, Dict[str, Any]] = {}
+            found_end_marker = False
+
+            required_len = len(CONFIG_HEADER)
 
             for row in all_data[1:]:
                 if not row or len(row) < 1:
                     continue
 
-                row_type = (row[0] or "").strip().upper()
-                comp_id_cell = row[1] if len(row) > 1 else ""
-                team_id_cell = row[2] if len(row) > 2 else ""
-                alt_name = (row[3] or "").strip() if len(row) > 3 else ""
-                settings_json = row[4] if len(row) > 4 else ""
-                fallback_url = row[5] if len(row) > 5 else ""
-                fallback_name = row[6] if len(row) > 6 else ""
+                row_extended = list(row)
+                if len(row_extended) < required_len:
+                    row_extended.extend([""] * (required_len - len(row_extended)))
 
-                row_comp_ids = self._parse_ids(comp_id_cell)
-                row_team_ids = self._parse_ids(team_id_cell)
-                config_payload = self._parse_json_config(settings_json)
+                row_type = self._normalize_cell_text(row_extended[0]) if row_extended else ""
+                normalized_type = row_type.upper()
 
-                if not row_type:
-                    if row_team_ids:
-                        row_type = "CONFIG_TEAM"
-                    elif row_comp_ids:
-                        row_type = "CONFIG_COMP"
+                if not found_end_marker and normalized_type in CONFIG_SECTION_END_MARKERS:
+                    found_end_marker = True
+                    continue
 
-                if row_type in {"CONFIG_COMP", "COMP_CONFIG"}:
-                    comp_ids_set.update(row_comp_ids)
-                elif row_type in {"CONFIG_TEAM", "TEAM_CONFIG"}:
-                    comp_ids_set.update(row_comp_ids)
-                    for team_id in row_team_ids:
-                        team_ids_set.add(team_id)
-                        team_entry = teams.setdefault(team_id, {"alt_name": None, "comp_ids": set(), "metadata": {}})
-                        if alt_name:
-                            team_entry["alt_name"] = alt_name
-                        if row_comp_ids:
-                            team_entry["comp_ids"].update(row_comp_ids)
-                        if config_payload:
-                            team_entry["metadata"].update(config_payload)
-                elif row_type in {"TRAINING_POLL", "TRAINING_CONFIG"}:
-                    training_entry = {
-                        "title": config_payload.get("title") or alt_name,
-                        "weekday": config_payload.get("weekday"),
-                        "time": config_payload.get("time"),
-                        "location": config_payload.get("location"),
-                        "topic_id": config_payload.get("topic_id"),
-                        "metadata": config_payload
-                    }
-                    training_polls.append(training_entry)
-                elif row_type in {"FALLBACK", "FALLBACK_SOURCE", "FALLBACK_CONFIG"}:
-                    fallback_entry = {
-                        "name": fallback_name or alt_name,
-                        "url": fallback_url,
-                        "metadata": config_payload
-                    }
-                    if fallback_entry["url"] or fallback_entry["name"]:
-                        fallback_sources.append(fallback_entry)
+                if found_end_marker and normalized_type == VOTING_SECTION_END_MARKER:
+                    break
+
+                if not found_end_marker:
+                    comp_id_cell = row_extended[1]
+                    team_id_cell = row_extended[2]
+                    alt_name = self._normalize_cell_text(row_extended[3])
+                    settings_json_cell = row_extended[4]
+                    weekday_cell = row_extended[5]
+                    fallback_url = row_extended[6]
+                    fallback_name = row_extended[7]
+
+                    row_comp_ids = self._parse_ids(comp_id_cell)
+                    row_team_ids = self._parse_ids(team_id_cell)
+                    config_payload = self._parse_json_config(settings_json_cell)
+
+                    if not normalized_type:
+                        if row_team_ids:
+                            normalized_type = "CONFIG_TEAM"
+                        elif row_comp_ids:
+                            normalized_type = "CONFIG_COMP"
+
+                    if normalized_type in {"CONFIG_COMP", "COMP_CONFIG"}:
+                        comp_ids_set.update(row_comp_ids)
+                    elif normalized_type in {"CONFIG_TEAM", "TEAM_CONFIG"}:
+                        comp_ids_set.update(row_comp_ids)
+                        for team_id in row_team_ids:
+                            team_ids_set.add(team_id)
+                            team_entry = teams.setdefault(
+                                team_id,
+                                {"alt_name": None, "comp_ids": set(), "metadata": {}},
+                            )
+                            if alt_name:
+                                team_entry["alt_name"] = alt_name
+                            if row_comp_ids:
+                                team_entry["comp_ids"].update(row_comp_ids)
+                            if config_payload:
+                                team_entry["metadata"].update(config_payload)
+                    elif normalized_type in {"TRAINING_POLL", "TRAINING_CONFIG"}:
+                        training_entry = {
+                            "title": config_payload.get("title") or alt_name,
+                            "weekday": config_payload.get("weekday"),
+                            "time": config_payload.get("time"),
+                            "location": config_payload.get("location"),
+                            "topic_id": config_payload.get("topic_id"),
+                            "metadata": config_payload,
+                        }
+                        training_polls.append(training_entry)
+                    elif normalized_type in {"FALLBACK", "FALLBACK_SOURCE", "FALLBACK_CONFIG"}:
+                        fallback_entry = {
+                            "name": fallback_name or alt_name,
+                            "url": fallback_url,
+                            "metadata": config_payload,
+                        }
+                        if fallback_entry["url"] or fallback_entry["name"]:
+                            fallback_sources.append(fallback_entry)
+                    else:
+                        # Unknown types before the separator are ignored to keep backward compatibility
+                        continue
+                    continue
+
+                # Everything below this point belongs to the voting configuration section
+                poll_id_cell = row_extended[0]
+                topic_cell = self._normalize_cell_text(row_extended[1])
+                option_cell = self._normalize_cell_text(row_extended[2])
+                weekday_cell = row_extended[3]
+                settings_json_cell = row_extended[4]
+                comment_cell = self._normalize_cell_text(row_extended[5])
+                config_payload = self._parse_json_config(settings_json_cell)
+
+                header_candidate = [cell.strip() for cell in row_extended[:len(VOTING_SECTION_HEADER)]]
+                if header_candidate == VOTING_SECTION_HEADER or any(
+                    header_candidate[:len(legacy)] == [value.strip() for value in legacy[:len(header_candidate)]]
+                    for legacy in LEGACY_VOTING_HEADERS
+                ):
+                    continue
+                if normalized_type == VOTING_SECTION_END_MARKER:
+                    continue
+
+                poll_id = self._normalize_cell_text(poll_id_cell)
+                if not poll_id:
+                    continue
+
+                entry = voting_entries.setdefault(
+                    poll_id,
+                    {
+                        "poll_id": poll_id,
+                        "topic_template": "",
+                        "options_raw": [],
+                        "weekdays": set(),
+                        "metadata": {},
+                        "comments": [],
+                    },
+                )
+
+                if config_payload:
+                    entry["metadata"].update(config_payload)
+
+                topic_value = topic_cell
+                option_text = option_cell
+                weekday_value = weekday_cell
+                comment_value = comment_cell
+
+                if topic_value:
+                    entry["topic_template"] = topic_value
+
+                if option_text:
+                    entry["options_raw"].append(
+                        {
+                            "text": option_text,
+                            "metadata": config_payload,
+                            "sequence": len(entry["options_raw"]),
+                            "comment": comment_value,
+                        }
+                    )
+
+                if weekday_value:
+                    for part in re.split(r"[,\n;/]+", str(weekday_value)):
+                        weekday = self._parse_weekday_value(part)
+                        if weekday is not None:
+                            entry["weekdays"].add(weekday)
+
+                if comment_value:
+                    entry["comments"].append(comment_value)
 
             for team in teams.values():
                 if isinstance(team.get("comp_ids"), set):
@@ -846,13 +1120,42 @@ class EnhancedDuplicateProtection:
                 if not team.get("alt_name"):
                     team.pop("alt_name", None)
 
-            has_data = bool(comp_ids_set or team_ids_set or teams or training_polls or fallback_sources)
+            voting_polls: List[Dict[str, Any]] = []
+            for poll_id, data in voting_entries.items():
+                options_raw = data.pop("options_raw", [])
+                if options_raw:
+                    options_sorted = sorted(options_raw, key=lambda item: item["sequence"])
+                    data["options"] = [
+                        {
+                            "text": option["text"],
+                            **({"metadata": option["metadata"]} if option["metadata"] else {}),
+                            **({"comment": option["comment"]} if option.get("comment") else {}),
+                        }
+                        for option in options_sorted
+                    ]
+                else:
+                    data["options"] = []
+                weekdays = data.get("weekdays", set())
+                data["weekdays"] = sorted(weekdays) if isinstance(weekdays, set) else weekdays
+                if not data.get("comments"):
+                    data.pop("comments", None)
+                voting_polls.append(data)
+
+            has_data = bool(
+                comp_ids_set
+                or team_ids_set
+                or teams
+                or training_polls
+                or fallback_sources
+                or voting_polls
+            )
             payload.update({
                 'comp_ids': sorted(comp_ids_set),
                 'team_ids': sorted(team_ids_set),
                 'teams': teams,
                 'training_polls': training_polls,
                 'fallback_sources': fallback_sources,
+                'voting_polls': sorted(voting_polls, key=lambda item: item.get("poll_id") or ""),
             })
             return {'has_data': has_data, 'payload': payload}
         except Exception as e:
@@ -867,7 +1170,8 @@ class EnhancedDuplicateProtection:
                 'team_ids': set(),
                 'teams': {},
                 'training_polls': [],
-                'fallback_sources': []
+                'fallback_sources': [],
+                'voting_polls': []
             }
 
         try:
@@ -878,7 +1182,8 @@ class EnhancedDuplicateProtection:
                     'team_ids': set(),
                     'teams': {},
                     'training_polls': [],
-                    'fallback_sources': []
+                    'fallback_sources': [],
+                    'voting_polls': []
                 }
 
             comp_ids_set: Set[int] = set()
@@ -959,7 +1264,8 @@ class EnhancedDuplicateProtection:
                 'team_ids': team_ids_set,
                 'teams': teams,
                 'training_polls': training_polls,
-                'fallback_sources': fallback_sources
+                'fallback_sources': fallback_sources,
+                'voting_polls': []
             }
         except Exception as e:
             print(f"⚠️ Ошибка чтения конфигурации из сервисного листа: {e}")
@@ -968,7 +1274,8 @@ class EnhancedDuplicateProtection:
                 'team_ids': set(),
                 'teams': {},
                 'training_polls': [],
-                'fallback_sources': []
+                'fallback_sources': [],
+                'voting_polls': []
             }
 
     def get_config_ids(self) -> Dict[str, Any]:
@@ -979,7 +1286,8 @@ class EnhancedDuplicateProtection:
             'team_ids': sorted(full_config.get('team_ids', set())),
             'teams': full_config.get('teams', {}),
             'training_polls': full_config.get('training_polls', []),
-            'fallback_sources': full_config.get('fallback_sources', [])
+            'fallback_sources': full_config.get('fallback_sources', []),
+            'voting_polls': full_config.get('voting_polls', [])
         }
 
 # Глобальный экземпляр для использования в других модулях

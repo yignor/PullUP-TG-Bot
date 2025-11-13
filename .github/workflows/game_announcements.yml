@@ -29,51 +29,11 @@ jobs:
         restore-keys: |
           game-history-
       
-    - name: Check restored history
-      run: |
-        echo "🔍 ПРОВЕРКА ВОССТАНОВЛЕННОЙ ИСТОРИИ"
-        echo "=================================================="
-        echo "📋 Содержимое рабочей директории:"
-        ls -la
-        echo ""
-        echo "📋 Содержимое всех JSON файлов:"
-        find . -name "*.json" -type f
-        echo ""
-        echo "📄 Содержимое game_announcements.json (если есть):"
-        if [ -f "game_announcements.json" ]; then
-          cat game_announcements.json
-        else
-          echo "❌ Файл game_announcements.json не найден"
-        fi
-        echo "=================================================="
-        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements-github.txt
-        
-    - name: Debug history files
-      run: |
-        echo "🔍 ДИАГНОСТИКА ФАЙЛОВ ИСТОРИИ"
-        echo "=================================================="
-        echo "📋 Проверяем наличие файлов истории:"
-        ls -la *.json 2>/dev/null || echo "❌ JSON файлы не найдены"
-        echo ""
-        echo "📄 Содержимое game_announcements.json:"
-        if [ -f "game_announcements.json" ]; then
-          cat game_announcements.json
-        else
-          echo "❌ Файл game_announcements.json не найден"
-        fi
-        echo ""
-        echo "📄 Содержимое game_polls_history.json:"
-        if [ -f "game_polls_history.json" ]; then
-          cat game_polls_history.json
-        else
-          echo "❌ Файл game_polls_history.json не найден"
-        fi
-        echo "=================================================="
-        
+
     - name: Initialize history files
       run: |
         echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ ИСТОРИИ"

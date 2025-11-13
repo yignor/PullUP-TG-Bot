@@ -81,55 +81,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-github.txt
         
-    - name: Create .env file
-      run: |
-        echo "🔧 СОЗДАНИЕ ФАЙЛА .ENV"
-        echo "=================================================="
-        
-        # Создаем пустой .env файл
-        touch .env
-        
-        # Добавляем переменные только если они не пустые
-        if [ ! -z "${{ secrets.BOT_TOKEN }}" ]; then
-          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" >> .env
-          echo "✅ BOT_TOKEN добавлен в .env"
-        else
-          echo "⚠️ BOT_TOKEN пустой, пропускаем"
-        fi
-        
-        if [ ! -z "${{ secrets.CHAT_ID }}" ]; then
-          echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> .env
-          echo "✅ CHAT_ID добавлен в .env"
-        else
-          echo "⚠️ CHAT_ID пустой, пропускаем"
-        fi
-        
-        if [ ! -z "${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" ]; then
-          echo "ANNOUNCEMENTS_TOPIC_ID=${{ secrets.ANNOUNCEMENTS_TOPIC_ID }}" >> .env
-          echo "✅ ANNOUNCEMENTS_TOPIC_ID добавлен в .env"
-        else
-          echo "⚠️ ANNOUNCEMENTS_TOPIC_ID пустой, пропускаем"
-        fi
-        
-        if [ ! -z "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" ]; then
-          echo "GOOGLE_SHEETS_CREDENTIALS=${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" >> .env
-          echo "✅ GOOGLE_SHEETS_CREDENTIALS добавлен в .env"
-        else
-          echo "⚠️ GOOGLE_SHEETS_CREDENTIALS пустой, пропускаем"
-        fi
-        
-        if [ ! -z "${{ secrets.SPREADSHEET_ID }}" ]; then
-          echo "SPREADSHEET_ID=${{ secrets.SPREADSHEET_ID }}" >> .env
-          echo "✅ SPREADSHEET_ID добавлен в .env"
-        else
-          echo "⚠️ SPREADSHEET_ID пустой, пропускаем"
-        fi
-        
-        echo ""
-        echo "📄 Содержимое .env файла:"
-        cat .env
-        echo "=================================================="
-        
     - name: Run Game Results Monitor V2
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -139,97 +90,11 @@ jobs:
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
         echo "🏀 Запуск системы мониторинга результатов игр V2..."
-        echo "🕐 Время запуска: $(date)"
-        echo "📅 День недели: $(date +%u)"
-        echo "🕐 Час: $(date +%H)"
-        
-        # Проверяем переменные окружения
-        if [ -z "$BOT_TOKEN" ]; then
-          echo "❌ BOT_TOKEN не настроен"
-          exit 1
-        fi
-        if [ -z "$CHAT_ID" ]; then
-          echo "❌ CHAT_ID не настроен"
-          exit 1
-        fi
-        
-        echo "✅ Все переменные окружения настроены"
-        
-        # Проверяем наличие файлов
-        echo "🔍 ПРОВЕРКА ФАЙЛОВ:"
-        echo "=================================================="
-        echo "📋 Текущая директория: $(pwd)"
-        echo "📋 Содержимое директории:"
-        ls -la
-        
-        echo ""
-        echo "📋 Проверяем наличие Python файлов:"
-        if [ -f "run_game_results_monitor_final.py" ]; then
-          echo "✅ run_game_results_monitor_final.py найден"
-          echo "📄 Содержимое файла:"
-          head -10 run_game_results_monitor_final.py
-        else
-          echo "❌ run_game_results_monitor_final.py НЕ найден"
-        fi
-        
-        if [ -f "game_results_monitor_final.py" ]; then
-          echo "✅ game_results_monitor_final.py найден"
-        else
-          echo "❌ game_results_monitor_final.py НЕ найден"
-        fi
-        
-        if [ -f "game_system_manager.py" ]; then
-          echo "✅ game_system_manager.py найден"
-        else
-          echo "❌ game_system_manager.py НЕ найден"
-        fi
-        
-        if [ -f "datetime_utils.py" ]; then
-          echo "✅ datetime_utils.py найден"
-        else
-          echo "❌ datetime_utils.py НЕ найден"
-        fi
-        
-        echo "=================================================="
-        echo "🔄 Запуск системы мониторинга результатов..."
-        echo "=================================================="
-        
-        # Проверяем .env файл перед запуском
-        echo "🔍 ПРОВЕРКА .ENV ФАЙЛА:"
-        echo "=================================================="
-        if [ -f ".env" ]; then
-          echo "✅ .env файл найден"
-                  echo "📄 Содержимое .env файла:"
-        cat .env
-        echo ""
-        echo "📋 Количество строк в .env:"
-        wc -l .env
-        echo ""
-        echo "🔍 Проверка каждой строки .env файла:"
-        if [ -f ".env" ]; then
-          line_number=1
-          while IFS= read -r line; do
-            echo "   Строка $line_number: '$line'"
-            line_number=$((line_number + 1))
-          done < .env
-        fi
-        else
-          echo "❌ .env файл не найден"
-        fi
-        echo "=================================================="
-        
-        # Запускаем финальную систему мониторинга результатов
-        echo "🆕 Запуск финальной системы мониторинга результатов..."
-        # При ручном запуске используем принудительный режим
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "🔧 Ручной запуск - используем принудительный режим"
           python run_game_results_monitor_final.py --force
         else
-          echo "⏰ Автоматический запуск по расписанию"
           python run_game_results_monitor_final.py
         fi
-        echo "=================================================="
-        echo "Завершение мониторинга результатов"
         
     - name: Save game results cache
       uses: actions/cache@v3

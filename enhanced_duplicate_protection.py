@@ -100,8 +100,7 @@ VOTING_GUIDE_ROWS = [
     ]
 ]
 AUTOMATION_SECTION_HEADER = [
-    "Код",
-    "Название",
+    "Автоматическое сообщение",
     "ID топика",
     "Анонимный",
     "Множественный выбор",
@@ -124,7 +123,30 @@ LEGACY_VOTING_HEADERS = [
         "Дни недели (через запятую)",
         "URL / резерв",
         "Комментарий / резерв",
-    ]
+    ],
+    [
+        "ID голосования",
+        "Тема",
+        "Вариант ответа",
+        "Дни запуска",
+        "Параметры (JSON)",
+        "Комментарий",
+    ],
+]
+AUTOMATION_NAME_TO_KEY = {
+    row["name"].lower(): row["key"]
+    for row in AUTOMATION_DEFAULT_ROWS
+}
+AUTOMATION_KEY_TO_NAME = {
+    row["key"].upper(): row["name"]
+    for row in AUTOMATION_DEFAULT_ROWS
+}
+LEGACY_AUTOMATION_HEADERS = [
+    [
+        "Автоматическое сообщение",
+        "ID топика",
+        "Комментарий",
+    ],
 ]
 # Загружаем переменные окружения
 load_dotenv()
@@ -139,6 +161,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive'
 ]
+
+MAX_CONFIG_COLUMNS = max(len(CONFIG_HEADER), len(VOTING_SECTION_HEADER))
 
 class EnhancedDuplicateProtection:
     """Универсальная система защиты от дублирования"""
@@ -236,6 +260,9 @@ class EnhancedDuplicateProtection:
     def _ensure_voting_section_structure(self, worksheet) -> None:
         """Гарантирует наличие раздела для конфигурации голосований"""
         try:
+            total_columns = MAX_CONFIG_COLUMNS
+            padded_header = VOTING_SECTION_HEADER + [""] * (total_columns - len(VOTING_SECTION_HEADER))
+
             all_data = worksheet.get_all_values()
             end_row_index: Optional[int] = None
             end_marker_value: Optional[str] = None
@@ -245,55 +272,63 @@ class EnhancedDuplicateProtection:
                     end_marker_value = row[0].strip()
                     break
 
-            total_columns = max(len(CONFIG_HEADER), len(VOTING_SECTION_HEADER))
-            empty_row = [""] * total_columns
-
             if end_row_index is None:
                 end_row_index = len(all_data) + 1
                 worksheet.append_row(
                     [DEFAULT_END_MARKER] + [""] * (total_columns - 1),
                     value_input_option="USER_ENTERED",
                 )
-                all_data.append([DEFAULT_END_MARKER] + [""] * (total_columns - 1))
+                all_data.append([DEFAULT_END_MARKER])
             elif end_marker_value and end_marker_value != DEFAULT_END_MARKER:
-                worksheet.update(
-                    f"A{end_row_index}",
-                    [[DEFAULT_END_MARKER]],
-                )
-                if end_row_index - 1 < len(all_data):
-                    all_data[end_row_index - 1][0] = DEFAULT_END_MARKER
+                worksheet.update(f"A{end_row_index}", [[DEFAULT_END_MARKER]])
+                all_data[end_row_index - 1][0] = DEFAULT_END_MARKER
 
-            header_row_index = end_row_index + 1
-            existing_row = all_data[header_row_index - 1] if header_row_index - 1 < len(all_data) else []
-            normalized_existing = [cell.strip() for cell in existing_row] if existing_row else []
+            # Обновляем данные после возможных изменений
+            all_data = worksheet.get_all_values()
 
-            legacy_header_detected = any(
-                normalized_existing[:len(legacy)] == [cell.strip() for cell in legacy]
-                for legacy in LEGACY_VOTING_HEADERS
-            )
-
-            if not normalized_existing or not any(normalized_existing) or legacy_header_detected:
-                padded_header = VOTING_SECTION_HEADER + [""] * (total_columns - len(VOTING_SECTION_HEADER))
-                if header_row_index - 1 < len(all_data):
-                    worksheet.update(
-                        f"A{header_row_index}:{chr(ord('A') + total_columns - 1)}{header_row_index}",
-                        [padded_header],
-                    )
-                    all_data[header_row_index - 1] = padded_header
-                else:
-                    worksheet.append_row(
-                        padded_header,
-                        value_input_option="USER_ENTERED",
-                    )
-                    all_data.append(padded_header)
-            elif normalized_existing[:len(VOTING_SECTION_HEADER)] != VOTING_SECTION_HEADER:
-                print("ℹ️ Пропускаем обновление заголовка раздела голосований: обнаружены пользовательские значения")
-
-            has_voting_end_marker = False
-            for row in all_data[header_row_index:]:
-                if row and row[0].strip() == VOTING_SECTION_END_MARKER:
-                    has_voting_end_marker = True
+            header_row_index: Optional[int] = None
+            for idx in range(end_row_index + 1, len(all_data) + 1):
+                row = all_data[idx - 1]
+                normalized = [cell.strip() for cell in row]
+                if not any(normalized):
+                    continue
+                if normalized[0].upper() == VOTING_SECTION_END_MARKER.upper():
                     break
+                legacy_header_detected = any(
+                    normalized[:len(legacy)] == [cell.strip() for cell in legacy]
+                    for legacy in LEGACY_VOTING_HEADERS
+                )
+                if legacy_header_detected or normalized[:len(VOTING_SECTION_HEADER)] == VOTING_SECTION_HEADER or any(
+                    "Параметры (JSON)" in cell for cell in normalized
+                ):
+                    header_row_index = idx
+                    break
+
+            if header_row_index is None:
+                insert_index = end_row_index + 1
+                if insert_index - 1 < len(all_data):
+                    candidate = all_data[insert_index - 1]
+                    if any(cell.strip() for cell in candidate):
+                        insert_index += 1
+                worksheet.insert_row(
+                    padded_header,
+                    insert_index,
+                    value_input_option="USER_ENTERED",
+                )
+                header_row_index = insert_index
+                all_data = worksheet.get_all_values()
+            else:
+                worksheet.update(
+                    f"A{header_row_index}:{chr(ord('A') + total_columns - 1)}{header_row_index}",
+                    [padded_header],
+                )
+                all_data[header_row_index - 1] = padded_header
+
+            # Проверяем наличие маркера конца блока голосований
+            has_voting_end_marker = any(
+                row and row[0].strip().upper() == VOTING_SECTION_END_MARKER.upper()
+                for row in worksheet.get_all_values()
+            )
             if not has_voting_end_marker:
                 worksheet.append_row(
                     [VOTING_SECTION_END_MARKER] + [""] * (total_columns - 1),
@@ -319,53 +354,122 @@ class EnhancedDuplicateProtection:
     def _ensure_automation_section_structure(self, worksheet) -> None:
         """Гарантирует наличие раздела настроек автоматических сообщений"""
         try:
-            total_columns = max(len(CONFIG_HEADER), len(AUTOMATION_SECTION_HEADER))
+            total_columns = MAX_CONFIG_COLUMNS
+            padded_header = AUTOMATION_SECTION_HEADER + [""] * (total_columns - len(AUTOMATION_SECTION_HEADER))
             all_data = worksheet.get_all_values()
 
-            header_found = False
-            for row in all_data:
-                candidate = [cell.strip() for cell in row[:len(AUTOMATION_SECTION_HEADER)]]
-                if candidate == AUTOMATION_SECTION_HEADER:
-                    header_found = True
+            header_row_index: Optional[int] = None
+            for idx, row in enumerate(all_data, start=1):
+                normalized = [cell.strip() for cell in row]
+                if not any(normalized):
+                    continue
+                if normalized[:len(AUTOMATION_SECTION_HEADER)] == AUTOMATION_SECTION_HEADER:
+                    header_row_index = idx
+                    break
+                for legacy in LEGACY_AUTOMATION_HEADERS:
+                    if normalized[:len(legacy)] == [cell.strip() for cell in legacy]:
+                        header_row_index = idx
+                        break
+                if header_row_index is not None:
                     break
 
-            if not header_found:
+            if header_row_index is None:
                 worksheet.append_row(
-                    AUTOMATION_SECTION_HEADER + [""] * (total_columns - len(AUTOMATION_SECTION_HEADER)),
+                    padded_header,
                     value_input_option="USER_ENTERED",
                 )
                 all_data = worksheet.get_all_values()
+                header_row_index = len(all_data)
+            else:
+                worksheet.update(
+                    f"A{header_row_index}:{chr(ord('A') + total_columns - 1)}{header_row_index}",
+                    [padded_header],
+                )
+                all_data[header_row_index - 1] = padded_header
 
-            existing_keys = {
-                row[0].strip().upper()
-                for row in all_data
-                if row and isinstance(row[0], str) and row[0].strip()
-            }
+            existing_entries: Dict[str, Dict[str, str]] = {}
+            for row in all_data[header_row_index:]:
+                if not row:
+                    continue
+                label = (row[0] or "").strip()
+                if (
+                    not label
+                    or label == AUTOMATION_SECTION_HEADER[0]
+                    or label.upper() == AUTOMATION_SECTION_END_MARKER.upper()
+                    or label.startswith("#")
+                    or label.upper() == "КОД"
+                ):
+                    continue
+                mapped_key = AUTOMATION_NAME_TO_KEY.get(label.lower())
+                key_upper = mapped_key.upper() if mapped_key else label.upper()
+                display_name = AUTOMATION_KEY_TO_NAME.get(key_upper, label)
+                topic_value = row[1] if len(row) > 1 else ""
+                anon_value = row[2] if len(row) > 2 else ""
+                multiple_value = row[3] if len(row) > 3 else ""
+                comment_value = row[4] if len(row) > 4 else ""
+                existing_entries[key_upper] = {
+                    "label": display_name,
+                    "topic": topic_value,
+                    "anon": anon_value,
+                    "multiple": multiple_value,
+                    "comment": comment_value,
+                }
 
+            rows_to_write: List[List[str]] = []
             for default in AUTOMATION_DEFAULT_ROWS:
                 key_upper = default["key"].upper()
-                if key_upper not in existing_keys and key_upper != AUTOMATION_SECTION_END_MARKER:
-                    padded = [
-                        default["key"],
-                        default.get("name", ""),
-                        "",
-                        "Да" if default.get("is_anonymous") else "",
-                        "Да" if default.get("allows_multiple_answers") else "",
-                        default.get("comment", ""),
-                    ]
-                    padded += [""] * (total_columns - len(padded))
-                    worksheet.append_row(padded, value_input_option="USER_ENTERED")
-                    existing_keys.add(key_upper)
+                existing = existing_entries.pop(key_upper, None)
+                label = default["name"]
+                topic_value = ""
+                anon_value = ""
+                multiple_value = ""
+                comment_value = default.get("comment", "")
+                if existing:
+                    label = existing.get("label") or label
+                    topic_value = existing.get("topic", "")
+                    anon_value = existing.get("anon", "")
+                    multiple_value = existing.get("multiple", "")
+                    comment_value = existing.get("comment", "") or comment_value
+                rows_to_write.append([label, topic_value, anon_value, multiple_value, comment_value])
 
-            end_found = any(
-                row and row[0].strip() == AUTOMATION_SECTION_END_MARKER
-                for row in worksheet.get_all_values()
+            for key_upper, entry in existing_entries.items():
+                rows_to_write.append([
+                    entry.get("label") or key_upper,
+                    entry.get("topic", ""),
+                    entry.get("anon", ""),
+                    entry.get("multiple", ""),
+                    entry.get("comment", ""),
+                ])
+
+            rows_to_write.append([AUTOMATION_SECTION_END_MARKER] + [""] * (len(AUTOMATION_SECTION_HEADER) - 1))
+
+            end_marker_row_index: Optional[int] = None
+            for idx in range(header_row_index + 1, len(all_data) + 1):
+                row = all_data[idx - 1]
+                if row and (row[0] or "").strip().upper() == AUTOMATION_SECTION_END_MARKER.upper():
+                    end_marker_row_index = idx
+
+            existing_range_length = 0
+            if end_marker_row_index:
+                existing_range_length = end_marker_row_index - header_row_index
+            else:
+                existing_range_length = len(rows_to_write)
+
+            range_length = max(existing_range_length, len(rows_to_write))
+            rows_padded: List[List[str]] = []
+            for idx in range(range_length):
+                if idx < len(rows_to_write):
+                    base_row = rows_to_write[idx]
+                else:
+                    base_row = [""] * len(AUTOMATION_SECTION_HEADER)
+                padded = base_row + [""] * (total_columns - len(base_row))
+                rows_padded.append(padded)
+
+            worksheet.update(
+                f"A{header_row_index + 1}:{chr(ord('A') + total_columns - 1)}{header_row_index + range_length}",
+                rows_padded,
+                value_input_option="USER_ENTERED",
             )
-            if not end_found:
-                worksheet.append_row(
-                    [AUTOMATION_SECTION_END_MARKER] + [""] * (total_columns - 1),
-                    value_input_option="USER_ENTERED",
-                )
         except Exception as error:
             print(f"⚠️ Не удалось гарантировать структуру раздела автоматических сообщений: {error}")
 
@@ -1264,22 +1368,29 @@ class EnhancedDuplicateProtection:
                 if candidate == AUTOMATION_SECTION_HEADER:
                     automation_header_index = idx
                     break
+                for legacy in LEGACY_AUTOMATION_HEADERS:
+                    if candidate[:len(legacy)] == [cell.strip() for cell in legacy]:
+                        automation_header_index = idx
+                        break
+                if automation_header_index is not None:
+                    break
             if automation_header_index is not None:
                 for row in all_data[automation_header_index + 1:]:
                     if not row or len(row) == 0:
                         continue
-                    raw_key = self._normalize_cell_text(row[0])
-                    if not raw_key:
+                    raw_label = self._normalize_cell_text(row[0])
+                    if not raw_label:
                         continue
-                    if raw_key.upper() == AUTOMATION_SECTION_END_MARKER:
+                    if raw_label.upper() == AUTOMATION_SECTION_END_MARKER:
                         break
-                    display_name = self._normalize_cell_text(row[1]) if len(row) > 1 else ""
-                    topic_raw = self._normalize_cell_text(row[2]) if len(row) > 2 else ""
-                    anon_raw = row[3] if len(row) > 3 else ""
-                    multiple_raw = row[4] if len(row) > 4 else ""
-                    comment_raw = self._normalize_cell_text(row[5]) if len(row) > 5 else ""
-                    key_upper = raw_key.upper()
+                    topic_raw = self._normalize_cell_text(row[1]) if len(row) > 1 else ""
+                    anon_raw = row[2] if len(row) > 2 else ""
+                    multiple_raw = row[3] if len(row) > 3 else ""
+                    comment_raw = self._normalize_cell_text(row[4]) if len(row) > 4 else ""
+                    mapped_key = AUTOMATION_NAME_TO_KEY.get(raw_label.lower())
+                    key_upper = mapped_key.upper() if mapped_key else raw_label.upper()
                     entry: Dict[str, Any] = {}
+                    display_name = AUTOMATION_KEY_TO_NAME.get(key_upper, raw_label)
                     if display_name:
                         entry["name"] = display_name
                     topic_id_value = self._try_parse_int(topic_raw)

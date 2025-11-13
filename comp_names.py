@@ -27,8 +27,3 @@ def register_comp_name(comp_id: int, name: str) -> None:
     if isinstance(comp_id, int) and name:
         _COMP_NAMES[comp_id] = name.strip()
 
-
-
-
-
-

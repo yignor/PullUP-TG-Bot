@@ -31,6 +31,9 @@ CHAT_ID = os.getenv("CHAT_ID")
 GAMES_TOPIC_ID = os.getenv("GAMES_TOPIC_ID", "1282")  # Топик для опросов по играм
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовый режим
 
+AUTOMATION_KEY_GAME_POLLS = "GAME_POLLS"
+AUTOMATION_KEY_GAME_ANNOUNCEMENTS = "GAME_ANNOUNCEMENTS"
+
 # Файлы для истории
 POLLS_HISTORY_FILE = "game_polls_history.json"
 ANNOUNCEMENTS_HISTORY_FILE = "game_announcements.json"
@@ -159,16 +162,30 @@ class GameSystemManager:
         self.training_poll_configs: List[Dict[str, Any]] = []
         self.voting_configs: List[Dict[str, Any]] = []
         self.fallback_sources: List[Dict[str, Any]] = []
+        self.automation_topics: Dict[str, Any] = {}
+        self.config_comp_ids: List[int] = []
+        self.config_team_ids: List[int] = []
+        self.config_comp_ids_set = set(self.config_comp_ids)
+        self.config_team_ids_set = set(self.config_team_ids)
         
         config_snapshot = duplicate_protection.get_config_ids()
-        self.config_comp_ids: List[int] = config_snapshot.get('comp_ids', [])
-        self.config_team_ids: List[int] = config_snapshot.get('team_ids', [])
+        self.config_comp_ids = config_snapshot.get('comp_ids', [])
+        self.config_team_ids = config_snapshot.get('team_ids', [])
         self.team_configs = config_snapshot.get('teams', {}) or {}
         self.training_poll_configs = config_snapshot.get('training_polls', []) or []
         self.voting_configs = config_snapshot.get('voting_polls', []) or []
         self.fallback_sources = config_snapshot.get('fallback_sources', []) or []
+        self.automation_topics = config_snapshot.get('automation_topics', {}) or {}
         self.config_comp_ids_set = set(self.config_comp_ids)
         self.config_team_ids_set = set(self.config_team_ids)
+        
+        fallback_topic_id = self._to_int(GAMES_TOPIC_ID)
+        game_polls_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_POLLS)
+        self.game_poll_topic_id = self._resolve_automation_topic_id(game_polls_entry, fallback_topic_id)
+        self.game_poll_is_anonymous = self._resolve_automation_bool(game_polls_entry, "is_anonymous", False)
+        self.game_poll_allows_multiple = self._resolve_automation_bool(game_polls_entry, "allows_multiple_answers", False)
+        game_announcements_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_ANNOUNCEMENTS)
+        self.game_announcement_topic_id = self._resolve_automation_topic_id(game_announcements_entry, fallback_topic_id)
         
         self._update_team_mappings()
         
@@ -180,6 +197,15 @@ class GameSystemManager:
             print(f"   ⚙️ Конфигурация команд: {self.config_team_ids}")
         else:
             print("   ⚠️ Конфигурация соревнований и команд не найдена в сервисном листе")
+        print(
+            "   🧩 GAME_POLLS: "
+            f"topic={self.game_poll_topic_id}, anonymous={self.game_poll_is_anonymous}, "
+            f"multiple={self.game_poll_allows_multiple}"
+        )
+        print(
+            "   🧩 GAME_ANNOUNCEMENTS: "
+            f"topic={self.game_announcement_topic_id}"
+        )
         
         if BOT_TOKEN:
             from telegram import Bot
@@ -191,6 +217,50 @@ class GameSystemManager:
             return int(str(value).strip())
         except (TypeError, ValueError):
             return None
+
+    def _get_automation_entry(self, key: str) -> Dict[str, Any]:
+        if not key:
+            return {}
+        entry = self.automation_topics.get(key.upper()) if hasattr(self, "automation_topics") else None
+        if isinstance(entry, dict):
+            return entry
+        return {}
+
+    def _resolve_automation_topic_id(
+        self,
+        entry: Dict[str, Any],
+        fallback: Optional[int] = None,
+    ) -> Optional[int]:
+        if not entry:
+            return fallback
+        topic_candidate = entry.get("topic_id")
+        if topic_candidate is None:
+            topic_candidate = entry.get("topic_raw")
+        topic_value = self._to_int(topic_candidate)
+        if topic_value is not None:
+            return topic_value
+        return fallback
+
+    def _resolve_automation_bool(
+        self,
+        entry: Dict[str, Any],
+        key: str,
+        default: bool,
+    ) -> bool:
+        if not entry or key not in entry:
+            return default
+        value = entry.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "y", "да"}:
+                return True
+            if lowered in {"false", "0", "no", "n", "нет"}:
+                return False
+        return default
 
     @staticmethod
     def _normalize_name_for_search(name: str) -> str:
@@ -748,23 +818,20 @@ class GameSystemManager:
 
         try:
             send_kwargs: Dict[str, Any] = {
-                "chat_id": int(CHAT_ID),
+                "chat_id": self._to_int(CHAT_ID) or CHAT_ID,
                 "document": document,
                 "caption": caption,
             }
-            message_thread_id: Optional[int] = None
-            if GAMES_TOPIC_ID:
-                try:
-                    message_thread_id = int(GAMES_TOPIC_ID)
-                    send_kwargs["message_thread_id"] = message_thread_id
-                except ValueError:
-                    pass
+            message_thread_id: Optional[int] = self.game_announcement_topic_id
+            if message_thread_id is not None:
+                send_kwargs["message_thread_id"] = message_thread_id
 
             try:
                 await bot.send_document(**send_kwargs)
             except Exception as primary_error:
                 if message_thread_id is not None and "Message thread not found" in str(primary_error):
                     print(f"⚠️ Топик {message_thread_id} не найден, отправляем календарь в основной чат")
+                    self.game_announcement_topic_id = None
                     send_kwargs.pop("message_thread_id", None)
                     await bot.send_document(**send_kwargs)
                 else:
@@ -821,16 +888,12 @@ class GameSystemManager:
         message = "\n".join(lines)
 
         send_kwargs: Dict[str, Any] = {
-            "chat_id": int(CHAT_ID),
+            "chat_id": self._to_int(CHAT_ID) or CHAT_ID,
             "text": message,
         }
-        message_thread_id: Optional[int] = None
-        if GAMES_TOPIC_ID:
-            try:
-                message_thread_id = int(GAMES_TOPIC_ID)
-                send_kwargs["message_thread_id"] = message_thread_id
-            except ValueError:
-                pass
+        message_thread_id: Optional[int] = self.game_announcement_topic_id
+        if message_thread_id is not None:
+            send_kwargs["message_thread_id"] = message_thread_id
 
         try:
             try:
@@ -838,6 +901,7 @@ class GameSystemManager:
             except Exception as primary_error:
                 if message_thread_id is not None and "Message thread not found" in str(primary_error):
                     print(f"⚠️ Топик {message_thread_id} не найден, отправляем обновление в основной чат")
+                    self.game_announcement_topic_id = None
                     send_kwargs.pop("message_thread_id", None)
                     await bot.send_message(**send_kwargs)
                 else:
@@ -1293,34 +1357,24 @@ class GameSystemManager:
             
             # Отправляем опрос (с проверкой топика)
             try:
-                if GAMES_TOPIC_ID:
-                    message_thread_id = int(GAMES_TOPIC_ID)
-                    poll_message = await bot.send_poll(
-                        chat_id=int(CHAT_ID),
-                        question=question,
-                        options=options,
-                        is_anonymous=False,
-                        allows_multiple_answers=False,
-                        message_thread_id=message_thread_id
-                    )
-                else:
-                    poll_message = await bot.send_poll(
-                        chat_id=int(CHAT_ID),
-                        question=question,
-                        options=options,
-                        is_anonymous=False,
-                        allows_multiple_answers=False
-                    )
+                send_kwargs: Dict[str, Any] = {
+                    "chat_id": self._to_int(CHAT_ID) or CHAT_ID,
+                    "question": question,
+                    "options": options,
+                    "is_anonymous": self.game_poll_is_anonymous,
+                    "allows_multiple_answers": self.game_poll_allows_multiple,
+                }
+                message_thread_id = self.game_poll_topic_id
+                if message_thread_id is not None:
+                    send_kwargs["message_thread_id"] = message_thread_id
+                poll_message = await bot.send_poll(**send_kwargs)
             except Exception as e:
                 if "Message thread not found" in str(e):
-                    print(f"⚠️ Топик {GAMES_TOPIC_ID} не найден, отправляем в основной чат")
-                    poll_message = await bot.send_poll(
-                        chat_id=int(CHAT_ID),
-                        question=question,
-                        options=options,
-                        is_anonymous=False,
-                        allows_multiple_answers=False
-                    )
+                    thread_to_reset = send_kwargs.pop("message_thread_id", None)
+                    if thread_to_reset is not None:
+                        print(f"⚠️ Топик {thread_to_reset} не найден, отправляем в основной чат")
+                        self.game_poll_topic_id = None
+                    poll_message = await bot.send_poll(**send_kwargs)
                 else:
                     raise e
             
@@ -1339,7 +1393,7 @@ class GameSystemManager:
                 'day_of_week': day_of_week,
                 'date': get_moscow_time().isoformat(),
                 'chat_id': CHAT_ID,
-                'topic_id': GAMES_TOPIC_ID
+                'topic_id': self.game_poll_topic_id
             }
             
             # Сохраняем в историю (для обратной совместимости)
@@ -1349,7 +1403,7 @@ class GameSystemManager:
             
             # Добавляем запись в сервисный лист для защиты от дублирования
             additional_info = f"{game_info['date']} {game_info['time']} vs {opponent} в {game_info['venue']}"
-            print(f"✅ Опрос для игры создан в топике {GAMES_TOPIC_ID}")
+            print(f"✅ Опрос для игры создан в топике {self.game_poll_topic_id}")
             print(f"📊 ID опроса: {poll_info['poll_id']}")
             print(f"📊 ID сообщения: {poll_info['message_id']}")
             print(f"🏀 Формат: {question}")
@@ -1888,9 +1942,18 @@ class GameSystemManager:
             self.training_poll_configs = latest_config.get('training_polls', []) or []
             self.voting_configs = latest_config.get('voting_polls', []) or []
             self.fallback_sources = latest_config.get('fallback_sources', []) or []
+            self.automation_topics = latest_config.get('automation_topics', {}) or {}
             self._update_team_mappings()
             print(f"   CHAT_ID: {CHAT_ID}")
-            print(f"   GAMES_TOPIC_ID: {GAMES_TOPIC_ID}")
+            print(
+                "   GAME_POLLS: "
+                f"topic={self.game_poll_topic_id}, anonymous={self.game_poll_is_anonymous}, "
+                f"multiple={self.game_poll_allows_multiple}"
+            )
+            print(
+                "   GAME_ANNOUNCEMENTS: "
+                f"topic={self.game_announcement_topic_id}"
+            )
             print(f"   ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
             print(f"   История опросов: {len(self.polls_history)} записей")
             print(f"   История анонсов: {len(self.announcements_history)} записей")

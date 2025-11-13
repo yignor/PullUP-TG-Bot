@@ -173,16 +173,29 @@ class VotingPollsManager:
             return False
 
         params = config.parameters or {}
-        is_anonymous = self._coerce_bool(params.get("is_anonymous"), default=False)
-        allows_multiple = self._coerce_bool(params.get("allows_multiple_answers"), default=True)
-        open_period = self._coerce_int(params.get("open_period_minutes"))
+        automation_settings = self._get_automation_settings(AUTOMATION_VOTING_KEY)
+        is_anonymous = self._resolve_bool_setting(params, automation_settings, "is_anonymous", False)
+        allows_multiple = self._resolve_bool_setting(params, automation_settings, "allows_multiple_answers", True)
+
+        open_period_source = params.get("open_period_minutes")
+        if open_period_source is None:
+            open_period_source = automation_settings.get("open_period_minutes")
+        open_period = self._coerce_int(open_period_source)
         if open_period is not None:
             open_period = max(5, min(open_period, 600))
-        close_date = self._parse_close_date(params.get("close_date"), today)
+
+        close_date_source = params.get("close_date") or automation_settings.get("close_date")
+        close_date = self._parse_close_date(close_date_source, today)
+
         params_topic_id = self._parse_int(params.get("topic_id"))
-        topic_id = config.topic_id if config.topic_id is not None else params_topic_id
-        if topic_id is None:
-            topic_id = self._get_automation_topic(AUTOMATION_VOTING_KEY)
+        automation_topic_id = self._get_automation_topic(AUTOMATION_VOTING_KEY)
+        topic_id = None
+        if config.topic_id is not None:
+            topic_id = config.topic_id
+        elif params_topic_id is not None:
+            topic_id = params_topic_id
+        elif automation_topic_id is not None:
+            topic_id = automation_topic_id
 
         additional_info = f"{question} | " + " · ".join(options)
         record = duplicate_protection.add_record(
@@ -275,20 +288,24 @@ class VotingPollsManager:
         days_ahead = (target_weekday - reference_dt.weekday()) % 7
         return (reference_dt + dt.timedelta(days=days_ahead)).date()
 
-    def _get_automation_topic(self, key: str) -> Optional[int]:
+    def _get_automation_settings(self, key: str) -> Dict[str, Any]:
         if not key or not isinstance(key, str) or not self.automation_topics:
+            return {}
+        entry = self.automation_topics.get(key.upper())
+        if isinstance(entry, dict):
+            return entry
+        return {}
+
+    def _get_automation_topic(self, key: str) -> Optional[int]:
+        entry = self._get_automation_settings(key)
+        if not entry:
             return None
-        data = self.automation_topics.get(key.upper())
-        if data is None:
-            return None
-        if isinstance(data, dict):
-            topic_candidate = data.get("topic_id")
-            parsed = self._parse_int(topic_candidate)
-            if parsed is not None:
-                return parsed
-            topic_raw = data.get("topic_raw")
-            return self._parse_int(topic_raw)
-        return self._parse_int(data)
+        topic_candidate = entry.get("topic_id")
+        parsed = self._parse_int(topic_candidate)
+        if parsed is not None:
+            return parsed
+        topic_raw = entry.get("topic_raw")
+        return self._parse_int(topic_raw)
 
     def _parse_weekday_token(self, token: str) -> Optional[int]:
         normalized = token.strip().lower()
@@ -333,6 +350,19 @@ class VotingPollsManager:
                 continue
         print(f"⚠️ Не удалось разобрать close_date='{value}', игнорируем параметр")
         return None
+
+    def _resolve_bool_setting(
+        self,
+        params: Dict[str, Any],
+        automation: Dict[str, Any],
+        key: str,
+        default: bool,
+    ) -> bool:
+        if key in params:
+            return self._coerce_bool(params.get(key), default)
+        if key in automation:
+            return self._coerce_bool(automation.get(key), default)
+        return default
 
     def _resolve_chat_id(self, value: Optional[str]) -> Optional[Any]:
         if not value:

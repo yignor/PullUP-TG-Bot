@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from datetime_utils import get_moscow_time
 from enhanced_duplicate_protection import duplicate_protection
 from datetime_utils import log_current_time
+from typing import Any, Dict
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -100,11 +101,31 @@ async def check_birthdays():
             if not chat_id:
                 print("❌ CHAT_ID не настроен")
                 return
+
+            automation_topics = duplicate_protection.get_config_ids().get("automation_topics") or {}
+            birthday_settings = automation_topics.get("BIRTHDAY_NOTIFICATIONS", {})
+            birthday_topic_id = None
+            if isinstance(birthday_settings, dict):
+                topic_candidate = birthday_settings.get("topic_id")
+                if topic_candidate is None:
+                    topic_candidate = birthday_settings.get("topic_raw")
+                try:
+                    birthday_topic_id = int(topic_candidate) if topic_candidate is not None else None
+                except (TypeError, ValueError):
+                    birthday_topic_id = None
+
+            try:
+                target_chat_id: Any = int(chat_id)
+            except (TypeError, ValueError):
+                target_chat_id = chat_id
             
             # Отправляем каждое сообщение
             for i, message in enumerate(birthday_messages, 1):
                 try:
-                    await current_bot.send_message(chat_id=chat_id, text=message)  # type: ignore[reportCallIssue]
+                    send_kwargs: Dict[str, Any] = {"chat_id": target_chat_id, "text": message}
+                    if birthday_topic_id is not None:
+                        send_kwargs["message_thread_id"] = birthday_topic_id
+                    await current_bot.send_message(**send_kwargs)  # type: ignore[reportCallIssue]
                     print(f"✅ Отправлено уведомление {i}: {message[:50]}...")
                     
                     # Добавляем запись в сервисный лист для защиты от дублирования

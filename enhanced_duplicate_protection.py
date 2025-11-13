@@ -78,25 +78,41 @@ VOTING_SECTION_HEADER = [
     "Тема",
     "Вариант ответа",
     "Дни запуска",
-    "Параметры (JSON)",
-    "Комментарий",
+    "Анонимный",
+    "Множественный выбор",
+    "Время (мин)",
+    "Закрыть (дата)",
     "ID топика",
+    "Комментарий",
 ]
-VOTING_JSON_GUIDE_ROW = [
-    "",
-    "",
-    "",
-    "",
-    "# JSON: is_anonymous; allows_multiple_answers; open_period_minutes; close_date; topic_id",
-    "",
-    "",
+VOTING_GUIDE_ROWS = [
+    [
+        "# Подсказка",
+        "",
+        "",
+        "",
+        "true/false",
+        "true/false",
+        "5-600",
+        "ДД.ММ.ГГГГ или ДД.ММ.ГГГГ ЧЧ:ММ",
+        "ID топика (число)",
+        "",
+    ]
 ]
 AUTOMATION_SECTION_HEADER = [
     "Автоматическое сообщение",
     "ID топика",
+    "Анонимный",
+    "Множественный выбор",
     "Комментарий",
 ]
 AUTOMATION_SECTION_END_MARKER = "--- END AUTOMATIONS ---"
+AUTOMATION_DEFAULT_ROWS = [
+    {"key": "BIRTHDAY_NOTIFICATIONS", "comment": "Уведомления о днях рождения"},
+    {"key": "GAME_ANNOUNCEMENTS", "comment": "Анонсы игр"},
+    {"key": "GAME_POLLS", "comment": "Опросы по будущим играм"},
+    {"key": "VOTING_POLLS", "comment": "Голосования (по умолчанию)"},
+]
 LEGACY_VOTING_HEADERS = [
     [
         "ТИП (ГОЛОСОВАНИЯ)",
@@ -228,7 +244,7 @@ class EnhancedDuplicateProtection:
                     end_marker_value = row[0].strip()
                     break
 
-            total_columns = len(CONFIG_HEADER)
+            total_columns = max(len(CONFIG_HEADER), len(VOTING_SECTION_HEADER))
             empty_row = [""] * total_columns
 
             if end_row_index is None:
@@ -283,17 +299,18 @@ class EnhancedDuplicateProtection:
                     value_input_option="USER_ENTERED",
                 )
 
-            json_instruction_exists = False
+            guide_exists = False
             for row in worksheet.get_all_values():
-                if len(row) > 4 and isinstance(row[4], str) and row[4].strip().startswith("# Параметры JSON"):
-                    json_instruction_exists = True
+                if row and isinstance(row[0], str) and row[0].strip().startswith("# Подсказка"):
+                    guide_exists = True
                     break
-            if not json_instruction_exists:
-                padded_instruction = VOTING_JSON_GUIDE_ROW + [""] * (total_columns - len(VOTING_JSON_GUIDE_ROW))
-                worksheet.append_row(
-                    padded_instruction,
-                    value_input_option="USER_ENTERED",
-                )
+            if not guide_exists:
+                for guide_row in VOTING_GUIDE_ROWS:
+                    padded_instruction = guide_row + [""] * (total_columns - len(guide_row))
+                    worksheet.append_row(
+                        padded_instruction,
+                        value_input_option="USER_ENTERED",
+                    )
             self._ensure_automation_section_structure(worksheet)
         except Exception as error:
             print(f"⚠️ Не удалось гарантировать структуру раздела голосований: {error}")
@@ -301,7 +318,7 @@ class EnhancedDuplicateProtection:
     def _ensure_automation_section_structure(self, worksheet) -> None:
         """Гарантирует наличие раздела настроек автоматических сообщений"""
         try:
-            total_columns = len(CONFIG_HEADER)
+            total_columns = max(len(CONFIG_HEADER), len(AUTOMATION_SECTION_HEADER))
             all_data = worksheet.get_all_values()
 
             header_found = False
@@ -318,9 +335,29 @@ class EnhancedDuplicateProtection:
                 )
                 all_data = worksheet.get_all_values()
 
+            existing_keys = {
+                row[0].strip().upper()
+                for row in all_data
+                if row and isinstance(row[0], str) and row[0].strip()
+            }
+
+            for default in AUTOMATION_DEFAULT_ROWS:
+                key_upper = default["key"].upper()
+                if key_upper not in existing_keys and key_upper != AUTOMATION_SECTION_END_MARKER:
+                    padded = [
+                        default["key"],
+                        "",
+                        "",
+                        "",
+                        default.get("comment", ""),
+                    ]
+                    padded += [""] * (total_columns - len(padded))
+                    worksheet.append_row(padded, value_input_option="USER_ENTERED")
+                    existing_keys.add(key_upper)
+
             end_found = any(
                 row and row[0].strip() == AUTOMATION_SECTION_END_MARKER
-                for row in all_data
+                for row in worksheet.get_all_values()
             )
             if not end_found:
                 worksheet.append_row(
@@ -390,6 +427,19 @@ class EnhancedDuplicateProtection:
             "вс": 6,
         }
         return mapping.get(text)
+
+    @staticmethod
+    def _parse_bool_value(value: Any) -> Optional[bool]:
+        text = EnhancedDuplicateProtection._normalize_cell_text(value).lower()
+        if not text:
+            return None
+        truthy = {"true", "1", "yes", "y", "да", "д", "истина", "+", "on"}
+        falsy = {"false", "0", "no", "n", "нет", "н", "ложь", "-", "off"}
+        if text in truthy:
+            return True
+        if text in falsy:
+            return False
+        return None
 
     def _get_service_worksheet(self, raw: bool = False):
         """Получает лист 'Сервисный'"""
@@ -1096,12 +1146,15 @@ class EnhancedDuplicateProtection:
                 topic_cell = self._normalize_cell_text(row_extended[1])
                 option_cell = self._normalize_cell_text(row_extended[2])
                 weekday_cell = row_extended[3]
-                settings_json_cell = row_extended[4]
-                comment_cell = self._normalize_cell_text(row_extended[5])
-                topic_id_cell = (
-                    self._normalize_cell_text(row_extended[6]) if len(row_extended) > 6 else ""
-                )
-                config_payload = self._parse_json_config(settings_json_cell)
+                if len(row_extended) < len(VOTING_SECTION_HEADER):
+                    row_extended.extend([""] * (len(VOTING_SECTION_HEADER) - len(row_extended)))
+                anon_cell = row_extended[4]
+                multiple_cell = row_extended[5]
+                open_period_cell = row_extended[6]
+                close_date_cell = row_extended[7]
+                topic_id_cell = self._normalize_cell_text(row_extended[8]) if len(row_extended) > 8 else ""
+                comment_cell = self._normalize_cell_text(row_extended[9]) if len(row_extended) > 9 else ""
+                config_payload: Dict[str, Any] = {}
 
                 header_candidate = [cell.strip() for cell in row_extended[:len(VOTING_SECTION_HEADER)]]
                 if header_candidate == VOTING_SECTION_HEADER or any(
@@ -1136,6 +1189,11 @@ class EnhancedDuplicateProtection:
                 option_text = option_cell
                 weekday_value = weekday_cell
                 comment_value = comment_cell
+                anon_value = self._parse_bool_value(anon_cell)
+                multiple_value = self._parse_bool_value(multiple_cell)
+                open_period_value = self._try_parse_int(open_period_cell)
+                close_date_value = self._normalize_cell_text(close_date_cell)
+                topic_id_value = topic_id_cell
 
                 if topic_value:
                     entry["topic_template"] = topic_value
@@ -1158,8 +1216,16 @@ class EnhancedDuplicateProtection:
 
                 if comment_value:
                     entry["comments"].append(comment_value)
-                if topic_id_cell:
-                    entry["topic_id_value"] = topic_id_cell
+                if anon_value is not None:
+                    entry["metadata"]["is_anonymous"] = anon_value
+                if multiple_value is not None:
+                    entry["metadata"]["allows_multiple_answers"] = multiple_value
+                if open_period_value is not None:
+                    entry["metadata"]["open_period_minutes"] = open_period_value
+                if close_date_value:
+                    entry["metadata"]["close_date"] = close_date_value
+                if topic_id_value:
+                    entry["topic_id_value"] = topic_id_value
 
             for team in teams.values():
                 if isinstance(team.get("comp_ids"), set):
@@ -1213,13 +1279,22 @@ class EnhancedDuplicateProtection:
                     if raw_key.upper() == AUTOMATION_SECTION_END_MARKER:
                         break
                     topic_raw = self._normalize_cell_text(row[1]) if len(row) > 1 else ""
-                    comment_raw = self._normalize_cell_text(row[2]) if len(row) > 2 else ""
+                    anon_raw = row[2] if len(row) > 2 else ""
+                    multiple_raw = row[3] if len(row) > 3 else ""
+                    comment_raw = self._normalize_cell_text(row[4]) if len(row) > 4 else ""
                     key_upper = raw_key.upper()
-                    entry = {
-                        "label": raw_key,
-                        "topic_raw": topic_raw,
-                        "topic_id": self._try_parse_int(topic_raw),
-                    }
+                    entry: Dict[str, Any] = {}
+                    topic_id_value = self._try_parse_int(topic_raw)
+                    if topic_id_value is not None:
+                        entry["topic_id"] = topic_id_value
+                    elif topic_raw:
+                        entry["topic_raw"] = topic_raw
+                    anon_value = self._parse_bool_value(anon_raw)
+                    if anon_value is not None:
+                        entry["is_anonymous"] = anon_value
+                    multiple_value = self._parse_bool_value(multiple_raw)
+                    if multiple_value is not None:
+                        entry["allows_multiple_answers"] = multiple_value
                     if comment_raw:
                         entry["comment"] = comment_raw
                     automation_topics[key_upper] = entry
@@ -1256,8 +1331,7 @@ class EnhancedDuplicateProtection:
                 'teams': {},
                 'training_polls': [],
                 'fallback_sources': [],
-                'voting_polls': [],
-                'automation_topics': {}
+                'voting_polls': []
             }
 
         try:

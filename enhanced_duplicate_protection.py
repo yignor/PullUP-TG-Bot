@@ -80,6 +80,7 @@ VOTING_SECTION_HEADER = [
     "Дни запуска",
     "Параметры (JSON)",
     "Комментарий",
+    "ID топика",
 ]
 VOTING_JSON_GUIDE_ROW = [
     "",
@@ -87,8 +88,15 @@ VOTING_JSON_GUIDE_ROW = [
     "",
     "",
     "# JSON: is_anonymous; allows_multiple_answers; open_period_minutes; close_date; topic_id",
-    ""
+    "",
+    "",
 ]
+AUTOMATION_SECTION_HEADER = [
+    "Автоматическое сообщение",
+    "ID топика",
+    "Комментарий",
+]
+AUTOMATION_SECTION_END_MARKER = "--- END AUTOMATIONS ---"
 LEGACY_VOTING_HEADERS = [
     [
         "ТИП (ГОЛОСОВАНИЯ)",
@@ -286,8 +294,41 @@ class EnhancedDuplicateProtection:
                     padded_instruction,
                     value_input_option="USER_ENTERED",
                 )
+            self._ensure_automation_section_structure(worksheet)
         except Exception as error:
             print(f"⚠️ Не удалось гарантировать структуру раздела голосований: {error}")
+
+    def _ensure_automation_section_structure(self, worksheet) -> None:
+        """Гарантирует наличие раздела настроек автоматических сообщений"""
+        try:
+            total_columns = len(CONFIG_HEADER)
+            all_data = worksheet.get_all_values()
+
+            header_found = False
+            for row in all_data:
+                candidate = [cell.strip() for cell in row[:len(AUTOMATION_SECTION_HEADER)]]
+                if candidate == AUTOMATION_SECTION_HEADER:
+                    header_found = True
+                    break
+
+            if not header_found:
+                worksheet.append_row(
+                    AUTOMATION_SECTION_HEADER + [""] * (total_columns - len(AUTOMATION_SECTION_HEADER)),
+                    value_input_option="USER_ENTERED",
+                )
+                all_data = worksheet.get_all_values()
+
+            end_found = any(
+                row and row[0].strip() == AUTOMATION_SECTION_END_MARKER
+                for row in all_data
+            )
+            if not end_found:
+                worksheet.append_row(
+                    [AUTOMATION_SECTION_END_MARKER] + [""] * (total_columns - 1),
+                    value_input_option="USER_ENTERED",
+                )
+        except Exception as error:
+            print(f"⚠️ Не удалось гарантировать структуру раздела автоматических сообщений: {error}")
 
     @staticmethod
     def _normalize_cell_text(value: Any) -> str:
@@ -952,7 +993,8 @@ class EnhancedDuplicateProtection:
             'teams': {},
             'training_polls': [],
             'fallback_sources': [],
-            'voting_polls': []
+            'voting_polls': [],
+            'automation_topics': {},
         }
         if not worksheet:
             return {'has_data': False, 'payload': payload}
@@ -968,6 +1010,7 @@ class EnhancedDuplicateProtection:
             training_polls: List[Dict[str, Any]] = []
             fallback_sources: List[Dict[str, Any]] = []
             voting_entries: Dict[str, Dict[str, Any]] = {}
+            automation_topics: Dict[str, Dict[str, Any]] = {}
             found_end_marker = False
 
             required_len = len(CONFIG_HEADER)
@@ -1055,6 +1098,9 @@ class EnhancedDuplicateProtection:
                 weekday_cell = row_extended[3]
                 settings_json_cell = row_extended[4]
                 comment_cell = self._normalize_cell_text(row_extended[5])
+                topic_id_cell = (
+                    self._normalize_cell_text(row_extended[6]) if len(row_extended) > 6 else ""
+                )
                 config_payload = self._parse_json_config(settings_json_cell)
 
                 header_candidate = [cell.strip() for cell in row_extended[:len(VOTING_SECTION_HEADER)]]
@@ -1079,6 +1125,7 @@ class EnhancedDuplicateProtection:
                         "weekdays": set(),
                         "metadata": {},
                         "comments": [],
+                        "topic_id_value": "",
                     },
                 )
 
@@ -1111,6 +1158,8 @@ class EnhancedDuplicateProtection:
 
                 if comment_value:
                     entry["comments"].append(comment_value)
+                if topic_id_cell:
+                    entry["topic_id_value"] = topic_id_cell
 
             for team in teams.values():
                 if isinstance(team.get("comp_ids"), set):
@@ -1137,9 +1186,43 @@ class EnhancedDuplicateProtection:
                     data["options"] = []
                 weekdays = data.get("weekdays", set())
                 data["weekdays"] = sorted(weekdays) if isinstance(weekdays, set) else weekdays
+                topic_id_value = data.pop("topic_id_value", "")
+                if topic_id_value:
+                    topic_id_parsed = self._try_parse_int(topic_id_value)
+                    if topic_id_parsed is not None:
+                        data["topic_id"] = topic_id_parsed
+                    else:
+                        data["topic_raw"] = topic_id_value
                 if not data.get("comments"):
                     data.pop("comments", None)
                 voting_polls.append(data)
+
+            automation_header_index: Optional[int] = None
+            for idx, row in enumerate(all_data):
+                candidate = [cell.strip() for cell in row[:len(AUTOMATION_SECTION_HEADER)]]
+                if candidate == AUTOMATION_SECTION_HEADER:
+                    automation_header_index = idx
+                    break
+            if automation_header_index is not None:
+                for row in all_data[automation_header_index + 1:]:
+                    if not row or len(row) == 0:
+                        continue
+                    raw_key = self._normalize_cell_text(row[0])
+                    if not raw_key:
+                        continue
+                    if raw_key.upper() == AUTOMATION_SECTION_END_MARKER:
+                        break
+                    topic_raw = self._normalize_cell_text(row[1]) if len(row) > 1 else ""
+                    comment_raw = self._normalize_cell_text(row[2]) if len(row) > 2 else ""
+                    key_upper = raw_key.upper()
+                    entry = {
+                        "label": raw_key,
+                        "topic_raw": topic_raw,
+                        "topic_id": self._try_parse_int(topic_raw),
+                    }
+                    if comment_raw:
+                        entry["comment"] = comment_raw
+                    automation_topics[key_upper] = entry
 
             has_data = bool(
                 comp_ids_set
@@ -1148,6 +1231,7 @@ class EnhancedDuplicateProtection:
                 or training_polls
                 or fallback_sources
                 or voting_polls
+                or automation_topics
             )
             payload.update({
                 'comp_ids': sorted(comp_ids_set),
@@ -1156,6 +1240,7 @@ class EnhancedDuplicateProtection:
                 'training_polls': training_polls,
                 'fallback_sources': fallback_sources,
                 'voting_polls': sorted(voting_polls, key=lambda item: item.get("poll_id") or ""),
+                'automation_topics': automation_topics,
             })
             return {'has_data': has_data, 'payload': payload}
         except Exception as e:
@@ -1171,7 +1256,8 @@ class EnhancedDuplicateProtection:
                 'teams': {},
                 'training_polls': [],
                 'fallback_sources': [],
-                'voting_polls': []
+                'voting_polls': [],
+                'automation_topics': {}
             }
 
         try:
@@ -1265,7 +1351,8 @@ class EnhancedDuplicateProtection:
                 'teams': teams,
                 'training_polls': training_polls,
                 'fallback_sources': fallback_sources,
-                'voting_polls': []
+                'voting_polls': [],
+                'automation_topics': {}
             }
         except Exception as e:
             print(f"⚠️ Ошибка чтения конфигурации из сервисного листа: {e}")
@@ -1275,7 +1362,8 @@ class EnhancedDuplicateProtection:
                 'teams': {},
                 'training_polls': [],
                 'fallback_sources': [],
-                'voting_polls': []
+                'voting_polls': [],
+                'automation_topics': {}
             }
 
     def get_config_ids(self) -> Dict[str, Any]:
@@ -1287,7 +1375,8 @@ class EnhancedDuplicateProtection:
             'teams': full_config.get('teams', {}),
             'training_polls': full_config.get('training_polls', []),
             'fallback_sources': full_config.get('fallback_sources', []),
-            'voting_polls': full_config.get('voting_polls', [])
+            'voting_polls': full_config.get('voting_polls', []),
+            'automation_topics': full_config.get('automation_topics', {}),
         }
 
 # Глобальный экземпляр для использования в других модулях

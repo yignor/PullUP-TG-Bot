@@ -20,9 +20,8 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-DEFAULT_TOPIC_ID = os.getenv("ANNOUNCEMENTS_TOPIC_ID") or os.getenv("GAMES_TOPIC_ID")
-
 PLACEHOLDER_PATTERN = re.compile(r"\[([^\]]+)\]")
+AUTOMATION_VOTING_KEY = "VOTING_POLLS"
 
 WEEKDAY_ALIASES: Dict[str, int] = {
     "0": 0,
@@ -73,6 +72,7 @@ class VotingPollConfig:
     weekdays: List[int] = field(default_factory=list)
     parameters: Dict[str, Any] = field(default_factory=dict)
     comments: List[str] = field(default_factory=list)
+    topic_id: Optional[int] = None
 
     def should_run_on(self, current: dt.datetime) -> bool:
         if not self.weekdays:
@@ -84,7 +84,7 @@ class VotingPollsManager:
     def __init__(self) -> None:
         self.bot: Optional[Bot] = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
         self.chat_id: Optional[Any] = self._resolve_chat_id(CHAT_ID)
-        self.default_topic_id: Optional[int] = self._parse_int(DEFAULT_TOPIC_ID)
+        self.automation_topics: Dict[str, Any] = {}
 
     async def create_due_polls(self) -> bool:
         if not self.bot or self.chat_id is None:
@@ -111,6 +111,7 @@ class VotingPollsManager:
     def _load_configs(self) -> List[VotingPollConfig]:
         snapshot = duplicate_protection.get_config_ids()
         raw_configs = snapshot.get("voting_polls", []) or []
+        self.automation_topics = snapshot.get("automation_topics") or {}
 
         configs: List[VotingPollConfig] = []
         for raw in raw_configs:
@@ -138,6 +139,8 @@ class VotingPollsManager:
 
             metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
             comments = raw.get("comments") if isinstance(raw.get("comments"), list) else []
+            topic_id_value = raw.get("topic_id")
+            topic_id = self._parse_int(topic_id_value)
 
             configs.append(
                 VotingPollConfig(
@@ -147,6 +150,7 @@ class VotingPollsManager:
                     weekdays=weekdays_norm,
                     parameters=metadata,
                     comments=comments,
+                    topic_id=topic_id,
                 )
             )
 
@@ -175,7 +179,10 @@ class VotingPollsManager:
         if open_period is not None:
             open_period = max(5, min(open_period, 600))
         close_date = self._parse_close_date(params.get("close_date"), today)
-        topic_id = self._parse_int(params.get("topic_id")) or self.default_topic_id
+        params_topic_id = self._parse_int(params.get("topic_id"))
+        topic_id = config.topic_id if config.topic_id is not None else params_topic_id
+        if topic_id is None:
+            topic_id = self._get_automation_topic(AUTOMATION_VOTING_KEY)
 
         additional_info = f"{question} | " + " · ".join(options)
         record = duplicate_protection.add_record(
@@ -211,7 +218,7 @@ class VotingPollsManager:
             "is_anonymous": is_anonymous,
             "allows_multiple_answers": allows_multiple,
         }
-        if topic_id:
+        if topic_id is not None:
             send_kwargs["message_thread_id"] = topic_id
         if open_period is not None:
             send_kwargs["open_period"] = open_period
@@ -267,6 +274,21 @@ class VotingPollsManager:
     def _next_occurrence(self, reference_dt: dt.datetime, target_weekday: int) -> dt.date:
         days_ahead = (target_weekday - reference_dt.weekday()) % 7
         return (reference_dt + dt.timedelta(days=days_ahead)).date()
+
+    def _get_automation_topic(self, key: str) -> Optional[int]:
+        if not key or not isinstance(key, str) or not self.automation_topics:
+            return None
+        data = self.automation_topics.get(key.upper())
+        if data is None:
+            return None
+        if isinstance(data, dict):
+            topic_candidate = data.get("topic_id")
+            parsed = self._parse_int(topic_candidate)
+            if parsed is not None:
+                return parsed
+            topic_raw = data.get("topic_raw")
+            return self._parse_int(topic_raw)
+        return self._parse_int(data)
 
     def _parse_weekday_token(self, token: str) -> Optional[int]:
         normalized = token.strip().lower()

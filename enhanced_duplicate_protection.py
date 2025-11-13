@@ -90,17 +90,18 @@ VOTING_GUIDE_ROWS = [
         "# Подсказка",
         "",
         "",
-        "",
-        "true/false",
-        "true/false",
-        "5-600",
+        "дни через запятую",
+        "Да / Нет",
+        "Да / Нет",
+        "5–600",
         "ДД.ММ.ГГГГ или ДД.ММ.ГГГГ ЧЧ:ММ",
-        "ID топика (число)",
+        "Число или оставить пустым",
         "",
     ]
 ]
 AUTOMATION_SECTION_HEADER = [
-    "Автоматическое сообщение",
+    "Код",
+    "Название",
     "ID топика",
     "Анонимный",
     "Множественный выбор",
@@ -108,10 +109,10 @@ AUTOMATION_SECTION_HEADER = [
 ]
 AUTOMATION_SECTION_END_MARKER = "--- END AUTOMATIONS ---"
 AUTOMATION_DEFAULT_ROWS = [
-    {"key": "BIRTHDAY_NOTIFICATIONS", "comment": "Уведомления о днях рождения"},
-    {"key": "GAME_ANNOUNCEMENTS", "comment": "Анонсы игр"},
-    {"key": "GAME_POLLS", "comment": "Опросы по будущим играм"},
-    {"key": "VOTING_POLLS", "comment": "Голосования (по умолчанию)"},
+    {"key": "BIRTHDAY_NOTIFICATIONS", "name": "Уведомления о днях рождения", "comment": "Поздравления именинников"},
+    {"key": "GAME_ANNOUNCEMENTS", "name": "Анонсы игр", "comment": "Сообщения с информацией об игре"},
+    {"key": "GAME_POLLS", "name": "Опросы на игры", "comment": "Опрос о готовности на игру"},
+    {"key": "VOTING_POLLS", "name": "Общие голосования", "comment": "Голосования из блока конфигурации"},
 ]
 LEGACY_VOTING_HEADERS = [
     [
@@ -346,9 +347,10 @@ class EnhancedDuplicateProtection:
                 if key_upper not in existing_keys and key_upper != AUTOMATION_SECTION_END_MARKER:
                     padded = [
                         default["key"],
+                        default.get("name", ""),
                         "",
-                        "",
-                        "",
+                        "Да" if default.get("is_anonymous") else "",
+                        "Да" if default.get("allows_multiple_answers") else "",
                         default.get("comment", ""),
                     ]
                     padded += [""] * (total_columns - len(padded))
@@ -1154,8 +1156,6 @@ class EnhancedDuplicateProtection:
                 close_date_cell = row_extended[7]
                 topic_id_cell = self._normalize_cell_text(row_extended[8]) if len(row_extended) > 8 else ""
                 comment_cell = self._normalize_cell_text(row_extended[9]) if len(row_extended) > 9 else ""
-                config_payload: Dict[str, Any] = {}
-
                 header_candidate = [cell.strip() for cell in row_extended[:len(VOTING_SECTION_HEADER)]]
                 if header_candidate == VOTING_SECTION_HEADER or any(
                     header_candidate[:len(legacy)] == [value.strip() for value in legacy[:len(header_candidate)]]
@@ -1182,9 +1182,6 @@ class EnhancedDuplicateProtection:
                     },
                 )
 
-                if config_payload:
-                    entry["metadata"].update(config_payload)
-
                 topic_value = topic_cell
                 option_text = option_cell
                 weekday_value = weekday_cell
@@ -1202,7 +1199,6 @@ class EnhancedDuplicateProtection:
                     entry["options_raw"].append(
                         {
                             "text": option_text,
-                            "metadata": config_payload,
                             "sequence": len(entry["options_raw"]),
                             "comment": comment_value,
                         }
@@ -1243,8 +1239,7 @@ class EnhancedDuplicateProtection:
                     data["options"] = [
                         {
                             "text": option["text"],
-                            **({"metadata": option["metadata"]} if option["metadata"] else {}),
-                            **({"comment": option["comment"]} if option.get("comment") else {}),
+                            "comment": option["comment"],
                         }
                         for option in options_sorted
                     ]
@@ -1278,12 +1273,15 @@ class EnhancedDuplicateProtection:
                         continue
                     if raw_key.upper() == AUTOMATION_SECTION_END_MARKER:
                         break
-                    topic_raw = self._normalize_cell_text(row[1]) if len(row) > 1 else ""
-                    anon_raw = row[2] if len(row) > 2 else ""
-                    multiple_raw = row[3] if len(row) > 3 else ""
-                    comment_raw = self._normalize_cell_text(row[4]) if len(row) > 4 else ""
+                    display_name = self._normalize_cell_text(row[1]) if len(row) > 1 else ""
+                    topic_raw = self._normalize_cell_text(row[2]) if len(row) > 2 else ""
+                    anon_raw = row[3] if len(row) > 3 else ""
+                    multiple_raw = row[4] if len(row) > 4 else ""
+                    comment_raw = self._normalize_cell_text(row[5]) if len(row) > 5 else ""
                     key_upper = raw_key.upper()
                     entry: Dict[str, Any] = {}
+                    if display_name:
+                        entry["name"] = display_name
                     topic_id_value = self._try_parse_int(topic_raw)
                     if topic_id_value is not None:
                         entry["topic_id"] = topic_id_value

@@ -19,8 +19,8 @@
 ### 1.1. Клонирование репозитория
 
 ```bash
-git clone https://github.com/yignor/basketball-team-bot.git
-cd basketball-team-bot
+git clone https://github.com/OWNER/REPO_NAME.git
+cd REPO_NAME
 ```
 
 ### 1.2. Установка зависимостей
@@ -132,7 +132,7 @@ pip install -r requirements-github.txt
 ### 4.1. Создание форка или копирования репозитория
 
 **Вариант 1: Форк репозитория**
-1. Перейдите на https://github.com/yignor/basketball-team-bot
+1. Перейдите на страницу оригинального репозитория на GitHub
 2. Нажмите **Fork** в правом верхнем углу
 3. Выберите свой аккаунт
 

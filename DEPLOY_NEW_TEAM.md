@@ -10,7 +10,7 @@
 
 ```bash
 # 1. Клонируйте репозиторий
-git clone https://github.com/yignor/Basketball-Team-Bot.git my-new-team-bot
+git clone https://github.com/OWNER/REPO_NAME.git my-new-team-bot
 cd my-new-team-bot
 
 # 2. Удалите связь с оригинальным репозиторием
@@ -32,8 +32,8 @@ git push -u origin master
 
 ```bash
 # 1. Скопируйте всю папку
-cp -r /Users/y/Downloads/telegram-birthday-bot /Users/y/Downloads/new-team-bot
-cd /Users/y/Downloads/new-team-bot
+cp -r /path/to/basketball-bot /path/to/new-team-bot
+cd /path/to/new-team-bot
 
 # 2. Удалите git историю (опционально, если хотите начать с чистого листа)
 rm -rf .git
@@ -52,13 +52,13 @@ git push -u origin master
 
 Если репозиторий публичный:
 
-1. Перейдите на https://github.com/yignor/Basketball-Team-Bot
+1. Перейдите на страницу оригинального репозитория на GitHub
 2. Нажмите кнопку **Fork** в правом верхнем углу
 3. Выберите свой аккаунт
 4. Клонируйте свой форк:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/Basketball-Team-Bot.git
-   cd Basketball-Team-Bot
+   git clone https://github.com/YOUR_USERNAME/REPO_NAME.git
+   cd REPO_NAME
    ```
 
 ---
@@ -176,7 +176,7 @@ cp env.example .env
 
 ```bash
 # Добавьте оригинальный репозиторий как upstream
-git remote add upstream https://github.com/yignor/Basketball-Team-Bot.git
+git remote add upstream https://github.com/ORIGINAL_OWNER/REPO_NAME.git
 
 # Получите обновления
 git fetch upstream
@@ -189,7 +189,7 @@ git merge upstream/master
 
 ```bash
 # Добавьте оригинальный репозиторий как remote
-git remote add upstream https://github.com/yignor/Basketball-Team-Bot.git
+git remote add upstream https://github.com/ORIGINAL_OWNER/REPO_NAME.git
 
 # Получите обновления
 git fetch upstream
@@ -245,9 +245,9 @@ git merge upstream/master
 
 **Структура:**
 ```
-basketball-team-bot/          # Команда 1
-basketball-team-bot-team2/    # Команда 2
-basketball-team-bot-team3/    # Команда 3
+team-bot-1/          # Команда 1
+team-bot-2/          # Команда 2
+team-bot-3/          # Команда 3
 ```
 
 ### Вариант 2: Один репозиторий с несколькими наборами Secrets
@@ -302,7 +302,7 @@ if [ -z "$TEAM_NAME" ]; then
 fi
 
 # Клонируем репозиторий
-git clone https://github.com/yignor/Basketball-Team-Bot.git "basketball-bot-${TEAM_NAME}"
+git clone https://github.com/OWNER/REPO_NAME.git "basketball-bot-${TEAM_NAME}"
 cd "basketball-bot-${TEAM_NAME}"
 
 # Удаляем связь с оригиналом
@@ -356,7 +356,7 @@ basketball-bots/
 # Создайте скрипт update_all_teams.sh
 #!/bin/bash
 
-BASE_REPO="https://github.com/yignor/Basketball-Team-Bot.git"
+BASE_REPO="https://github.com/ORIGINAL_OWNER/REPO_NAME.git"
 
 for team_dir in */; do
     if [ -d "$team_dir/.git" ]; then

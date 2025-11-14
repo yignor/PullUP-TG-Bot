@@ -132,16 +132,15 @@ class GameSystemManager:
         self.config_comp_ids_set = set(self.config_comp_ids)
         self.config_team_ids_set = set(self.config_team_ids)
         
-        fallback_topic_id = self._to_int(GAMES_TOPIC_ID)
         game_polls_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_POLLS)
-        self.game_poll_topic_id = self._resolve_automation_topic_id(game_polls_entry, fallback_topic_id)
+        self.game_poll_topic_id = self._resolve_automation_topic_id(game_polls_entry)
         self.game_poll_is_anonymous = self._resolve_automation_bool(game_polls_entry, "is_anonymous", False)
         self.game_poll_allows_multiple = self._resolve_automation_bool(game_polls_entry, "allows_multiple_answers", False)
         game_announcements_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_ANNOUNCEMENTS)
-        self.game_announcement_topic_id = self._resolve_automation_topic_id(game_announcements_entry, fallback_topic_id)
+        self.game_announcement_topic_id = self._resolve_automation_topic_id(game_announcements_entry)
         game_updates_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_UPDATES)
-        # Если топик для уведомлений об изменениях не настроен, используем топик анонсов как fallback
-        self.game_updates_topic_id = self._resolve_automation_topic_id(game_updates_entry, self.game_announcement_topic_id)
+        # Если топик не указан, будет None - отправка в общий чат
+        self.game_updates_topic_id = self._resolve_automation_topic_id(game_updates_entry)
         
         self._update_team_mappings()
         
@@ -189,15 +188,16 @@ class GameSystemManager:
         entry: Dict[str, Any],
         fallback: Optional[int] = None,
     ) -> Optional[int]:
+        """Разрешает ID топика из настроек автоматических сообщений.
+        Если топик не указан, возвращает None (отправка в общий чат).
+        Параметр fallback игнорируется для соответствия требованиям."""
         if not entry:
-            return fallback
+            return None
         topic_candidate = entry.get("topic_id")
         if topic_candidate is None:
             topic_candidate = entry.get("topic_raw")
         topic_value = self._to_int(topic_candidate)
-        if topic_value is not None:
-            return topic_value
-        return fallback
+        return topic_value
 
     def _resolve_automation_bool(
         self,

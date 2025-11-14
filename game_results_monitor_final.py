@@ -50,39 +50,6 @@ class GameResultsMonitorFinal:
         
         # Создаем экземпляр менеджера игр
         self.game_manager = GameSystemManager()
-        
-        # Файл для истории отправленных результатов
-        self.results_history_file = "game_results_history.json"
-        self.results_history = self.load_results_history()
-        
-        # Если файл не существует, создаем его с базовой структурой
-        if not os.path.exists(self.results_history_file):
-            print(f"📁 Создаем новый файл истории: {self.results_history_file}")
-            self.save_results_history()
-    
-    def load_results_history(self) -> Dict:
-        """Загружает историю отправленных результатов"""
-        try:
-            if os.path.exists(self.results_history_file):
-                with open(self.results_history_file, 'r', encoding='utf-8') as f:
-                    history = json.load(f)
-                    print(f"✅ Загружена история результатов: {len(history)} записей")
-                    return history
-            else:
-                print(f"📁 Файл истории результатов не найден: {self.results_history_file}")
-        except Exception as e:
-            print(f"⚠️ Ошибка загрузки истории результатов: {e}")
-        print(f"📋 Возвращаем пустую историю результатов")
-        return {}
-    
-    def save_results_history(self):
-        """Сохраняет историю отправленных результатов"""
-        try:
-            with open(self.results_history_file, 'w', encoding='utf-8') as f:
-                json.dump(self.results_history, f, ensure_ascii=False, indent=2)
-            print(f"✅ Сохранена история результатов: {len(self.results_history)} записей в {self.results_history_file}")
-        except Exception as e:
-            print(f"⚠️ Ошибка сохранения истории результатов: {e}")
     
     def create_result_key(self, game_info: Dict) -> str:
         """Создает уникальный ключ для результата игры"""
@@ -95,20 +62,6 @@ class GameResultsMonitorFinal:
         print(f"🔑 Создан ключ результата: {key}")
         return key
     
-    def was_result_sent(self, game_info: Dict) -> bool:
-        """Проверяет, был ли уже отправлен результат для данной игры"""
-        result_key = self.create_result_key(game_info)
-        was_sent = result_key in self.results_history
-        
-        if was_sent:
-            print(f"⏭️ Результат уже отправлен ранее: {result_key}")
-            if result_key in self.results_history:
-                sent_time = self.results_history[result_key].get('date', 'неизвестно')
-                print(f"   📅 Время отправки: {sent_time}")
-        else:
-            print(f"✅ Результат еще не отправлялся: {result_key}")
-        
-        return was_sent
     
     def should_check_results(self) -> bool:
         """Проверяет, нужно ли проверять результаты - всегда True"""
@@ -495,19 +448,13 @@ class GameResultsMonitorFinal:
             # Создаем ключ для проверки дублирования
             result_key = self.create_result_key(game_info)
             
-            # Проверяем дублирование в Google Sheets (основная защита)
+            # Проверяем дублирование в Google Sheets
             print(f"🔍 Проверяем дублирование в Google Sheets для игры: {game_info['team1']} vs {game_info['team2']}")
             duplicate_check = duplicate_protection.check_duplicate("РЕЗУЛЬТАТ_ИГРА", result_key)
             
             if duplicate_check.get('exists'):
                 print(f"⏭️ Результат для игры {game_info['team1']} vs {game_info['team2']} уже отправлен (найдено в Google Sheets)")
                 print(f"   📅 Время отправки: {duplicate_check.get('data', ['', '', '', '', ''])[1]}")
-                return False
-            
-            # Дополнительная проверка по локальному файлу (для обратной совместимости)
-            print(f"🔍 Проверяем локальную историю для игры: {game_info['team1']} vs {game_info['team2']}")
-            if self.was_result_sent(game_info):
-                print(f"⏭️ Результат для игры {game_info['team1']} vs {game_info['team2']} уже отправлен (найдено в локальной истории)")
                 return False
             
             # Используем новую функцию форматирования с лидерами команды
@@ -595,14 +542,6 @@ class GameResultsMonitorFinal:
                     duplicate_protection.update_record_status(protection_result['unique_key'], "ОШИБКА")
                 return False
             
-            # Сохраняем в локальную историю (для обратной совместимости)
-            self.results_history[result_key] = {
-                'date': get_moscow_time().isoformat(),
-                'game_info': game_info,
-                'message': message
-            }
-            self.save_results_history()
-            
             print(f"✅ Результат игры отправлен: {game_info['our_team']} vs {game_info['opponent']}")
             return True
             
@@ -621,14 +560,6 @@ class GameResultsMonitorFinal:
         print(f"CHAT_ID: {'✅' if CHAT_ID else '❌'}")
         print(f"ANNOUNCEMENTS_TOPIC_ID: {'✅' if ANNOUNCEMENTS_TOPIC_ID else '❌'}")
         print(f"ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
-        
-        # Показываем информацию о истории
-        print(f"📋 Локальная история результатов: {len(self.results_history)} записей")
-        if self.results_history:
-            print("   Последние записи:")
-            for i, (key, value) in enumerate(list(self.results_history.items())[-3:], 1):
-                sent_time = value.get('date', 'неизвестно')
-                print(f"   {i}. {key} - {sent_time}")
         
         # Показываем статистику из Google Sheets
         print(f"\n📊 Статистика из Google Sheets:")

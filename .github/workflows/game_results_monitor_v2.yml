@@ -35,47 +35,6 @@ jobs:
       with:
         python-version: '3.11'
         
-    - name: Restore game results cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          game_results_history.json
-          test_game_results_history.json
-        key: game-results-${{ github.ref }}
-        restore-keys: |
-          game-results-
-        
-    - name: Check game results files
-      run: |
-        echo "🔍 ПРОВЕРКА ФАЙЛОВ РЕЗУЛЬТАТОВ ИГР"
-        echo "=================================================="
-        echo "📋 Проверяем наличие файлов:"
-        ls -la *.json 2>/dev/null || echo "❌ JSON файлы не найдены"
-        echo ""
-        echo "📄 Содержимое game_results_history.json (если есть):"
-        if [ -f "game_results_history.json" ]; then
-          cat game_results_history.json
-        else
-          echo "❌ Файл game_results_history.json не найден"
-        fi
-        echo "=================================================="
-        
-    - name: Initialize game results files
-      run: |
-        echo "🔧 ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ РЕЗУЛЬТАТОВ ИГР"
-        echo "=================================================="
-        # Создаем пустые файлы, если они не существуют
-        if [ ! -f "game_results_history.json" ]; then
-          echo "📝 Создаем пустой game_results_history.json"
-          echo '{}' > game_results_history.json
-        fi
-        if [ ! -f "test_game_results_history.json" ]; then
-          echo "📝 Создаем пустой test_game_results_history.json"
-          echo '{}' > test_game_results_history.json
-        fi
-        echo "✅ Файлы результатов игр инициализированы"
-        echo "=================================================="
-        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -95,15 +54,6 @@ jobs:
         else
           python run_game_results_monitor_final.py
         fi
-        
-    - name: Save game results cache
-      uses: actions/cache@v3
-      if: always()
-      with:
-        path: |
-          game_results_history.json
-          test_game_results_history.json
-        key: game-results-${{ github.ref }}
         
     - name: Handle errors
       if: failure()
@@ -132,6 +82,4 @@ jobs:
       with:
         name: game-results-monitor-v2-logs
         path: |
-          game_results_history.json
-          test_game_results_history.json
           *.log

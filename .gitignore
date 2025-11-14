@@ -2,14 +2,10 @@
 .env
 .env.local
 .env.backup
-.env.new
 .env.*
 *.env
 
-# Git
-.gitignore
-
-# Google credentials
+# Google credentials (sensitive data)
 google_credentials.json
 
 # Telegram session files
@@ -66,90 +62,11 @@ logs/
 temp/
 tmp/
 
-# Test artifacts
-test_*.py.bak
-*_test_backup.py
-
-# Development and test files (keep locally)
-tests/
-tests_local/
-test_*.py
-send_*_notification.py
-test_github_actions.py
-
-# Documentation files (keep locally)
-docs/
-*_REPORT.md
-*_SETUP_*.md
-*_PLAN.md
-*_CHECKLIST.md
-*_GUIDE.md
-*_ALERT.md
-OPTIMIZATION_REPORT.md
-GITHUB_SYNC_REPORT.md
-SYSTEM_READINESS_REPORT.md
-CLEANUP_REPORT.md
-TEST_REPORT.md
-SECURITY_ALERT.md
-TRAINING_CHECKLIST.md
-TRAINING_SETUP_GUIDE.md
-
-# Development utilities (keep locally)
-*_topic_*.py
-*_monitor.py
-!game_results_monitor.py
-github_actions_monitor.py
-clear_notifications.py
-check_updates.py
-collect_schedule_poll_results.py
-run_*.py
-!run_birthday_notifications.py
-!run_training_polls.py
-!run_scheduled_collection.py
-!run_game_system.py
-!run_game_results_monitor.py
-!run_game_results_monitor_v2.py
-stop_monitor.sh
-start_monitor.sh
-
-# Training polls temporary files
-check_real_poll_votes.py
-save_real_tuesday_data.py
-find_player_by_telegram_id.py
-update_player_name_in_sheet.py
-update_player_name_in_sheet_fixed.py
-collect_tuesday_data.py
-simulate_sunday_training_poll.py
-simulate_sunday_training_poll_simple.py
-create_and_track_poll.py
-start_poll_tracking.py
-scheduled_poll_collector.py
-run_scheduled_collection.py
-collect_real_poll_data.py
-start_real_data_collection.py
-test_real_data_collection.py
-simple_poll_tracker.py
-create_and_track_simple.py
-test_scheduled_collection.py
-
-# Data files (keep locally)
+# Data files (keep locally, but allow some in repo)
 *.json
 !game_announcements.json
-!game_monitor_history.json
-*.log
-group_admins.txt
-sent_notifications.json
-schedule_polls.json
+!pyrightconfig.json
 
-# Session files
-session_name.session
-
-# Requirements for local development
-requirements-simple.txt
-requirements.txt
-correct_game_poll_creator.py
-correct_game_poll_creator_simple.py
-debug_letobasket_parser.py
-game_schedule_collector.py
-game_schedule_monitor_final.py
-letobasket_debug.html
+# Test files (keep locally)
+test_*.py
+test_*.json

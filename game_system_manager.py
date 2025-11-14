@@ -34,52 +34,6 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовы�
 AUTOMATION_KEY_GAME_POLLS = "GAME_POLLS"
 AUTOMATION_KEY_GAME_ANNOUNCEMENTS = "GAME_ANNOUNCEMENTS"
 
-# Файлы для истории
-POLLS_HISTORY_FILE = "game_polls_history.json"
-ANNOUNCEMENTS_HISTORY_FILE = "game_announcements.json"
-
-def load_polls_history() -> Dict:
-    """Загружает историю созданных опросов"""
-    try:
-        if os.path.exists(POLLS_HISTORY_FILE):
-            with open(POLLS_HISTORY_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"⚠️ Ошибка загрузки истории опросов: {e}")
-    return {}
-
-def save_polls_history(history: Dict):
-    """Сохраняет историю созданных опросов"""
-    try:
-        with open(POLLS_HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"⚠️ Ошибка сохранения истории опросов: {e}")
-
-def load_announcements_history() -> Dict:
-    """Загружает историю отправленных анонсов"""
-    try:
-        if os.path.exists(ANNOUNCEMENTS_HISTORY_FILE):
-            with open(ANNOUNCEMENTS_HISTORY_FILE, 'r', encoding='utf-8') as f:
-                history = json.load(f)
-                print(f"✅ Загружена история анонсов: {len(history)} записей")
-                return history
-        else:
-            print(f"⚠️ Файл истории анонсов не найден: {ANNOUNCEMENTS_HISTORY_FILE}")
-    except Exception as e:
-        print(f"⚠️ Ошибка загрузки истории анонсов: {e}")
-    print(f"📋 Возвращаем пустую историю анонсов")
-    return {}
-
-def save_announcements_history(history: Dict):
-    """Сохраняет историю отправленных анонсов"""
-    try:
-        with open(ANNOUNCEMENTS_HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-        print(f"✅ Сохранена история анонсов: {len(history)} записей в {ANNOUNCEMENTS_HISTORY_FILE}")
-    except Exception as e:
-        print(f"⚠️ Ошибка сохранения истории анонсов: {e}")
-
 def create_game_key(game_info: Dict) -> str:
     """Создает уникальный ключ для игры"""
     # Нормализуем время (заменяем точку на двоеточие для единообразия)
@@ -154,8 +108,6 @@ class GameSystemManager:
     def __init__(self):
         # Type annotation for bot to help linter understand it's a Telegram Bot
         self.bot: Optional['Bot'] = None
-        self.polls_history = load_polls_history()
-        self.announcements_history = load_announcements_history()
         self.team_name_keywords: List[str] = []
         self.team_names_by_id: Dict[int, str] = {}
         self.team_configs: Dict[int, Dict[str, Any]] = {}
@@ -190,8 +142,6 @@ class GameSystemManager:
         self._update_team_mappings()
         
         print(f"🔍 Инициализация GameSystemManager:")
-        print(f"   📊 История опросов: {len(self.polls_history)} записей")
-        print(f"   📊 История анонсов: {len(self.announcements_history)} записей")
         if self.config_comp_ids or self.config_team_ids:
             print(f"   ⚙️ Конфигурация соревнований: {self.config_comp_ids}")
             print(f"   ⚙️ Конфигурация команд: {self.config_team_ids}")
@@ -1209,17 +1159,11 @@ class GameSystemManager:
         # Создаем уникальный ключ для игры
         announcement_key = create_announcement_key(game_info)
         print(f"🔍 Проверяем ключ анонса: {announcement_key}")
-        print(f"📋 История анонсов содержит {len(self.announcements_history)} записей")
         
         # Проверяем защиту от дублирования через Google Sheets
         duplicate_result = duplicate_protection.check_duplicate("АНОНС_ИГРА", announcement_key)
         if duplicate_result.get('exists', False):
             print(f"⏭️ Анонс для игры {announcement_key} уже отправлен (защита через Google Sheets)")
-            return False
-        
-        # Проверяем, не отправляли ли мы уже анонс для этой игры (локальная история)
-        if announcement_key in self.announcements_history:
-            print(f"⏭️ Анонс для игры {announcement_key} уже отправлен (локальная история)")
             return False
         
         # Проверяем, происходит ли игра сегодня
@@ -1380,32 +1324,12 @@ class GameSystemManager:
             
             await self._send_calendar_event(bot, game_info, team_label, opponent, form_color)
             
-            # Сохраняем информацию об опросе
-            poll_info = {
-                'message_id': poll_message.message_id,
-                'poll_id': poll_message.poll.id,
-                'question': question,
-                'options': options,
-                'game_info': game_info,
-                'our_team': our_team,
-                'opponent': opponent,
-                'team_category': team_label,
-                'day_of_week': day_of_week,
-                'date': get_moscow_time().isoformat(),
-                'chat_id': CHAT_ID,
-                'topic_id': self.game_poll_topic_id
-            }
-            
-            # Сохраняем в историю (для обратной совместимости)
-            game_key = create_game_key(game_info)
-            self.polls_history[game_key] = poll_info
-            save_polls_history(self.polls_history)
-            
             # Добавляем запись в сервисный лист для защиты от дублирования
+            game_key = create_game_key(game_info)
             additional_info = f"{game_info['date']} {game_info['time']} vs {opponent} в {game_info['venue']}"
             print(f"✅ Опрос для игры создан в топике {self.game_poll_topic_id}")
-            print(f"📊 ID опроса: {poll_info['poll_id']}")
-            print(f"📊 ID сообщения: {poll_info['message_id']}")
+            print(f"📊 ID опроса: {poll_message.poll.id}")
+            print(f"📊 ID сообщения: {poll_message.message_id}")
             print(f"🏀 Формат: {question}")
             print(f"📅 Дата: {game_info['date']}")
             print(f"🕐 Время: {game_info['time']}")
@@ -1858,24 +1782,9 @@ class GameSystemManager:
                 parse_mode='HTML'
             )
 
-            # Сохраняем информацию об анонсе
+            # Сохраняем информацию об анонсе в сервисный лист
             announcement_key = create_announcement_key(game_info)
-            announcement_info = {
-                'message_id': message.message_id,
-                'text': announcement_text,
-                'game_info': game_info,
-                'game_link': game_link,
-                'game_position': game_position,
-                'date': get_moscow_time().isoformat(),
-                'chat_id': CHAT_ID,
-                'topic_id': 'main'  # Основной топик
-            }
-
-            # Сохраняем в историю (для обратной совместимости)
-            self.announcements_history[announcement_key] = announcement_info
-            save_announcements_history(self.announcements_history)
-            print(f"💾 Анонс добавлен в историю с ключом: {announcement_key}")
-
+            
             our_team_label = self._get_team_display_name(self._to_int(game_info.get('our_team_id')), game_info.get('our_team_name') or game_info.get('team1'))
             opponent_label = self._get_team_display_name(self._to_int(game_info.get('opponent_team_id')), game_info.get('opponent_team_name') or game_info.get('team2'))
             additional_info = " | ".join(filter(None, [
@@ -1955,8 +1864,6 @@ class GameSystemManager:
                 f"topic={self.game_announcement_topic_id}"
             )
             print(f"   ТЕСТОВЫЙ РЕЖИМ: {'✅ ВКЛЮЧЕН' if TEST_MODE else '❌ ВЫКЛЮЧЕН'}")
-            print(f"   История опросов: {len(self.polls_history)} записей")
-            print(f"   История анонсов: {len(self.announcements_history)} записей")
             print(f"   ⚙️ Соревнования для мониторинга: {self.config_comp_ids or 'не заданы'}")
             print(f"   ⚙️ Команды (ID): {self.config_team_ids or 'не заданы'}")
             print(f"   ⚙️ Названия команд: {self.team_name_keywords or 'не заданы'}")

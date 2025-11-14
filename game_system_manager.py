@@ -33,6 +33,7 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовы�
 
 AUTOMATION_KEY_GAME_POLLS = "GAME_POLLS"
 AUTOMATION_KEY_GAME_ANNOUNCEMENTS = "GAME_ANNOUNCEMENTS"
+AUTOMATION_KEY_GAME_UPDATES = "GAME_UPDATES"
 
 def create_game_key(game_info: Dict) -> str:
     """Создает уникальный ключ для игры"""
@@ -138,6 +139,9 @@ class GameSystemManager:
         self.game_poll_allows_multiple = self._resolve_automation_bool(game_polls_entry, "allows_multiple_answers", False)
         game_announcements_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_ANNOUNCEMENTS)
         self.game_announcement_topic_id = self._resolve_automation_topic_id(game_announcements_entry, fallback_topic_id)
+        game_updates_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_UPDATES)
+        # Если топик для уведомлений об изменениях не настроен, используем топик анонсов как fallback
+        self.game_updates_topic_id = self._resolve_automation_topic_id(game_updates_entry, self.game_announcement_topic_id)
         
         self._update_team_mappings()
         
@@ -155,6 +159,10 @@ class GameSystemManager:
         print(
             "   🧩 GAME_ANNOUNCEMENTS: "
             f"topic={self.game_announcement_topic_id}"
+        )
+        print(
+            "   🧩 GAME_UPDATES: "
+            f"topic={self.game_updates_topic_id}"
         )
         
         if BOT_TOKEN:
@@ -841,7 +849,7 @@ class GameSystemManager:
             "chat_id": self._to_int(CHAT_ID) or CHAT_ID,
             "text": message,
         }
-        message_thread_id: Optional[int] = self.game_announcement_topic_id
+        message_thread_id: Optional[int] = self.game_updates_topic_id
         if message_thread_id is not None:
             send_kwargs["message_thread_id"] = message_thread_id
 
@@ -851,7 +859,7 @@ class GameSystemManager:
             except Exception as primary_error:
                 if message_thread_id is not None and "Message thread not found" in str(primary_error):
                     print(f"⚠️ Топик {message_thread_id} не найден, отправляем обновление в основной чат")
-                    self.game_announcement_topic_id = None
+                    self.game_updates_topic_id = None
                     send_kwargs.pop("message_thread_id", None)
                     await bot.send_message(**send_kwargs)
                 else:

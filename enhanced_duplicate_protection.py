@@ -111,7 +111,7 @@ AUTOMATION_DEFAULT_ROWS = [
     {"key": "BIRTHDAY_NOTIFICATIONS", "name": "Уведомления о днях рождения", "comment": "Поздравления именинников"},
     {"key": "GAME_ANNOUNCEMENTS", "name": "Анонсы игр", "comment": "Сообщения с информацией об игре"},
     {"key": "GAME_POLLS", "name": "Опросы на игры", "comment": "Опрос о готовности на игру"},
-    {"key": "VOTING_POLLS", "name": "Общие голосования", "comment": "Голосования из блока конфигурации"},
+    {"key": "GAME_UPDATES", "name": "Уведомления об изменениях", "comment": "Уведомления об изменениях в расписании игр"},
 ]
 LEGACY_VOTING_HEADERS = [
     [

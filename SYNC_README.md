@@ -23,6 +23,16 @@ python3 sync_to_flash_bot.py
 python3 sync_to_flash_bot.py --all
 ```
 
+### Синхронизация конкретных файлов
+
+Можно указать конкретные файлы для синхронизации:
+
+```bash
+python3 sync_to_flash_bot.py game_system_manager.py enhanced_duplicate_protection.py
+```
+
+Это полезно, когда вы изменили только несколько файлов и хотите синхронизировать только их.
+
 ### Файлы, которые синхронизируются:
 
 - Все Python модули (`.py` файлы)

@@ -1788,8 +1788,8 @@ class GameSystemManager:
                         if 'fouls' in anti_leaders:
                             data = anti_leaders['fouls']
                             message += f"⚠️ Фолы: {data['name']} - {data['value']}\n"
-                        if 'worst_plus_minus' in anti_leaders:
-                            data = anti_leaders['worst_plus_minus']
+                        if 'worst_kpi' in anti_leaders:
+                            data = anti_leaders['worst_kpi']
                             message += f"📉 КПИ: {data['name']} - {data['value']}\n"
                 else:
                     message += "\n🏆 ЛУЧШИЕ ИГРОКИ:\n"
@@ -1805,8 +1805,8 @@ class GameSystemManager:
                     if 'steals' in our_team_leaders:
                         data = our_team_leaders['steals']
                         message += f"🥷 Перехваты: {data['name']} - {data['value']}\n"
-                    if 'best_plus_minus' in our_team_leaders:
-                        data = our_team_leaders['best_plus_minus']
+                    if 'best_kpi' in our_team_leaders:
+                        data = our_team_leaders['best_kpi']
                         message += f"📈 КПИ: {data['name']} - {data['value']}\n"
             
             return message

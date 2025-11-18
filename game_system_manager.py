@@ -34,6 +34,7 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"  # Тестовы�
 AUTOMATION_KEY_GAME_POLLS = "GAME_POLLS"
 AUTOMATION_KEY_GAME_ANNOUNCEMENTS = "GAME_ANNOUNCEMENTS"
 AUTOMATION_KEY_GAME_UPDATES = "GAME_UPDATES"
+AUTOMATION_KEY_CALENDAR_EVENTS = "CALENDAR_EVENTS"
 
 def create_game_key(game_info: Dict) -> str:
     """Создает уникальный ключ для игры"""
@@ -121,6 +122,10 @@ class GameSystemManager:
         self.config_comp_ids_set = set(self.config_comp_ids)
         self.config_team_ids_set = set(self.config_team_ids)
         
+        # Кэш для проверок дублирования (чтобы избежать повторных запросов к API)
+        # Ключ: (data_type, game_id), Значение: Optional[Dict] (None = не найдено, Dict = найдено)
+        self._duplicate_check_cache: Dict[tuple, Optional[Dict[str, Any]]] = {}
+        
         config_snapshot = duplicate_protection.get_config_ids()
         self.config_comp_ids = config_snapshot.get('comp_ids', [])
         self.config_team_ids = config_snapshot.get('team_ids', [])
@@ -141,6 +146,9 @@ class GameSystemManager:
         game_updates_entry = self._get_automation_entry(AUTOMATION_KEY_GAME_UPDATES)
         # Если топик не указан, будет None - отправка в общий чат
         self.game_updates_topic_id = self._resolve_automation_topic_id(game_updates_entry)
+        calendar_events_entry = self._get_automation_entry(AUTOMATION_KEY_CALENDAR_EVENTS)
+        # Если топик не указан, будет None - отправка в общий чат
+        self.calendar_events_topic_id = self._resolve_automation_topic_id(calendar_events_entry)
         
         self._update_team_mappings()
         
@@ -162,6 +170,10 @@ class GameSystemManager:
         print(
             "   🧩 GAME_UPDATES: "
             f"topic={self.game_updates_topic_id}"
+        )
+        print(
+            "   🧩 CALENDAR_EVENTS: "
+            f"topic={self.calendar_events_topic_id}"
         )
         
         if BOT_TOKEN:
@@ -780,7 +792,7 @@ class GameSystemManager:
                 "document": document,
                 "caption": caption,
             }
-            message_thread_id: Optional[int] = self.game_announcement_topic_id
+            message_thread_id: Optional[int] = self.calendar_events_topic_id
             if message_thread_id is not None:
                 send_kwargs["message_thread_id"] = message_thread_id
 
@@ -789,7 +801,7 @@ class GameSystemManager:
             except Exception as primary_error:
                 if message_thread_id is not None and "Message thread not found" in str(primary_error):
                     print(f"⚠️ Топик {message_thread_id} не найден, отправляем календарь в основной чат")
-                    self.game_announcement_topic_id = None
+                    self.calendar_events_topic_id = None
                     send_kwargs.pop("message_thread_id", None)
                     await bot.send_document(**send_kwargs)
                 else:
@@ -891,25 +903,40 @@ class GameSystemManager:
             print("⚠️ Нет GameID, пропускаем игру")
             return False
 
-        widget_data = await self.fetch_widget_game_details(int(game_id))
-        if widget_data:
-            self._merge_widget_details(game_info, widget_data)
+        # Проверяем кэш перед запросом к API
+        cache_key = ("ОПРОС_ИГРА", str(game_id))
+        cached_record = self._duplicate_check_cache.get(cache_key)
+        
+        if cached_record is not None:
+            # Используем кэшированное значение
+            if cached_record:
+                print(f"⏭️ Опрос для GameID {game_id} уже есть (из кэша)")
+                return False
+        else:
+            # Проверяем через API и кэшируем результат
+            widget_data = await self.fetch_widget_game_details(int(game_id))
+            if widget_data:
+                self._merge_widget_details(game_info, widget_data)
 
-        existing_record = duplicate_protection.get_game_record("ОПРОС_ИГРА", str(game_id))
-        if existing_record:
-            changes = self._detect_game_changes(existing_record, game_info)
-            if changes:
-                await self._notify_game_update(changes, game_info)
-                summary = self._format_changes_summary(changes)
-                self._log_game_action("ОПРОС_ИГРА", game_info, "ДАННЫЕ ОБНОВЛЕНЫ", summary)
-            else:
-                print(f"⏭️ Опрос для GameID {game_id} уже есть в сервисном листе")
-            return False
+            existing_record = duplicate_protection.get_game_record("ОПРОС_ИГРА", str(game_id))
+            self._duplicate_check_cache[cache_key] = existing_record
+            
+            if existing_record:
+                changes = self._detect_game_changes(existing_record, game_info)
+                if changes:
+                    await self._notify_game_update(changes, game_info)
+                    summary = self._format_changes_summary(changes)
+                    self._log_game_action("ОПРОС_ИГРА", game_info, "ДАННЫЕ ОБНОВЛЕНЫ", summary)
+                else:
+                    print(f"⏭️ Опрос для GameID {game_id} уже есть в сервисном листе")
+                return False
 
         question = await self.create_game_poll(game_info)
         if not question:
             return False
 
+        # Обновляем кэш после успешного создания опроса
+        self._duplicate_check_cache[cache_key] = {"created": True}
         self._log_game_action("ОПРОС_ИГРА", game_info, "ОПРОС СОЗДАН", question)
         return True
 
@@ -1402,9 +1429,39 @@ class GameSystemManager:
         anchors = soup.find_all('a', href=True)
         print(f"🔗 {url}: найдено {len(anchors)} ссылок")
 
-        for idx, anchor in enumerate(anchors, 1):
+        # Сначала пробуем найти по тексту ссылки (быстрее, не требует загрузки страницы игры)
+        for anchor in anchors:
             href = anchor.get('href')
-            if not href or 'gameId=' not in href:
+            if not href:
+                continue
+            
+            # Проверяем, что это ссылка на игру
+            is_game_link = 'gameId=' in href or 'game.html' in href
+            if not is_game_link:
+                continue
+            
+            # Получаем текст ссылки (обычно содержит названия команд)
+            link_text = anchor.get_text(strip=True)
+            if not link_text:
+                continue
+            
+            # Нормализуем текст для поиска
+            normalized_text = self._normalize_name_for_search(link_text)
+            
+            # Проверяем, есть ли обе команды в тексте ссылки
+            own_match = self._find_matching_variant(normalized_text, list(own_variants))
+            opponent_match = self._find_matching_variant(normalized_text, list(opponent_variants))
+            
+            if own_match and opponent_match:
+                full_link = href if href.startswith('http') else urljoin(url, href)
+                print(f"✅ Найдена подходящая игра в fallback по тексту ссылки: {full_link}")
+                print(f"   Текст ссылки: {link_text}")
+                return full_link, own_match
+        
+        # Если не нашли по тексту, пробуем старый способ (проверка содержимого страницы игры)
+        for anchor in anchors:
+            href = anchor.get('href')
+            if not href or ('gameId=' not in href and 'game.html' not in href):
                 continue
             full_link = urljoin(url, href)
             matched_name = await self._verify_game_link(session, full_link, own_variants, opponent_variants)
@@ -1903,8 +1960,27 @@ class GameSystemManager:
             # ШАГ 2: Создание опросов
             print(f"\n📊 ШАГ 2: СОЗДАНИЕ ОПРОСОВ")
             print("-" * 40)
-            created_polls = 0
+            
+            # Очищаем кэш перед обработкой новых игр
+            self._duplicate_check_cache.clear()
+            
+            # Удаляем дубликаты из списка игр (по game_id)
+            seen_game_ids = set()
+            unique_future_games = []
             for game in future_games:
+                game_id = game.get('game_id')
+                if game_id and game_id not in seen_game_ids:
+                    seen_game_ids.add(game_id)
+                    unique_future_games.append(game)
+                elif not game_id:
+                    # Игры без game_id тоже добавляем (на случай fallback)
+                    unique_future_games.append(game)
+            
+            if len(future_games) != len(unique_future_games):
+                print(f"⚠️ Найдено {len(future_games) - len(unique_future_games)} дубликатов в списке игр, удалены")
+            
+            created_polls = 0
+            for game in unique_future_games:
                 print(f"\n🏀 Проверка игры (будущая): {game.get('team1', '')} vs {game.get('team2', '')}")
                 if await self._process_future_game(game):
                     created_polls += 1

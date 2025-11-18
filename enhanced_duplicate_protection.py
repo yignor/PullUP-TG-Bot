@@ -112,6 +112,7 @@ AUTOMATION_DEFAULT_ROWS = [
     {"key": "GAME_ANNOUNCEMENTS", "name": "Анонсы игр", "comment": "Сообщения с информацией об игре"},
     {"key": "GAME_POLLS", "name": "Опросы на игры", "comment": "Опрос о готовности на игру"},
     {"key": "GAME_UPDATES", "name": "Уведомления об изменениях", "comment": "Уведомления об изменениях в расписании игр"},
+    {"key": "CALENDAR_EVENTS", "name": "Календарные события", "comment": "Отправка календарных событий (.ics файлов)"},
 ]
 LEGACY_VOTING_HEADERS = [
     [
@@ -586,12 +587,12 @@ class EnhancedDuplicateProtection:
         return now.strftime('%d.%m.%Y %H:%M')
     
     def check_duplicate(self, data_type: str, identifier: str, **kwargs) -> Dict[str, Any]:
-        """Проверяет существование дубликата"""
+        """Проверяет существование дубликата с обработкой ошибок 429"""
         worksheet = self._get_service_worksheet()
         if not worksheet:
             return {'exists': False, 'error': 'Лист не найден'}
         
-        try:
+        def _check():
             # Создаем уникальный ключ
             unique_key = self._create_unique_key(data_type, identifier, **kwargs)
             
@@ -624,8 +625,11 @@ class EnhancedDuplicateProtection:
                     }
             
             return {'exists': False, 'unique_key': unique_key}
-            
+        
+        try:
+            return self._retry_with_backoff(_check)
         except Exception as e:
+            print(f"⚠️ Ошибка проверки дубликата: {e}")
             return {'exists': False, 'error': str(e)}
     
     def add_record(
@@ -850,13 +854,44 @@ class EnhancedDuplicateProtection:
             print(f"❌ Ошибка получения записей: {e}")
             return []
     
+    def _retry_with_backoff(self, func, max_retries: int = 3, base_delay: float = 2.0):
+        """Повторяет вызов функции с экспоненциальной задержкой при ошибках 429"""
+        import time
+        import gspread.exceptions
+        
+        for attempt in range(max_retries):
+            try:
+                return func()
+            except gspread.exceptions.APIError as e:
+                error_code = e.response.status_code if hasattr(e, 'response') else None
+                error_message = str(e)
+                
+                # Проверяем, является ли это ошибкой 429 (Quota exceeded)
+                if error_code == 429 or '429' in error_message or 'Quota exceeded' in error_message:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Экспоненциальная задержка: 2, 4, 8 секунд
+                        print(f"⚠️ Quota exceeded (429), повтор через {delay:.1f} сек (попытка {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        print(f"❌ Quota exceeded после {max_retries} попыток")
+                        raise
+                else:
+                    # Другие ошибки API не повторяем
+                    raise
+            except Exception as e:
+                # Другие исключения не повторяем
+                raise
+        
+        return None
+    
     def get_game_record(self, data_type: str, game_id: Any) -> Optional[Dict[str, Any]]:
-        """Возвращает запись об игре по GameID"""
+        """Возвращает запись об игре по GameID с обработкой ошибок 429"""
         worksheet = self._get_service_worksheet()
         if not worksheet:
             return None
         
-        try:
+        def _fetch_record():
             game_id_str = str(game_id)
             all_data = worksheet.get_all_values()
             for row_index, row in enumerate(all_data[1:], start=2):
@@ -885,6 +920,9 @@ class EnhancedDuplicateProtection:
                         'team_b_id': row[TEAM_B_ID_COL],
                     }
             return None
+        
+        try:
+            return self._retry_with_backoff(_fetch_record)
         except Exception as e:
             print(f"⚠️ Ошибка поиска записи игры: {e}")
             return None

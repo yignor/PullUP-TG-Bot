@@ -134,6 +134,32 @@ def our_teams(source: Optional[str] = None) -> List[Dict[str, Any]]:
 
 # ── Заявки: id и номера на диск, ФИО в память ───────────────────────────────
 
+def _numbers_from_protocols(source: str, player_ids: List[str]) -> Dict[str, str]:
+    """{id игрока: номер из последнего протокола}.
+
+    Заявка SLPRO номеров не отдаёт вовсе — в ответе только id, имя и дата
+    рождения. Но номер есть в каждом протоколе, который бот и так качает: там
+    записано, под каким номером человек выходил. Берём из САМОГО СВЕЖЕГО —
+    номер меняется между сезонами, и старый хуже отсутствующего.
+
+    У Инфобаскета заявка номера отдаёт, но не всем: там это тоже пригодится."""
+    ids = [str(p) for p in player_ids if str(p or "")]
+    if not ids:
+        return {}
+    out: Dict[str, str] = {}
+    with sheets_cache.get_connection() as conn:
+        for chunk in (ids[i:i + 400] for i in range(0, len(ids), 400)):
+            marks = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                f"""SELECT player_id, number FROM game_player_stats
+                     WHERE source = ? AND player_id IN ({marks})
+                       AND TRIM(COALESCE(number, '')) != ''
+                     ORDER BY game_date""", (source, *chunk)).fetchall()
+            for r in rows:
+                out[str(r["player_id"])] = str(r["number"])   # последний победит
+    return out
+
+
 async def _fetch_roster(team: Dict[str, Any]) -> List[Dict[str, Any]]:
     """[{player_id, number, name, birth, active}] из заявки лиги.
 
@@ -144,20 +170,29 @@ async def _fetch_roster(team: Dict[str, Any]) -> List[Dict[str, Any]]:
     if src == "slpro":
         from slpro_client import SlproClient
         rows = await SlproClient().get_roster(int(tid))
-        return [{"player_id": str(p.get("player_id")), "number": str(p.get("number") or ""),
-                 "name": f"{p.get('surname', '')} {p.get('name', '')}".strip(),
-                 # У SLPRO поле называется birth_day («2001-09-22»), у
-                 # Инфобаскета PersonBirth («22.09.2001»). Формат не важен:
-                 # сравниваем строки на равенство внутри одной лиги.
-                 "birth": str(p.get("birth_day") or p.get("birthday") or ""),
-                 "active": True}
-                for p in rows if p.get("player_id") is not None]
-    import stats_backfill
-    rows = await stats_backfill.fetch_infobasket_roster(tid, team.get("comp_id"))
-    return [{"player_id": str(p["player_id"]), "number": str(p.get("number") or ""),
-             "name": p.get("name") or "", "birth": p.get("birth") or "",
-             "active": bool(p.get("active", True))}
-            for p in rows if p.get("player_id") is not None]
+        out = [{"player_id": str(p.get("player_id")), "number": str(p.get("number") or ""),
+                "name": f"{p.get('surname', '')} {p.get('name', '')}".strip(),
+                # У SLPRO поле называется birth_day («2001-09-22»), у
+                # Инфобаскета PersonBirth («22.09.2001»). Формат не важен:
+                # сравниваем строки на равенство внутри одной лиги.
+                "birth": str(p.get("birth_day") or p.get("birthday") or ""),
+                "active": True}
+               for p in rows if p.get("player_id") is not None]
+    else:
+        import stats_backfill
+        rows = await stats_backfill.fetch_infobasket_roster(tid, team.get("comp_id"))
+        out = [{"player_id": str(p["player_id"]), "number": str(p.get("number") or ""),
+                "name": p.get("name") or "", "birth": p.get("birth") or "",
+                "active": bool(p.get("active", True))}
+               for p in rows if p.get("player_id") is not None]
+    # Кому лига номера не дала — берём из своих протоколов.
+    empty = [p["player_id"] for p in out if not p["number"]]
+    if empty:
+        known = await asyncio.to_thread(_numbers_from_protocols, src, empty)
+        for p in out:
+            if not p["number"]:
+                p["number"] = known.get(p["player_id"], "")
+    return out
 
 
 def _store_roster(team: Dict[str, Any], players: List[Dict[str, Any]]) -> int:

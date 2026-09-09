@@ -346,6 +346,39 @@ async def test_export_for_the_application(bd, gid: int) -> None:
               f"строк по числу людей в группе: {len(lines) - 1}")
 
 
+async def test_numbers_come_from_protocols(bd, gid: int) -> None:
+    """Номер доносится из протоколов, если лига его не отдала.
+
+    Заявка SLPRO номеров не содержит вовсе — в ответе только id, имя и дата
+    рождения. Но в каждом протоколе записано, под каким номером человек
+    выходил, и эти протоколы бот и так качает."""
+    print("\n=== номер из протокола ===")
+    import league_sync
+    import sheets_cache
+
+    now = sheets_cache.now_iso()
+    with sheets_cache.get_connection() as conn:
+        conn.execute("DELETE FROM game_player_stats WHERE player_id IN ('555','556')")
+        # Один и тот же человек в двух играх под разными номерами.
+        for game, day, num in (("g1", "2026-07-01", "8"), ("g2", "2026-08-01", "12")):
+            conn.execute(
+                "INSERT INTO game_player_stats (source, game_id, player_id, "
+                "team_id, number, game_date, fetched_at) VALUES ('slpro', ?, "
+                "'555', '707', ?, ?, ?)", (game, num, day, now))
+        conn.commit()
+
+    got = league_sync._numbers_from_protocols("slpro", ["555", "556"])
+    check(got.get("555") == "12",
+          f"взят номер из самого свежего протокола: {got.get('555')}")
+    check("556" not in got, "кого в протоколах нет — без номера")
+    check(league_sync._numbers_from_protocols("slpro", []) == {},
+          "пустой запрос не ходит в базу зря")
+
+    with sheets_cache.get_connection() as conn:
+        conn.execute("DELETE FROM game_player_stats WHERE player_id IN ('555','556')")
+        conn.commit()
+
+
 async def test_shirt_numbers_in_export(bd, gid: int) -> None:
     """Игровой номер в выгрузке: из заявки лиги, а не из листа.
 
@@ -429,6 +462,7 @@ async def run() -> None:
     await test_templates(bd, gid)
     await test_repeat(bd, gid)
     await test_export_for_the_application(bd, gid)
+    await test_numbers_come_from_protocols(bd, gid)
     await test_shirt_numbers_in_export(bd, gid)
     await test_csv_still_works_without_openpyxl(bd, gid)
     await test_delete_takes_repeats(bd)

@@ -324,8 +324,14 @@ async def test_export_for_the_application(bd, gid: int) -> None:
         # молча начал бы проверять соседнюю колонку.
         at = list(table[0]).index("Дата рождения")
         born = [r[at] for r in table[1:] if r[at] is not None]
-        check(born and all(hasattr(b, "year") for b in born),
-              "дата рождения лежит датой — таблица сортируется")
+        # Дата — ТЕКСТОМ. Настоящая дата открывается верно в Excel, но
+        # просмотр Telegram рисует её по-своему: 22.09.2001 показывалось как
+        # «265.09.2001» — это день ГОДА. Заявку чаще всего смотрят прямо в
+        # чате, и врать при первом взгляде она не должна.
+        check(born and all(isinstance(b, str) for b in born),
+              f"дата рождения лежит текстом: {born[:2]}")
+        check(any("22.09.2001" == b for b in born),
+              f"и ровно в том виде, в каком её читают: {born[:2]}")
         check(sheet.freeze_panes == "A2", "шапка не уезжает при прокрутке")
     else:
         body = raw.decode("utf-8")

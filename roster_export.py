@@ -175,22 +175,11 @@ def has_xlsx() -> bool:
     return True
 
 
-def _as_date(raw: Any):
-    """«2001-09-22» → date. Не разобрали — None, положим текстом."""
-    got = str(raw or "").strip()
-    try:
-        return date(int(got[:4]), int(got[5:7]), int(got[8:10]))
-    except (ValueError, IndexError):
-        return None
-
-
 def xlsx_bytes(people: Sequence[Dict[str, Any]], title: str = "Заявка") -> bytes:
     """Книга Excel: шапка выделена, ширины подобраны, шапка не уезжает.
 
-    Дату рождения кладём НАСТОЯЩЕЙ датой с форматом ДД.ММ.ГГГГ, а не строкой:
-    так она и показывается привычно, и сортируется правильно, если тренер
-    захочет переставить строки. Что не разобралось — кладём текстом, чтобы не
-    потерять значение молча."""
+    Номер и порядковый — числами, дата рождения — текстом. Почему именно так,
+    подробно объяснено там, где строки кладутся в лист."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font
     from openpyxl.utils import get_column_letter
@@ -208,11 +197,16 @@ def xlsx_bytes(people: Sequence[Dict[str, Any]], title: str = "Заявка") ->
         cell.alignment = Alignment(horizontal="center")
     sheet.freeze_panes = "A2"
 
-    # Числа и даты кладём типами, а не текстом: иначе таблица не сортируется,
-    # а Excel вешает на каждую клетку зелёный уголок «число как текст».
-    born_at = [i for i, (_, key) in enumerate(COLUMNS) if key == "birthday"]
-    # Игровой номер тоже число — если он числом и записан. Бывает «7А» и
-    # подобное: такое оставляем текстом, а не роняем выгрузку.
+    # Числа кладём числом: иначе таблица не сортируется, а Excel вешает на
+    # каждую клетку зелёный уголок «число как текст». Игровой номер бывает
+    # «7А» — такое оставляем текстом, а не роняем выгрузку.
+    #
+    # А вот дату рождения кладём ТЕКСТОМ, и это не небрежность. Настоящая дата
+    # с форматом «ДД.ММ.ГГГГ» открывается верно в Excel, но встроенный просмотр
+    # Telegram рисует её по-своему: 22.09.2001 показывалось как «265.09.2001»,
+    # 01.02.1994 — как «32.02.1994». 265 и 32 — это дни ГОДА. Заявку чаще всего
+    # смотрят прямо в чате, и документ, который врёт при первом же взгляде,
+    # хуже документа, который не сортируется по дате.
     index_at = [i for i, (_, key) in enumerate(COLUMNS)
                 if key in ("_index", "shirt")]
     for person, line in zip(people, table[1:]):
@@ -222,12 +216,6 @@ def xlsx_bytes(people: Sequence[Dict[str, Any]], title: str = "Заявка") ->
             if str(cell.value).isdigit():
                 cell.value = int(cell.value)
                 cell.alignment = Alignment(horizontal="center")
-        for i in born_at:
-            got = _as_date(person.get("birthday"))
-            if got:
-                cell = sheet.cell(row=sheet.max_row, column=i + 1)
-                cell.value = got
-                cell.number_format = "DD.MM.YYYY"
 
     widths = [max(len(str(line[i])) for line in table) + 2
               for i in range(len(COLUMNS))]

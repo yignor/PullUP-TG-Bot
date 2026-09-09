@@ -320,7 +320,10 @@ async def test_export_for_the_application(bd, gid: int) -> None:
         check(len(table) == 1 + len(people),
               f"строк по числу людей в группе: {len(table) - 1}")
         check(isinstance(table[1][0], int), "номер лежит числом, а не текстом")
-        born = [r[3] for r in table[1:] if r[3] is not None]
+        # Ищем столбец по названию: их состав менялся, и жёсткий индекс
+        # молча начал бы проверять соседнюю колонку.
+        at = list(table[0]).index("Дата рождения")
+        born = [r[at] for r in table[1:] if r[at] is not None]
         check(born and all(hasattr(b, "year") for b in born),
               "дата рождения лежит датой — таблица сортируется")
         check(sheet.freeze_panes == "A2", "шапка не уезжает при прокрутке")
@@ -335,6 +338,54 @@ async def test_export_for_the_application(bd, gid: int) -> None:
         lines = [l for l in body.splitlines() if l.strip()]
         check(len(lines) == 1 + len(people),
               f"строк по числу людей в группе: {len(lines) - 1}")
+
+
+async def test_shirt_numbers_in_export(bd, gid: int) -> None:
+    """Игровой номер в выгрузке: из заявки лиги, а не из листа.
+
+    В листе «Игроки» номера нет — его ведёт лига. Берём по привязанному
+    профилю, а кого не привязали — по имени из реестра лиг."""
+    print("\n=== игровые номера в заявке ===")
+    import player_names
+    import roster_export
+    import sheets_cache
+
+    now = sheets_cache.now_iso()
+    with sheets_cache.get_connection() as conn:
+        conn.execute("DELETE FROM league_rosters")
+        conn.execute("DELETE FROM player_identities")
+        for pid, num in (("111", "7"), ("222", "13"), ("333", "9")):
+            conn.execute(
+                "INSERT INTO league_rosters (source, team_id, player_id, "
+                "number, fetched_at) VALUES ('infobasket','36502',?,?,?)",
+                (pid, num, now))
+        # Иванов привязан профилем — точный путь.
+        conn.execute(
+            "INSERT INTO player_identities (tg_user_id, source, player_id, "
+            "linked_at) VALUES ('900002','infobasket','111',?)", (now,))
+        conn.commit()
+    # Петров не привязан: его находим по имени из реестра лиг.
+    player_names.put("infobasket", "222", "Петров Пётр")
+    player_names.put("infobasket", "333", "Кто-то Чужой")
+
+    numbers = roster_export.numbers_by_row()
+    check(numbers.get(2) == "7", f"привязанный — по профилю: {numbers.get(2)}")
+    check(numbers.get(3) == "13", f"непривязанный — по имени: {numbers.get(3)}")
+    check(4 not in numbers, "кого в заявке лиги нет — без номера")
+
+    people = roster_export.group_people(gid)
+    table = roster_export.rows(people)
+    check(table[0][3] == "Игровой номер", f"столбец на месте: {table[0]}")
+    shirts = {line[1]: line[3] for line in table[1:]}
+    check(shirts.get("Иванов") == "7", f"номер попал в строку: {shirts}")
+    check(shirts.get("Сидоров") == "", "чужой номер никому не приписали")
+
+    with sheets_cache.get_connection() as conn:
+        conn.execute("DELETE FROM league_rosters")
+        conn.execute("DELETE FROM player_identities")
+        conn.commit()
+    check(not roster_export.numbers_by_row(),
+          "без заявок лиг номеров нет, и выгрузка не падает")
 
 
 async def test_csv_still_works_without_openpyxl(bd, gid: int) -> None:
@@ -372,6 +423,7 @@ async def run() -> None:
     await test_templates(bd, gid)
     await test_repeat(bd, gid)
     await test_export_for_the_application(bd, gid)
+    await test_shirt_numbers_in_export(bd, gid)
     await test_csv_still_works_without_openpyxl(bd, gid)
     await test_delete_takes_repeats(bd)
     await test_nothing_leaks_to_chat(bd)

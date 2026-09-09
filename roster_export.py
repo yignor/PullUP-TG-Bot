@@ -41,6 +41,7 @@ COLUMNS: Tuple[Tuple[str, str], ...] = (
     ("№", "_index"),
     ("Фамилия", "surname"),
     ("Имя", "name"),
+    ("Игровой номер", "shirt"),
     ("Дата рождения", "birthday"),
     ("Роль", "role"),
     ("Команда", "team"),
@@ -48,6 +49,80 @@ COLUMNS: Tuple[Tuple[str, str], ...] = (
 
 SEPARATOR = ";"
 BOM = "﻿"
+
+
+def numbers_by_row() -> Dict[int, str]:
+    """{строка листа «Игроки»: игровой номер}. Номера нет — строки нет.
+
+    В листе номера не хранится: его ведёт лига, и он живёт в её заявке
+    (`league_rosters`). Ищем двумя путями, от точного к запасному:
+
+    1. **По привязанному профилю.** У кого связан telegram и профиль лиги, у
+       того номер берётся по идентификатору — ошибиться не на чем.
+    2. **По имени.** Остальных сводим по ФИО с реестром имён лиги. Реестр
+       живёт в памяти демона и на диск не попадает ([[legal-data-invariant]]),
+       поэтому сразу после перезапуска номеров может не быть — тогда столбец
+       окажется пустым, и это лучше, чем чужой номер в заявке.
+    """
+    import sheets_cache
+    out: Dict[int, str] = {}
+    try:
+        with sheets_cache.get_connection() as conn:
+            squad = {f"{r['source']}:{r['player_id']}": str(r["number"] or "")
+                     for r in conn.execute(
+                         "SELECT source, player_id, number FROM league_rosters "
+                         "WHERE number != ''")}
+            links = {str(r["tg_user_id"]): int(r["player_row"])
+                     for r in conn.execute(
+                         "SELECT tg_user_id, player_row FROM player_links "
+                         "WHERE player_row > 0")}
+    except Exception as exc:
+        logger.warning("Игровые номера: заявки лиг не прочитались: %s", exc)
+        return out
+    if not squad:
+        return out
+
+    # Путь первый: через привязанный профиль лиги.
+    try:
+        import player_identity
+        for uid, row in links.items():
+            for ident in player_identity.get_identities(uid):
+                got = squad.get(f"{ident['source']}:{ident['player_id']}")
+                if got:
+                    out[row] = got
+                    break
+    except Exception as exc:
+        logger.warning("Игровые номера по профилям: %s", exc)
+
+    # Путь второй: по имени, для тех, кого не нашли.
+    try:
+        import player_names
+        by_name = {}
+        # get_all() отдаёт ключи «источник:номер» — ровно как в заявке лиги.
+        # by_player_id() их теряет, и совпадение с squad не находилось.
+        for key, name in player_names.get_all().items():
+            got = squad.get(key)
+            if got and name:
+                by_name.setdefault(_name_key(name), got)
+    except Exception as exc:
+        logger.warning("Игровые номера по именам: %s", exc)
+        return out
+    if not by_name:
+        return out
+    import coach_payments
+    for person in coach_payments.players():
+        row = int(person["row"])
+        if row in out:
+            continue
+        got = by_name.get(_name_key(person.get("title")))
+        if got:
+            out[row] = got
+    return out
+
+
+def _name_key(name: Any) -> str:
+    """Имя в сравнимом виде: без регистра, «ё» и лишних пробелов."""
+    return " ".join(str(name or "").lower().replace("ё", "е").split())
 
 
 def human_date(raw: Any) -> str:
@@ -62,6 +137,7 @@ def human_date(raw: Any) -> str:
 
 def rows(people: Sequence[Dict[str, Any]]) -> List[List[str]]:
     """Строки таблицы: заголовок и люди. Порядок — как пришли."""
+    shirts = numbers_by_row()
     out = [[title for title, _ in COLUMNS]]
     for number, person in enumerate(people, start=1):
         line = []
@@ -70,6 +146,11 @@ def rows(people: Sequence[Dict[str, Any]]) -> List[List[str]]:
                 line.append(str(number))
             elif key == "birthday":
                 line.append(human_date(person.get("birthday")))
+            elif key == "shirt":
+                # Номер в листе не хранится — он у лиги; не нашли, оставляем
+                # пусто, чтобы в заявку не уехал чужой.
+                line.append(str(person.get("shirt")
+                                or shirts.get(int(person.get("row") or 0), "")))
             else:
                 line.append(str(person.get(key) or "").strip())
         out.append(line)
@@ -130,7 +211,10 @@ def xlsx_bytes(people: Sequence[Dict[str, Any]], title: str = "Заявка") ->
     # Числа и даты кладём типами, а не текстом: иначе таблица не сортируется,
     # а Excel вешает на каждую клетку зелёный уголок «число как текст».
     born_at = [i for i, (_, key) in enumerate(COLUMNS) if key == "birthday"]
-    index_at = [i for i, (_, key) in enumerate(COLUMNS) if key == "_index"]
+    # Игровой номер тоже число — если он числом и записан. Бывает «7А» и
+    # подобное: такое оставляем текстом, а не роняем выгрузку.
+    index_at = [i for i, (_, key) in enumerate(COLUMNS)
+                if key in ("_index", "shirt")]
     for person, line in zip(people, table[1:]):
         sheet.append(line)
         for i in index_at:

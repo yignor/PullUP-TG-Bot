@@ -833,6 +833,9 @@ def _menu_markup(is_member: bool = False) -> InlineKeyboardMarkup:
             "🔌 Проверить связь", web_app=WebAppInfo(url=url + "#diag"))])
     rows.append([InlineKeyboardButton("💬 Написать админам",
                                       callback_data="menu:feedback")])
+    # Всем, а не только своим: знать, что о тебе хранится, вправе и тот, кто
+    # просто однажды проголосовал в чате.
+    rows.append([InlineKeyboardButton("🔒 Мои данные", callback_data="menu:privacy")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -950,6 +953,62 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     raise ApplicationHandlerStop
 
 
+# Как называть места хранения на экране «забыть меня». Человеку незачем знать
+# имена таблиц — ему надо понять, что именно уйдёт.
+_FORGET_TITLES = {
+    "player_links": "привязка к списку команды",
+    "player_identities": "профили в лигах",
+    "player_report_prefs": "настройки личного разбора",
+    "player_subscriptions": "подписки на игроков",
+    "subscriptions": "подписки на рассылки",
+    "fantasy_notify_prefs": "настройки фэнтези",
+    "achievement_awards": "значки",
+    "feature_access": "открытые доступы",
+    "player_jokes": "твои шутки",
+    "bot_users": "имя и ник в боте",
+    "game_votes": "ответы в опросах",
+    "attendance": "отметки посещаемости",
+    "fantasy_rosters": "составы в фэнтези",
+    "fantasy_game_picks": "ставки на игры",
+    "fantasy_game_scores": "очки фэнтези",
+    "fantasy_weekly_scores": "недельные итоги фэнтези",
+    "feedback": "сообщения админам",
+}
+
+
+def _forget_ask(uid: int) -> Tuple[str, InlineKeyboardMarkup]:
+    """Перед забвением показываем, что уйдёт, что обезличим и что останется."""
+    import privacy
+    have = privacy.footprint(uid)
+    gone = [t for t, _ in privacy.DELETE if t in have]
+    masked = [t for t, _c, _n in privacy.MASK if t in have]
+    lines = ["🗑 Забыть меня", ""]
+    if not have:
+        lines.append("Бот о тебе почти ничего не хранит — стирать нечего.")
+        return "\n".join(lines), InlineKeyboardMarkup(
+            [[InlineKeyboardButton("⬅️ Назад", callback_data="menu:privacy")]])
+    if gone:
+        lines.append("Удалю совсем:")
+        lines += [f"• {_FORGET_TITLES.get(t, t)}" for t in gone]
+        lines.append("")
+    if masked:
+        lines.append("Оставлю, но без имени — на них стоят чужие таблицы:")
+        lines += [f"• {_FORGET_TITLES.get(t, t)}" for t in masked]
+        lines.append("Вместо тебя там будет случайная метка, назад её не развернуть.")
+        lines.append("")
+    lines += ["Не трогаю:",
+              "• платежи — это учёт тренера;",
+              "• строку в списке команды — её ведёт тренер.",
+              "",
+              "Пока ты в списке команды и пишешь боту, он тебя снова узнает. "
+              "Убрать себя из списка может только тренер.",
+              "",
+              "Вернуть удалённое будет нельзя."]
+    return "\n".join(lines), InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑 Да, забыть меня", callback_data="menu:forget2")],
+        [InlineKeyboardButton("⬅️ Отмена", callback_data="menu:privacy")]])
+
+
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query, user = update.callback_query, update.effective_user
     if not query or not user:
@@ -993,6 +1052,30 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     elif what == "feedback":
         _awaiting_feedback.add(user.id)
         await query.edit_message_text(FEEDBACK_ASK)
+    elif what == "privacy":
+        import privacy
+        await query.edit_message_text(privacy.ABOUT, reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗑 Забыть меня", callback_data="menu:forget")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="menu:main")]]))
+    elif what == "forget":
+        text, markup = await asyncio.to_thread(_forget_ask, user.id)
+        await query.edit_message_text(text, reply_markup=markup)
+    elif what == "forget2":
+        import privacy
+        _clear_pending(user.id)
+        try:
+            res = await asyncio.to_thread(privacy.forget, user.id)
+        except Exception as e:
+            log.error(f"Забыть пользователя не вышло: {e}")
+            await query.edit_message_text(
+                "⚠️ Не получилось — ничего не удалено. Напиши админам.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                    "⬅️ Назад", callback_data="menu:privacy")]]))
+            return
+        await query.edit_message_text(
+            f"✅ Готово. Удалено записей: {res['deleted']}, обезличено: "
+            f"{res['masked']}.\n\nЕсли снова напишешь боту, он тебя узнает "
+            "заново — но прошлое уже не восстановится.")
 
 
 async def handle_joke_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

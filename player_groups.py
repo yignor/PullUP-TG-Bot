@@ -103,6 +103,14 @@ def init() -> None:
         if "pay_amount" not in mem:
             conn.execute("ALTER TABLE pg_members ADD COLUMN pay_amount "
                          "INTEGER NOT NULL DEFAULT 0")
+        # Взнос за тренировки — отдельно от оплаты в лиге: тренируются не по
+        # лигам, и группа может задавать его, ни к какой лиге не привязываясь.
+        if "train_amount" not in have:
+            conn.execute("ALTER TABLE pg_groups ADD COLUMN train_amount "
+                         "INTEGER NOT NULL DEFAULT 0")
+        if "train_amount" not in mem:
+            conn.execute("ALTER TABLE pg_members ADD COLUMN train_amount "
+                         "INTEGER NOT NULL DEFAULT 0")
         conn.commit()
     _ready = True
 
@@ -571,3 +579,57 @@ def mark_sent(rid: int, when: Optional[date] = None) -> None:
         conn.execute("UPDATE pg_repeats SET last_sent = ? WHERE id = ?",
                      (day, int(rid)))
         conn.commit()
+
+
+# ─────────────────────────── взнос за тренировки ───────────────────────────
+#
+# Второй состав тренируется реже, у кубковой группы свой зал — и платят они
+# за тренировки иначе, чем основа. Группа задаёт свою сумму на всех, а кому-то
+# можно поставить личную. Ноль у группы — «группа за тренировки не решает»,
+# и сумма берётся из карточки игрока, как всегда.
+
+
+def set_train_amount(gid: int, amount: int) -> None:
+    """Взнос за тренировки для всей группы. 0 — группа его не задаёт."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        conn.execute("UPDATE pg_groups SET train_amount = ? WHERE id = ?",
+                     (max(0, int(amount)), int(gid)))
+        conn.commit()
+
+
+def set_member_train(gid: int, player_row: int, amount: int) -> None:
+    """Личный взнос за тренировки в группе. 0 — вернуть сумму группы."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        conn.execute("UPDATE pg_members SET train_amount = ? "
+                     "WHERE group_id = ? AND player_row = ?",
+                     (max(0, int(amount)), int(gid), int(player_row)))
+        conn.commit()
+
+
+def member_trains(gid: int) -> Dict[int, int]:
+    """{строка: личный взнос за тренировки} — только у тех, кому он задан."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        return {int(r["player_row"]): int(r["train_amount"]) for r in conn.execute(
+            "SELECT player_row, train_amount FROM pg_members "
+            "WHERE group_id = ? AND train_amount > 0", (int(gid),))}
+
+
+def train_price_for(player_row: int) -> Optional[int]:
+    """Взнос за тренировки по правилам группы. None — ни одна группа не решает.
+
+    Личная сумма главнее групповой. Если человек в двух группах со своими
+    взносами, решает первая по порядку заведения — падать из-за этого нельзя.
+    Ноль вернуть отсюда нельзя по построению: группа с нулём не решает."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        row = conn.execute(
+            """SELECT g.train_amount AS base, m.train_amount AS own
+                 FROM pg_groups g JOIN pg_members m ON m.group_id = g.id
+                WHERE m.player_row = ? AND (g.train_amount > 0 OR m.train_amount > 0)
+                ORDER BY g.id LIMIT 1""", (int(player_row),)).fetchone()
+    if not row:
+        return None
+    return int(row["own"] or 0) or int(row["base"] or 0) or None

@@ -5720,8 +5720,10 @@ def _train_screen(period: str = "") -> Tuple[str, InlineKeyboardMarkup]:
     # и стёртый взнос значит «с этого не берём». Поэтому здесь не упрёк, а
     # факт: список, чтобы состав сбора был виден целиком и без сюрпризов.
     import coach_payments as _cp
+    # Сумма — с учётом группы: у второго состава может быть своя, и тогда
+    # пустое поле в карточке уже не значит «не ждём».
     mute = [p for p in _cp.players()
-            if p["pays_season"] and not int(p.get("pay_season") or 0)]
+            if p["pays_season"] and not training_dues.fee_of(p)]
     if mute:
         lines += ["", f"ℹ️ Взнос не задан у {len(mute)} — с них не ждём: "
                       + ", ".join(p["title"] for p in mute[:8])
@@ -8507,7 +8509,18 @@ async def _pay_schedule(app: Application) -> None:
     событие помечается в pay_events, поэтому фоновый цикл, который тикает раз
     в полминуты, не превращает напоминание в спам."""
     import training_dues
-    for key, period, kind in training_dues.due_events():
+    from datetime_utils import get_moscow_time
+    # Только днём и по московскому календарю. Раньше здесь стоял
+    # due_events() без даты: сервер живёт в UTC, и «десятое число» наступало
+    # для бота в 00:00 UTC — в три часа ночи по Москве. Ровно тогда 10.09.2026
+    # трём должникам и ушло напоминание о взносе. Личные разборы и значки
+    # давно ждут утра — деньги тем более не повод будить.
+    now = get_moscow_time()
+    quiet_from = sheets_cache.get_int_setting("quiet_hour_to", 9)
+    quiet_to = sheets_cache.get_int_setting("quiet_hour_from", 22)
+    if not (quiet_from <= now.hour < quiet_to):
+        return
+    for key, period, kind in training_dues.due_events(now.date()):
         if await asyncio.to_thread(training_dues.event_done, key):
             continue
         try:
@@ -9129,6 +9142,8 @@ def _pg_group(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
         amount = int(g.get("pay_amount") or 0)
         lines.append(f"💳 Оплата: {mode}" + (f", {amount} ₽" if amount and
                                              g.get("pay_mode") else ""))
+    train = int(g.get("train_amount") or 0)
+    lines.append(f"🏋️ Тренировки: {str(train) + ' ₽ в месяц' if train else 'по карточке игрока'}")
     lines.append(f"👥 В группе: {len(people)}")
     if people:
         lines.append("")
@@ -9146,6 +9161,9 @@ def _pg_group(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
         # платить, решает именно лига.
         rows.append([InlineKeyboardButton("💳 Оплата в лиге",
                                           callback_data=f"pg:pay:{gid}")])
+    # Тренировки к лиге не привязаны — эта кнопка есть у любой группы.
+    rows.append([InlineKeyboardButton("🏋️ Взнос за тренировки",
+                                      callback_data=f"pg:train:{gid}")])
     rows += [
         [InlineKeyboardButton("📨 Написать группе", callback_data=f"pg:send:{gid}")],
         [InlineKeyboardButton("🔁 Повторяющиеся", callback_data=f"pg:rep:{gid}")],
@@ -9225,6 +9243,66 @@ def _pg_pay_people(gid: int, page: int = 0) -> Tuple[str, InlineKeyboardMarkup]:
     rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"pg:pay:{gid}")])
     head = (f"👤 Своя сумма в группе «{g['name']}»\n\nВыбери человека. Своя "
             "сумма не съезжает, когда меняешь общую.")
+    if not people:
+        head += "\n\nВ группе пока никого."
+    return head, InlineKeyboardMarkup(rows)
+
+
+def _pg_train(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
+    """Взнос за тренировки для группы: на всех и лично."""
+    import player_groups as pg
+    g = pg.group(gid)
+    if not g:
+        return _pg_main()
+    base = int(g.get("train_amount") or 0)
+    own = pg.member_trains(gid)
+    lines = [f"🏋️ Взнос за тренировки — «{g['name']}»", ""]
+    lines.append(f"На всех: {str(base) + ' ₽ в месяц' if base else 'не задан'}")
+    if own:
+        lines.append(f"Личный взнос у {len(own)} чел.")
+    lines += ["", "Задан — с людей группы ждём эту сумму вместо той, что в их "
+                  "карточке. Не задан — каждый платит по своей карточке, как "
+                  "раньше. Личный взнос главнее общего и не съезжает, когда "
+                  "общий меняется."]
+    rows = [[InlineKeyboardButton("💰 Сумма на всех", callback_data=f"pg:tamt:{gid}")],
+            [InlineKeyboardButton("👤 Личный взнос", callback_data=f"pg:town:{gid}:0")]]
+    if base:
+        rows.append([InlineKeyboardButton("🚫 Снять — по карточкам",
+                                          callback_data=f"pg:toff:{gid}")])
+    rows.append([InlineKeyboardButton("⬅️ К группе", callback_data=f"pg:g:{gid}")])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+def _pg_train_people(gid: int, page: int = 0) -> Tuple[str, InlineKeyboardMarkup]:
+    import player_groups as pg
+    import training_dues
+    g = pg.group(gid)
+    if not g:
+        return _pg_main()
+    people = pg.members(gid)
+    own = pg.member_trains(gid)
+    pages = max(1, (len(people) + PLAYERS_PER_PAGE - 1) // PLAYERS_PER_PAGE)
+    page = max(0, min(page, pages - 1))
+    chunk = people[page * PLAYERS_PER_PAGE:(page + 1) * PLAYERS_PER_PAGE]
+    rows = []
+    for p in chunk:
+        mine = own.get(int(p["row"]), 0)
+        now = training_dues.fee_of(p)
+        tail = f" · {mine} ₽ (личный)" if mine else (f" · {now} ₽" if now else " · —")
+        rows.append([InlineKeyboardButton(
+            f"{p['title']}{tail}"[:BTN_TEXT],
+            callback_data=f"pg:towner:{gid}:{p['row']}")])
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("◀️", callback_data=f"pg:town:{gid}:{page - 1}"))
+        nav.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="pg:noop"))
+        if page < pages - 1:
+            nav.append(InlineKeyboardButton("▶️", callback_data=f"pg:town:{gid}:{page + 1}"))
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"pg:train:{gid}")])
+    head = (f"👤 Личный взнос за тренировки — «{g['name']}»\n\nВыбери человека. "
+            "Рядом — сколько с него ждут сейчас.")
     if not people:
         head += "\n\nВ группе пока никого."
     return head, InlineKeyboardMarkup(rows)
@@ -9558,6 +9636,37 @@ async def handle_group_callback(update: Update, context: ContextTypes.DEFAULT_TY
             markup = InlineKeyboardMarkup([[InlineKeyboardButton(
                 "⬅️ Назад", callback_data=f"pg:pown:{arg}:0")]])
 
+        elif what == "train":
+            _clear_pending(uid)
+            text, markup = await asyncio.to_thread(_pg_train, int(arg))
+
+        elif what == "tamt":
+            _clear_pending(uid)
+            _awaiting_group[uid] = f"tamt:{arg}"
+            text = ("💰 Сколько в месяц платит группа за тренировки? Пришли "
+                    "число.\n\nПередумал — /start.")
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                "⬅️ Назад", callback_data=f"pg:train:{arg}")]])
+
+        elif what == "toff":
+            await asyncio.to_thread(pg.set_train_amount, int(arg), 0)
+            text, markup = await asyncio.to_thread(_pg_train, int(arg))
+            text = "Снял: теперь каждый платит по своей карточке.\n\n" + text
+
+        elif what == "town":
+            page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+            text, markup = await asyncio.to_thread(_pg_train_people, int(arg), page)
+
+        elif what == "towner" and len(parts) > 3:
+            _clear_pending(uid)
+            _awaiting_group[uid] = f"towner:{arg}:{parts[3]}"
+            person = await asyncio.to_thread(_player_by_row_safe, parts[3])
+            text = (f"👤 Личный взнос за тренировки для {person.get('title', 'игрока')}."
+                    "\n\nПришли число в месяц. «0» — вернуть сумму группы."
+                    "\n\nПередумал — /start.")
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                "⬅️ Назад", callback_data=f"pg:town:{arg}:0")]])
+
         elif what == "pfee":
             import season_fees
             fee_id = await asyncio.to_thread(season_fees.fee_for_group, int(arg))
@@ -9779,6 +9888,29 @@ async def handle_group_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await asyncio.to_thread(season_fees.fee_for_group, int(arg))
         await show(f"💰 Сумма на всех: {text} ₽.",
                    await asyncio.to_thread(_pg_pay, int(arg)))
+        raise ApplicationHandlerStop
+
+    if kind == "tamt":
+        if not text.isdigit():
+            _awaiting_group[uid] = pending
+            await msg.reply_text("Нужно число. Например «4500».")
+            raise ApplicationHandlerStop
+        await asyncio.to_thread(pg.set_train_amount, int(arg), int(text))
+        note = ("Снял: каждый платит по своей карточке." if text == "0"
+                else f"🏋️ Взнос за тренировки: {text} ₽ в месяц.")
+        await show(note, await asyncio.to_thread(_pg_train, int(arg)))
+        raise ApplicationHandlerStop
+
+    if kind == "towner":
+        gid_s, _, row_s = arg.partition(":")
+        if not text.isdigit():
+            _awaiting_group[uid] = pending
+            await msg.reply_text("Нужно число. «0» — вернуть сумму группы.")
+            raise ApplicationHandlerStop
+        await asyncio.to_thread(pg.set_member_train, int(gid_s), int(row_s), int(text))
+        note = ("Вернул сумму группы." if text == "0"
+                else f"Личный взнос: {text} ₽ в месяц.")
+        await show(note, await asyncio.to_thread(_pg_train_people, int(gid_s), 0))
         raise ApplicationHandlerStop
 
     if kind == "powner":

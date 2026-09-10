@@ -133,6 +133,25 @@ def _paid_map(period: str) -> Dict[int, int]:
     return {int(r["player_row"]): int(r["amount"] or 0) for r in rows}
 
 
+def fee_of(player: Dict[str, Any]) -> int:
+    """Сколько человек платит за месяц тренировок.
+
+    Сначала группа: у второго состава или кубковой группы может быть своя
+    сумма, а у кого-то в группе — личная. Группа не решает — сумма из карточки
+    игрока, как было всегда. Пусто — ноль, и человек не должник: считать нечего."""
+    row = int(player.get("row") or player.get("row_index") or 0)
+    if row:
+        try:
+            import player_groups
+            ruled = player_groups.train_price_for(row)
+        except Exception as exc:
+            logger.warning("Взнос по группе не посчитался: %s", exc)
+            ruled = None
+        if ruled is not None:
+            return int(ruled)
+    return int(player.get("pay_season") or 0)
+
+
 def status(period: str, everyone: bool = False) -> List[Dict[str, Any]]:
     """Кто сколько внёс за месяц. По умолчанию — только те, с кого взнос ждём.
 
@@ -144,7 +163,7 @@ def status(period: str, everyone: bool = False) -> List[Dict[str, Any]]:
     for p in coach_payments.players():
         if not everyone and not p["pays_season"]:
             continue
-        need = int(p["pay_season"] or 0)
+        need = fee_of(p)
         got = paid.get(p["row"], 0)
         out.append({**p, "period": period, "need": need, "paid": got,
                     "debt": max(0, need - got) if need else 0,
@@ -194,7 +213,7 @@ def mark_paid(player_row: int, period: str, by: str = "",
     Пишем обычный платёж с пометкой by_coach — чтобы в сводке было видно,
     что он появился не из СМС, и чтобы его можно было найти и отменить."""
     player = coach_payments.player_by_row(player_row)
-    need = amount if amount is not None else int((player or {}).get("pay_season") or 0)
+    need = amount if amount is not None else fee_of({**(player or {}), "row": player_row})
     rec = coach_payments.record(
         player_row, need, coach_payments.KIND_SEASON, 0,
         paid_at=date.today().isoformat(), bank="", note="отметил тренер",
@@ -332,7 +351,7 @@ def confirmed_text(period: str, player_row: int) -> str:
     # Так же считает debtors(): без проставленной суммы человек не должник.
     # Подставить «как у всех» значило бы назвать цифру, которую бот потом сам
     # же не спросит, — и разойтись с тем, что видит тренер.
-    need = int(player.get("pay_season") or 0)
+    need = fee_of({**player, "row": player_row})
     title = month_title(period)
     lines = [f"✅ Записал: занимаешься в {month_title_pre(period)}."]
 

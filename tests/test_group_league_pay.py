@@ -144,10 +144,54 @@ def test_fantasy_pool() -> None:
           "состав объявлен — берём его, а не группу")
 
 
+def test_group_training_fee() -> None:
+    """У группы — своя стоимость тренировки, у человека в ней — личная."""
+    print("\n=== взнос за тренировки группы ===")
+    import player_groups as pg
+    import training_dues as td
+
+    gid, _ = pg.create("Кубковая")
+    pg.add(gid, 2)
+    period = td.FIRST_PERIOD
+
+    def need(row):
+        return {int(r["row"]): r["need"] for r in td.status(period, True)}[row]
+
+    check(pg.train_price_for(2) is None, "группа не задала — правила нет")
+    check(need(2) == 5500, "берётся карточка игрока")
+
+    pg.set_train_amount(gid, 4000)
+    check(need(2) == 4000, "группа задала — ждём её сумму")
+    check(need(4) == 5500, "человек вне группы — по карточке")
+
+    pg.set_member_train(gid, 2, 3000)
+    check(need(2) == 3000, "личный взнос главнее группового")
+    pg.set_train_amount(gid, 4500)
+    check(need(2) == 3000, "общий поменяли — личный не съехал")
+
+    pg.set_member_train(gid, 2, 0)
+    check(need(2) == 4500, "ноль возвращает сумму группы")
+
+    pg.set_train_amount(gid, 0)
+    check(need(2) == 5500, "сняли у группы — снова по карточке")
+
+    # Взнос за тренировки не зависит от лиги: группа без лиги его задаёт.
+    check(not (pg.group(gid) or {}).get("league_source"),
+          "группа ни к какой лиге не привязана — и это не мешает")
+
+    # Отметка оплаты записывает сумму группы, а не карточки.
+    pg.set_train_amount(gid, 4200)
+    rec = td.mark_paid(2, period, by="test")
+    check(int(rec.get("amount") or 0) == 4200,
+          f"отметка записала сумму группы: {rec.get('amount')}")
+    pg.set_train_amount(gid, 0)
+
+
 def main() -> int:
     print(f"База: {TMP}")
     run()
     test_fantasy_pool()
+    test_group_training_fee()
     print("\n" + "=" * 60)
     if bad:
         print(f"НЕ ПРОШЛО ({len(bad)}):")

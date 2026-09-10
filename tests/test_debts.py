@@ -517,6 +517,90 @@ def test_marking_twice_does_not_double(bd=None) -> None:
         conn.commit()
 
 
+def test_no_money_reminders_at_night() -> None:
+    """Напоминания о взносе не уходят ночью.
+
+    10.09.2026 трём должникам пришло напоминание в 03:00 по Москве: сервер
+    живёт в UTC, и «десятое число» наступало для бота в полночь UTC. Проверка
+    часа была у разборов и значков, а у денег — нет."""
+    print("\n=== деньги не будят ===")
+    import asyncio
+    import bot_daemon as bd
+    import datetime_utils
+    import training_dues as td
+    from datetime import datetime
+
+    seed_player(705, "Ночной")
+    with sheets_cache.get_connection() as conn:
+        conn.execute("UPDATE players SET active_mark = '1', pay_season = 5500 "
+                     "WHERE row_index = 705")
+        conn.execute("DELETE FROM pay_events")
+        conn.commit()
+
+    class Bot:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id=None, text="", **kw):
+            self.sent.append((chat_id, text))
+
+    class App:
+        def __init__(self):
+            self.bot = Bot()
+
+    day = int(sorted(td.DEBT_PLAYER_DAYS)[0])
+    year, month = int(td.FIRST_PERIOD[:4]), int(td.FIRST_PERIOD[5:7])
+    real = datetime_utils.get_moscow_time
+    try:
+        tz = real().tzinfo
+        datetime_utils.get_moscow_time = lambda: datetime(year, month, day, 3, 0, tzinfo=tz)
+        app = App()
+        asyncio.run(bd._pay_schedule(app))
+        check(not app.bot.sent, "в 03:00 никому ничего не ушло")
+        with sheets_cache.get_connection() as conn:
+            marked = conn.execute("SELECT COUNT(*) FROM pay_events").fetchone()[0]
+        check(marked == 0, "и событие не сгорело — оно уйдёт утром, а не пропадёт")
+
+        datetime_utils.get_moscow_time = lambda: datetime(year, month, day, 10, 0, tzinfo=tz)
+        asyncio.run(bd._pay_schedule(App()))
+        with sheets_cache.get_connection() as conn:
+            marked = conn.execute("SELECT COUNT(*) FROM pay_events").fetchone()[0]
+        check(marked > 0, "в 10:00 рассылка отработала")
+    finally:
+        datetime_utils.get_moscow_time = real
+        with sheets_cache.get_connection() as conn:
+            conn.execute("DELETE FROM players WHERE row_index = 705")
+            conn.execute("DELETE FROM pay_events")
+            conn.commit()
+
+
+def test_collect_waits_for_morning() -> None:
+    """«Собери состав» тренеру — не в полночь.
+
+    09.09.2026 запрос ушёл ровно в 00:00 по Москве: у него не было проверки
+    часа, в отличие от денежных шагов."""
+    print("\n=== «собери состав» ждёт утра ===")
+    import game_roster
+    from datetime import datetime, timedelta, time
+
+    real = game_roster.games
+    tz = None
+    try:
+        import datetime_utils
+        tz = datetime_utils.get_moscow_time().tzinfo
+        soon = datetime.now(tz).date() + timedelta(days=2)
+        game_roster.games = lambda **kw: [{"source": "slpro", "game_id": "night-1",
+                                           "date": soon, "time": "20:00"}]
+        midnight = datetime.combine(soon - timedelta(days=2), time(0, 5), tzinfo=tz)
+        morning = datetime.combine(soon - timedelta(days=2), time(10, 0), tzinfo=tz)
+        at_night = [k for k, _g, kind in game_roster.due_events(midnight) if kind == "collect"]
+        at_day = [k for k, _g, kind in game_roster.due_events(morning) if kind == "collect"]
+        check(not at_night, "в 00:05 запроса нет")
+        check(at_day, "в 10:00 — есть")
+    finally:
+        game_roster.games = real
+
+
 def test_grouping() -> None:
     """Долги разбиты по играм и по месяцам, а не одним списком.
 
@@ -634,6 +718,8 @@ def main() -> int:
     test_active_without_fee_is_flagged()
     test_cleared_game_price_means_no_demand()
     test_marking_twice_does_not_double()
+    test_no_money_reminders_at_night()
+    test_collect_waits_for_morning()
     test_grouping()
     test_debt_names_the_game()
     test_debt_title_without_tournament()

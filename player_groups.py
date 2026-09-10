@@ -90,8 +90,104 @@ def init() -> None:
     sheets_cache.init_db()
     with sheets_cache.get_connection() as conn:
         conn.executescript(SCHEMA)
+        # Оплата в лиге появилась позже самих групп: у кого группы уже есть,
+        # колонок нет, и CREATE TABLE IF NOT EXISTS их не добавит.
+        have = [r[1] for r in conn.execute("PRAGMA table_info(pg_groups)")]
+        if "pay_mode" not in have:
+            conn.execute("ALTER TABLE pg_groups ADD COLUMN pay_mode "
+                         "TEXT NOT NULL DEFAULT ''")
+        if "pay_amount" not in have:
+            conn.execute("ALTER TABLE pg_groups ADD COLUMN pay_amount "
+                         "INTEGER NOT NULL DEFAULT 0")
+        mem = [r[1] for r in conn.execute("PRAGMA table_info(pg_members)")]
+        if "pay_amount" not in mem:
+            conn.execute("ALTER TABLE pg_members ADD COLUMN pay_amount "
+                         "INTEGER NOT NULL DEFAULT 0")
         conn.commit()
     _ready = True
+
+
+# ─────────────────────────── оплата в лиге ───────────────────────────
+#
+# Группа, привязанная к лиге, решает, как в этой лиге платят её люди:
+#
+# * «league» — взносом за лигу целиком, один раз. Живёт как сбор за турнир
+#   (season_fees), а состав сбора — это и есть группа: отдельный список вести
+#   незачем, он разъехался бы с группой при первом же изменении;
+# * «game» — за каждую игру этой лиги.
+#
+# Сумма задаётся на всю группу разом, а кому-то можно поставить свою —
+# скидка, договорённость. Своя сумма живёт у человека в группе и не съезжает,
+# когда меняется общая.
+
+PAY_LEAGUE, PAY_GAME = "league", "game"
+PAY_TITLES = {PAY_LEAGUE: "за лигу целиком", PAY_GAME: "за игру", "": "не задано"}
+
+
+def set_payment(gid: int, mode: str, amount: Optional[int] = None) -> None:
+    """Как платит группа в своей лиге. amount None — оставить прежнюю сумму."""
+    init()
+    if mode not in PAY_TITLES:
+        raise ValueError(f"неизвестный способ оплаты: {mode}")
+    with sheets_cache.get_connection() as conn:
+        if amount is None:
+            conn.execute("UPDATE pg_groups SET pay_mode = ? WHERE id = ?",
+                         (mode, int(gid)))
+        else:
+            conn.execute("UPDATE pg_groups SET pay_mode = ?, pay_amount = ? "
+                         "WHERE id = ?", (mode, max(0, int(amount)), int(gid)))
+        conn.commit()
+
+
+def set_member_amount(gid: int, player_row: int, amount: int) -> None:
+    """Своя сумма человека в группе. 0 — вернуть общую."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        conn.execute("UPDATE pg_members SET pay_amount = ? "
+                     "WHERE group_id = ? AND player_row = ?",
+                     (max(0, int(amount)), int(gid), int(player_row)))
+        conn.commit()
+
+
+def member_amounts(gid: int) -> Dict[int, int]:
+    """{строка: своя сумма} — только у тех, кому она задана."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        return {int(r["player_row"]): int(r["pay_amount"]) for r in conn.execute(
+            "SELECT player_row, pay_amount FROM pg_members "
+            "WHERE group_id = ? AND pay_amount > 0", (int(gid),))}
+
+
+def amount_for(gid: int, player_row: int) -> int:
+    """Сколько платит этот человек в этой группе: своя сумма или общая."""
+    g = group(gid) or {}
+    own = member_amounts(gid).get(int(player_row), 0)
+    return own or int(g.get("pay_amount") or 0)
+
+
+def game_price_for(player_row: int, source: str) -> Optional[int]:
+    """Цена игры в лиге `source` по правилам группы. None — правил нет.
+
+    None и ноль — разное. None: группа за эту лигу ничего не решала, и цена
+    берётся у самого человека, как раньше. Ноль: группа платит иначе (за лигу
+    целиком) или сумма не задана — с игры не берём.
+
+    Если человек в двух группах одной лиги, решает первая по порядку заведения.
+    На практике так не бывает, но и падать из-за этого нельзя."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        rows = conn.execute(
+            """SELECT g.id, g.pay_mode, g.pay_amount, m.pay_amount AS own
+                 FROM pg_groups g JOIN pg_members m ON m.group_id = g.id
+                WHERE g.league_source = ? AND m.player_row = ?
+                  AND g.pay_mode != ''
+                ORDER BY g.id""", (str(source), int(player_row))).fetchall()
+    for r in rows:
+        if r["pay_mode"] == PAY_GAME:
+            return int(r["own"] or 0) or int(r["pay_amount"] or 0)
+        if r["pay_mode"] == PAY_LEAGUE:
+            return 0          # платит за лигу целиком — с каждой игры не берём
+    return None
 
 
 def _now() -> str:

@@ -66,6 +66,12 @@ def init() -> None:
     sheets_cache.init_db()
     with sheets_cache.get_connection() as conn:
         conn.executescript(SCHEMA)
+        have = [r[1] for r in conn.execute("PRAGMA table_info(season_fees)")]
+        if "group_id" not in have:
+            # Сбор, заведённый из группы, берёт состав у группы: отдельный
+            # список разъехался бы с ней при первом же изменении.
+            conn.execute("ALTER TABLE season_fees ADD COLUMN group_id "
+                         "INTEGER NOT NULL DEFAULT 0")
         conn.commit()
     _ready = True
 
@@ -172,7 +178,20 @@ def delete(fee_id: int) -> None:
 # ─────────────────────────── состав ───────────────────────────
 
 
+def _group_of(fee_id: int) -> int:
+    """Из какой группы сбор берёт состав. 0 — ведёт свой список."""
+    init()
+    with sheets_cache.get_connection() as conn:
+        row = conn.execute("SELECT group_id FROM season_fees WHERE id = ?",
+                           (int(fee_id),)).fetchone()
+    return int(row["group_id"] or 0) if row else 0
+
+
 def member_rows(fee_id: int) -> List[int]:
+    gid = _group_of(fee_id)
+    if gid:
+        import player_groups
+        return player_groups.member_rows(gid)
     init()
     with sheets_cache.get_connection() as conn:
         return [int(r["player_row"]) for r in conn.execute(
@@ -180,8 +199,45 @@ def member_rows(fee_id: int) -> List[int]:
             (int(fee_id),))]
 
 
+def fee_for_group(gid: int) -> int:
+    """Сбор за лигу этой группы: находит или заводит. Возвращает id.
+
+    Сумма и название следуют за группой: поменял общую сумму в группе — она
+    же и в сборе. Отдельно их не ведём, иначе было бы два места, где правят
+    одно и то же."""
+    import player_groups
+    init()
+    g = player_groups.group(gid) or {}
+    with sheets_cache.get_connection() as conn:
+        row = conn.execute("SELECT id FROM season_fees WHERE group_id = ?",
+                           (int(gid),)).fetchone()
+        title = f"{g.get('name', 'Группа')} · {g.get('league_title') or 'лига'}"
+        if row:
+            conn.execute(
+                "UPDATE season_fees SET title = ?, amount = ?, source = ?, "
+                "team_id = ? WHERE id = ?",
+                (title, int(g.get("pay_amount") or 0), g.get("league_source", ""),
+                 g.get("league_team", ""), int(row["id"])))
+            conn.commit()
+            return int(row["id"])
+        cur = conn.execute(
+            "INSERT INTO season_fees (title, amount, source, team_id, group_id, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (title, int(g.get("pay_amount") or 0), g.get("league_source", ""),
+             g.get("league_team", ""), int(gid), _now()))
+        conn.commit()
+        return int(cur.lastrowid)
+
+
 def toggle(fee_id: int, player_row: int) -> bool:
-    """Переключает участие. True — теперь платит."""
+    """Переключает участие. True — теперь платит.
+
+    Сбор, взятый из группы, правится через группу: иначе правка легла бы в
+    список, который для такого сбора не читается, и пропала бы молча."""
+    gid = _group_of(fee_id)
+    if gid:
+        import player_groups
+        return player_groups.toggle(gid, player_row)
     init()
     inside = int(player_row) in set(member_rows(fee_id))
     with sheets_cache.get_connection() as conn:
@@ -200,6 +256,11 @@ def toggle(fee_id: int, player_row: int) -> bool:
 
 def set_personal(fee_id: int, player_row: int, amount: int) -> None:
     """Своя сумма для человека. 0 — вернуть базовую цену турнира."""
+    gid = _group_of(fee_id)
+    if gid:
+        import player_groups
+        player_groups.set_member_amount(gid, player_row, amount)
+        return
     init()
     with sheets_cache.get_connection() as conn:
         conn.execute(
@@ -230,10 +291,20 @@ def status(fee_id: int) -> List[Dict[str, Any]]:
     import coach_payments
     init()
     base = int((fee(fee_id) or {}).get("amount") or 0)
-    with sheets_cache.get_connection() as conn:
-        own = {int(r["player_row"]): int(r["amount"] or 0) for r in conn.execute(
-            "SELECT player_row, amount FROM season_fee_members WHERE fee_id = ?",
-            (int(fee_id),))}
+    gid = _group_of(fee_id)
+    if gid:
+        # Состав и свои суммы — у группы. Базовую берём оттуда же: сбор мог
+        # не успеть подтянуть новую, если её поменяли минуту назад.
+        import player_groups
+        g = player_groups.group(gid) or {}
+        base = int(g.get("pay_amount") or 0)
+        mine = player_groups.member_amounts(gid)
+        own = {row: mine.get(row, 0) for row in player_groups.member_rows(gid)}
+    else:
+        with sheets_cache.get_connection() as conn:
+            own = {int(r["player_row"]): int(r["amount"] or 0) for r in conn.execute(
+                "SELECT player_row, amount FROM season_fee_members WHERE fee_id = ?",
+                (int(fee_id),))}
     paid = _paid_map(fee_id)
     out = []
     for p in coach_payments.players():

@@ -701,10 +701,14 @@ def owes_for(source: str, game_id: str, player_row: int) -> bool:
 
 
 def debtors(source: str, game_id: str) -> List[Dict[str, Any]]:
-    """Кто из состава не оплатил эту игру."""
+    """Кто из состава не оплатил эту игру.
+
+    Тех, с кого за эту лигу не берут — платят за лигу целиком или цена
+    убрана, — здесь нет: иначе им ушло бы напоминание об оплате игры, которую
+    никто не ждёт."""
     out = []
     for p in roster(source, game_id):
-        if owes_for(source, game_id, p["row"]):
+        if owes_for(source, game_id, p["row"]) and price_for(p["row"], source, p) > 0:
             out.append(p)
     return out
 
@@ -744,6 +748,26 @@ def _team_only(name: Any) -> str:
     return re.sub(r"\s*\([^)]*\)\s*$", "", str(name or "")).strip()
 
 
+def price_for(player_row: int, source: str,
+              player: Optional[Dict[str, Any]] = None) -> int:
+    """Сколько человек платит за игру в лиге `source`.
+
+    Сначала правило группы, привязанной к этой лиге: за игру — её сумма (или
+    своя у человека), за лигу целиком — ноль, с каждой игры не берём. Правила
+    нет — цена самого человека, как было всегда. Убранная цена — ноль: тренер
+    решил «с этого не берём», и типовую команды мы за него не подставляем."""
+    try:
+        import player_groups
+        ruled = player_groups.game_price_for(int(player_row), str(source))
+    except Exception as exc:
+        logger.warning("Цена игры по группе не посчиталась: %s", exc)
+        ruled = None
+    if ruled is not None:
+        return int(ruled)
+    person = player if player is not None else coach_payments.player_by_row(player_row)
+    return coach_payments.own_game_price(person or {})
+
+
 def game_debts() -> List[Dict[str, Any]]:
     """Кто и за сколько игр должен — по всем объявленным составам.
 
@@ -755,18 +779,23 @@ def game_debts() -> List[Dict[str, Any]]:
         rows = [int(r["player_row"]) for r in conn.execute(
             "SELECT DISTINCT player_row FROM game_rosters WHERE player_row > 0")]
     for row in rows:
-        owed_games = unpaid_games(row)
-        if not owed_games:
-            continue
-        owed = len(owed_games)
         player = coach_payments.player_by_row(row) or {}
-        # Своя цена, без подстановки типовой: убранная тренером цена — это
-        # «с этого не берём», и требовать с него типовые 900 ₽ нельзя.
-        price = coach_payments.own_game_price(player)
-        if not price:
+        # Цена своя у каждой лиги: в одной группа платит за игру, в другой —
+        # за лигу целиком, и тогда с каждой игры не берём. Игры с нулевой
+        # ценой в долг не идут вовсе.
+        priced = [(g, price_for(row, g[0], player)) for g in unpaid_games(row)]
+        priced = [(g, p) for g, p in priced if p > 0]
+        if not priced:
             continue
+        owed_games = [g for g, _ in priced]
+        owed = len(owed_games)
+        amount = sum(p for _, p in priced)
+        # «price» — для тех, кто пишет «по N ₽»: одна цена, если она у всех
+        # игр одинаковая, иначе самая частая.
+        prices = [p for _, p in priced]
+        price = max(set(prices), key=prices.count)
         out.append({"row": row, "title": player.get("title") or f"строка {row}",
-                    "games": owed, "amount": owed * price,
+                    "games": owed, "amount": amount,
                     "last": owed_games[-1][2],
                     # Какие именно игры не закрыты. «Должен за две игры» без
                     # названий человек проверить не может и идёт спрашивать
@@ -821,9 +850,9 @@ def debts_by_game() -> List[Dict[str, Any]]:
         people = []
         for player_row in who:
             player = coach_payments.player_by_row(player_row) or {}
-            amount = coach_payments.own_game_price(player)
+            amount = price_for(player_row, st["source"], player)
             if not amount:
-                continue        # цена убрана — с человека не ждём
+                continue        # цена убрана или платит за лигу — не ждём
             people.append({"row": player_row,
                            "title": player.get("title") or f"строка {player_row}",
                            "amount": amount})
@@ -845,7 +874,9 @@ def mark_paid(player_row: int, source: str, game_id: str, by: str = "") -> Dict[
     платёж за ту же игру — так пятеро оказались «оплатившими» игру 09.08
     дважды, а их долги за 15.08 и 16.08 бесследно исчезли (12.08.2026)."""
     player = coach_payments.player_by_row(player_row)
-    price = coach_payments.game_price(player)
+    # Цена лиги; ноль бывает у того, кто платит за лигу целиком. Тренер всё
+    # равно отмечает оплату — значит, деньги пришли, и записать ноль нельзя.
+    price = price_for(player_row, source, player) or coach_payments.game_price(player)
     ref = f"{source}:{game_id}"
     return coach_payments.record(
         player_row, price, coach_payments.KIND_GAME, 1,
@@ -861,10 +892,10 @@ def coach_debt_text(game: Dict[str, Any], rows: List[Dict[str, Any]]) -> str:
     label = game_label(game)
     if not rows:
         return f"✅ Игра {label}: за игру рассчитались все."
-    price = coach_payments.game_price()
     lines = [f"💰 Игра {label}. Не оплатили ({len(rows)}):", ""]
     for p in rows:
-        lines.append(f"• {p['title']} — {coach_payments.game_price(p) or price} ₽")
+        amount = price_for(int(p.get("row") or 0), game.get("source", ""), p)
+        lines.append(f"• {p['title']} — {amount or coach_payments.game_price(p)} ₽")
     lines += ["", "Кнопкой ниже отметь тех, кто отдал деньги без чека."]
     return "\n".join(lines)
 
@@ -875,7 +906,8 @@ def player_debt_text(game: Dict[str, Any], player: Dict[str, Any],
 
     Накануне человек ещё ничего не нарушил, и разговор другой: деньги за игру
     везут с собой, поэтому и напоминаем заранее."""
-    price = coach_payments.game_price(player)
+    price = (price_for(int(player.get("row") or 0), game.get("source", ""), player)
+             or coach_payments.game_price(player))
     if ahead:
         built = (f"🏀 Завтра игра: {game_label(game)}.\n\n"
                  f"Не забудь оплату — {price} ₽. Возьми с собой или переведи "

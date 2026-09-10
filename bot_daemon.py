@@ -9124,6 +9124,11 @@ def _pg_group(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
     ready, silent = pg.targets(gid)
     lines = [f"👪 {g['name']}", ""]
     lines.append(f"🏆 Лига: {g['league_title'] or 'не привязана'}")
+    if g["league_title"]:
+        mode = pg.PAY_TITLES.get(g.get("pay_mode") or "", "не задано")
+        amount = int(g.get("pay_amount") or 0)
+        lines.append(f"💳 Оплата: {mode}" + (f", {amount} ₽" if amount and
+                                             g.get("pay_mode") else ""))
     lines.append(f"👥 В группе: {len(people)}")
     if people:
         lines.append("")
@@ -9135,7 +9140,13 @@ def _pg_group(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
         lines += ["", f"🔕 Бота не запускали ({len(silent)}): "
                       + ", ".join(silent[:6]) + (" и др." if len(silent) > 6 else "")]
     rows = [
-        [InlineKeyboardButton("👥 Состав", callback_data=f"pg:who:{gid}:0")],
+        [InlineKeyboardButton("👥 Состав", callback_data=f"pg:who:{gid}:0")]]
+    if g["league_title"]:
+        # Оплата имеет смысл только у группы, привязанной к лиге: за что
+        # платить, решает именно лига.
+        rows.append([InlineKeyboardButton("💳 Оплата в лиге",
+                                          callback_data=f"pg:pay:{gid}")])
+    rows += [
         [InlineKeyboardButton("📨 Написать группе", callback_data=f"pg:send:{gid}")],
         [InlineKeyboardButton("🔁 Повторяющиеся", callback_data=f"pg:rep:{gid}")],
         [InlineKeyboardButton("📄 Выгрузить для заявки",
@@ -9145,6 +9156,78 @@ def _pg_group(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
         [InlineKeyboardButton("🗑 Удалить группу", callback_data=f"pg:del:{gid}")],
         [InlineKeyboardButton("⬅️ К группам", callback_data="pg:main")]]
     return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+def _pg_pay(gid: int) -> Tuple[str, InlineKeyboardMarkup]:
+    """Как группа платит в своей лиге: за лигу целиком или за игру."""
+    import player_groups as pg
+    g = pg.group(gid)
+    if not g:
+        return _pg_main()
+    mode = str(g.get("pay_mode") or "")
+    amount = int(g.get("pay_amount") or 0)
+    own = pg.member_amounts(gid)
+    lines = [f"💳 Оплата группы «{g['name']}»", f"Лига: {g['league_title']}", ""]
+    lines.append(f"Способ: {pg.PAY_TITLES.get(mode, 'не задано')}")
+    lines.append(f"Сумма на всех: {amount or '—'} ₽")
+    if own:
+        lines.append(f"Своя сумма у {len(own)} чел.")
+    lines += ["", "За лигу целиком — один взнос за турнир: с каждой игры этой "
+                  "лиги больше не берём. За игру — сумма за каждую игру этой лиги "
+                  "вместо цены из карточки игрока."]
+    if mode and not amount:
+        lines += ["", "⚠️ Сумма не задана — с людей ничего не ждём."]
+
+    def pick(key: str, label: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(("✅ " if mode == key else "") + label,
+                                    callback_data=f"pg:pmode:{gid}:{key or 'none'}")
+
+    rows = [[pick(pg.PAY_LEAGUE, "За лигу целиком")],
+            [pick(pg.PAY_GAME, "За игру")],
+            [pick("", "Не берём через группу")],
+            [InlineKeyboardButton("💰 Сумма на всех", callback_data=f"pg:pamt:{gid}")],
+            [InlineKeyboardButton("👤 Своя сумма игроку",
+                                  callback_data=f"pg:pown:{gid}:0")]]
+    if mode == pg.PAY_LEAGUE:
+        rows.append([InlineKeyboardButton("🏆 Кто внёс, напомнить",
+                                          callback_data=f"pg:pfee:{gid}")])
+    rows.append([InlineKeyboardButton("⬅️ К группе", callback_data=f"pg:g:{gid}")])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+def _pg_pay_people(gid: int, page: int = 0) -> Tuple[str, InlineKeyboardMarkup]:
+    """Кому поставить свою сумму. Показываем только состав группы."""
+    import player_groups as pg
+    g = pg.group(gid)
+    if not g:
+        return _pg_main()
+    people = pg.members(gid)
+    own = pg.member_amounts(gid)
+    base = int(g.get("pay_amount") or 0)
+    pages = max(1, (len(people) + PLAYERS_PER_PAGE - 1) // PLAYERS_PER_PAGE)
+    page = max(0, min(page, pages - 1))
+    chunk = people[page * PLAYERS_PER_PAGE:(page + 1) * PLAYERS_PER_PAGE]
+    rows = []
+    for p in chunk:
+        mine = own.get(int(p["row"]), 0)
+        tail = f" · {mine} ₽ (своя)" if mine else (f" · {base} ₽" if base else "")
+        rows.append([InlineKeyboardButton(
+            f"{p['title']}{tail}"[:BTN_TEXT],
+            callback_data=f"pg:powner:{gid}:{p['row']}")])
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("◀️", callback_data=f"pg:pown:{gid}:{page - 1}"))
+        nav.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="pg:noop"))
+        if page < pages - 1:
+            nav.append(InlineKeyboardButton("▶️", callback_data=f"pg:pown:{gid}:{page + 1}"))
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("⬅️ Назад", callback_data=f"pg:pay:{gid}")])
+    head = (f"👤 Своя сумма в группе «{g['name']}»\n\nВыбери человека. Своя "
+            "сумма не съезжает, когда меняешь общую.")
+    if not people:
+        head += "\n\nВ группе пока никого."
+    return head, InlineKeyboardMarkup(rows)
 
 
 def _pg_members(gid: int, page: int = 0) -> Tuple[str, InlineKeyboardMarkup]:
@@ -9441,6 +9524,45 @@ async def handle_group_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await asyncio.to_thread(pg.toggle, int(arg), int(parts[3]))
             text, markup = await asyncio.to_thread(_pg_members, int(arg), page)
 
+        elif what == "pay":
+            _clear_pending(uid)
+            text, markup = await asyncio.to_thread(_pg_pay, int(arg))
+
+        elif what == "pmode" and len(parts) > 3:
+            mode = "" if parts[3] == "none" else parts[3]
+            await asyncio.to_thread(pg.set_payment, int(arg), mode)
+            if mode == pg.PAY_LEAGUE:
+                import season_fees
+                await asyncio.to_thread(season_fees.fee_for_group, int(arg))
+            text, markup = await asyncio.to_thread(_pg_pay, int(arg))
+
+        elif what == "pamt":
+            _clear_pending(uid)
+            _awaiting_group[uid] = f"pamt:{arg}"
+            text = ("💰 Сколько платит группа? Пришли число — за лигу целиком "
+                    "или за одну игру, смотря что выбрано.\n\nПередумал — /start.")
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                "⬅️ Назад", callback_data=f"pg:pay:{arg}")]])
+
+        elif what == "pown":
+            page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+            text, markup = await asyncio.to_thread(_pg_pay_people, int(arg), page)
+
+        elif what == "powner" and len(parts) > 3:
+            _clear_pending(uid)
+            _awaiting_group[uid] = f"powner:{arg}:{parts[3]}"
+            person = await asyncio.to_thread(_player_by_row_safe, parts[3])
+            text = (f"👤 Своя сумма для {person.get('title', 'игрока')}.\n\n"
+                    "Пришли число. «0» — вернуть общую сумму группы."
+                    "\n\nПередумал — /start.")
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                "⬅️ Назад", callback_data=f"pg:pown:{arg}:0")]])
+
+        elif what == "pfee":
+            import season_fees
+            fee_id = await asyncio.to_thread(season_fees.fee_for_group, int(arg))
+            text, markup = await asyncio.to_thread(_fee_card, fee_id)
+
         elif what == "csv":
             import roster_export
             g = await asyncio.to_thread(pg.group, int(arg))
@@ -9642,6 +9764,32 @@ async def handle_group_text(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await msg.reply_text(note + "\n\nПришли другое имя.")
             raise ApplicationHandlerStop
         await show(note, await asyncio.to_thread(_pg_group, int(arg)))
+        raise ApplicationHandlerStop
+
+    if kind == "pamt":
+        if not text.isdigit():
+            _awaiting_group[uid] = pending
+            await msg.reply_text("Нужно число. Например «7000».")
+            raise ApplicationHandlerStop
+        g = await asyncio.to_thread(pg.group, int(arg)) or {}
+        await asyncio.to_thread(pg.set_payment, int(arg),
+                                str(g.get("pay_mode") or ""), int(text))
+        if g.get("pay_mode") == pg.PAY_LEAGUE:
+            import season_fees
+            await asyncio.to_thread(season_fees.fee_for_group, int(arg))
+        await show(f"💰 Сумма на всех: {text} ₽.",
+                   await asyncio.to_thread(_pg_pay, int(arg)))
+        raise ApplicationHandlerStop
+
+    if kind == "powner":
+        gid_s, _, row_s = arg.partition(":")
+        if not text.isdigit():
+            _awaiting_group[uid] = pending
+            await msg.reply_text("Нужно число. «0» — вернуть общую сумму.")
+            raise ApplicationHandlerStop
+        await asyncio.to_thread(pg.set_member_amount, int(gid_s), int(row_s), int(text))
+        note = "Вернул общую сумму." if text == "0" else f"Своя сумма: {text} ₽."
+        await show(note, await asyncio.to_thread(_pg_pay_people, int(gid_s), 0))
         raise ApplicationHandlerStop
 
     if kind == "free":
@@ -10373,14 +10521,30 @@ def _fee_card(fee_id: int) -> Tuple[str, InlineKeyboardMarkup]:
     if owing:
         lines += ["", "Не внесли: " + ", ".join(r["title"] for r in owing[:10])
                   + ("…" if len(owing) > 10 else "")]
-    rows = [
-        [InlineKeyboardButton("👥 Кто платит", callback_data=f"coach:fee:who:{fee_id}:0")],
+    gid = int(f.get("group_id") or 0)
+    if gid:
+        # Сбор из группы: состав и суммы живут у группы, и править их здесь
+        # значило бы завести второе место для одного и того же.
+        lines += ["", "👪 Состав и суммы берутся из группы — правь их там."]
+        rows = [[InlineKeyboardButton("👪 Открыть группу",
+                                      callback_data=f"pg:pay:{gid}")]]
+    else:
+        rows = [[InlineKeyboardButton("👥 Кто платит",
+                                      callback_data=f"coach:fee:who:{fee_id}:0")]]
+    rows += [
         [InlineKeyboardButton("💳 Отметить оплату",
                               callback_data=f"coach:fee:pay:{fee_id}:0")],
         [InlineKeyboardButton("📨 Напомнить должникам",
-                              callback_data=f"coach:fee:remind:{fee_id}")],
-        [InlineKeyboardButton("💰 Сумма", callback_data=f"coach:fee:amount:{fee_id}"),
-         InlineKeyboardButton("📅 Срок", callback_data=f"coach:fee:due:{fee_id}")],
+                              callback_data=f"coach:fee:remind:{fee_id}")]]
+    if gid:
+        rows.append([InlineKeyboardButton("📅 Срок",
+                                          callback_data=f"coach:fee:due:{fee_id}")])
+    else:
+        rows.append([InlineKeyboardButton("💰 Сумма",
+                                          callback_data=f"coach:fee:amount:{fee_id}"),
+                     InlineKeyboardButton("📅 Срок",
+                                          callback_data=f"coach:fee:due:{fee_id}")])
+    rows += [
         [InlineKeyboardButton("🏅 Лига", callback_data=f"coach:fee:lg:{fee_id}"),
          InlineKeyboardButton("✏️ Название", callback_data=f"coach:fee:title:{fee_id}")],
         [InlineKeyboardButton("🔕 Закрыть сбор" if f["active"] else "🔔 Открыть",

@@ -624,6 +624,20 @@ def _same_person(a: str, b: str) -> bool:
     return all(x == y or _lev1(x, y) for x, y in zip(pa, pb))
 
 
+def _league_group_titles(source: str) -> List[str]:
+    """Имена из групп, привязанных к лиге `source`. Пусто — таких групп нет."""
+    try:
+        import player_groups
+        out: List[str] = []
+        for g in player_groups.groups():
+            if str(g.get("league_source") or "") == str(source):
+                out += [p["title"] for p in player_groups.members(int(g["id"]))]
+        return out
+    except Exception as exc:
+        log.warning(f"Пул по группе лиги не собрался: {exc}")
+        return []
+
+
 async def game_pool(source: str, game_id: str,
                     season: Optional[Dict[str, Any]] = None,
                     pool: Optional[List[Dict[str, Any]]] = None
@@ -640,9 +654,19 @@ async def game_pool(source: str, game_id: str,
     declared = _declared_names(source, str(game_id))
     if pool is None:
         pool = await build_pool(season=season)
-    # Состава ещё нет — ставят из полного ростера лиги. Пустой список тут
-    # означал бы «игры нет», а игра есть: тренер её объявил.
+    # Состава ещё нет. Ориентир всё равно состав — он главный и появится, —
+    # но до него пул можно сузить до группы, привязанной к лиге этой игры:
+    # во второй лиге играет свой состав, и предлагать ставить на всю команду
+    # значит предлагать людей, которые на эту игру точно не выйдут. Группы
+    # нет или она пустая — полный ростер, как раньше: пустой список означал бы
+    # «игры нет», а игра есть.
     if not declared:
+        titles = await asyncio.to_thread(_league_group_titles, source)
+        if titles:
+            narrowed = [dict(e) for e in pool
+                        if any(_same_person(e["name"], t) for t in titles)]
+            if narrowed:
+                return narrowed
         return [dict(e) for e in pool]
     out: List[Dict[str, Any]] = []
     taken: set = set()
